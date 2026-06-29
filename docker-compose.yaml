@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: gis-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gis_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gis-network
+
+  backend_pyton:
+    build:
+      context: ./backend_pyton
+      dockerfile: Dockerfile
+    container_name: gis-backend-python
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_NAME: gis_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    networks:
+      - gis-network
+
+  api:
+    build:
+      context: ./API
+      dockerfile: Dockerfile
+    container_name: gis-api-node
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./gis-dashboard/datas:/gis-dashboard/datas:ro
+    networks:
+      - gis-network
+
+  gis-dashboard:
+    build:
+      context: ./gis-dashboard
+      dockerfile: Dockerfile
+    container_name: gis-dashboard-nuxt
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+      - backend_pyton
+    networks:
+      - gis-network
+
+volumes:
+  postgres_data:
+
+networks:
+  gis-network:
+    driver: bridge
