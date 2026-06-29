@@ -38,6 +38,13 @@ type Summary = {
   totalJembatan: number;
 };
 
+type CacheBucket<T> = {
+  data: T;
+  timestamp: number;
+};
+
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
   return config.public.apiBaseUrl || "/api";
@@ -56,6 +63,7 @@ function toQuery(filters: Filters) {
 export const useMapStore = defineStore("map", {
   state: () => ({
     rawFeatures: [] as GeoJSONFeature[],
+    lastLoadedAt: 0,
     filters: {
       pt: "",
       estate: "",
@@ -115,7 +123,7 @@ export const useMapStore = defineStore("map", {
         ? `${apiBaseUrl}/filters?${query}`
         : `${apiBaseUrl}/filters`;
 
-      const response = await $fetch<{
+      const response = await this.fetchWithCache<{
         pt: string[];
         estate: string[];
         afdeling: string[];
@@ -152,7 +160,8 @@ export const useMapStore = defineStore("map", {
         ? `${apiBaseUrl}/features?${query}`
         : `${apiBaseUrl}/features`;
 
-      const response = await $fetch<GeoJSON.FeatureCollection>(url);
+      const response =
+        await this.fetchWithCache<GeoJSON.FeatureCollection>(url);
       this.rawFeatures = (response.features ?? []) as GeoJSONFeature[];
     },
 
@@ -163,12 +172,36 @@ export const useMapStore = defineStore("map", {
         ? `${apiBaseUrl}/summary?${query}`
         : `${apiBaseUrl}/summary`;
 
-      const response = await $fetch<Summary>(url);
+      const response = await this.fetchWithCache<Summary>(url);
       this.summaryData = response;
     },
 
+    async fetchWithCache<T>(url: string): Promise<T> {
+      const cache = useState<Record<string, CacheBucket<T>>>(
+        "map-api-cache",
+        () => ({}),
+      );
+      const now = Date.now();
+      const cached = cache.value[url];
+
+      if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+        return cached.data;
+      }
+
+      const response = await $fetch<T>(url);
+      cache.value[url] = {
+        data: response,
+        timestamp: now,
+      };
+      return response;
+    },
+
     async refreshData() {
-      this.isLoading = true;
+      const hasPreviousData = this.isLoaded;
+      if (!hasPreviousData) {
+        this.isLoading = true;
+      }
+
       try {
         await Promise.all([
           this.fetchFilters(),
@@ -176,6 +209,7 @@ export const useMapStore = defineStore("map", {
           this.fetchSummary(),
         ]);
         this.isLoaded = true;
+        this.lastLoadedAt = Date.now();
       } finally {
         this.isLoading = false;
       }

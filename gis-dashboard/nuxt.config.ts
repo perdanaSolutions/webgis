@@ -38,6 +38,45 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+      runtimeCaching: [
+        {
+          urlPattern: "/api/filters",
+          handler: "StaleWhileRevalidate",
+          method: "GET",
+          options: {
+            cacheName: "api-filters-cache",
+            expiration: {
+              maxEntries: 20,
+              maxAgeSeconds: 60 * 10,
+            },
+          },
+        },
+        {
+          urlPattern: "/api/summary",
+          handler: "StaleWhileRevalidate",
+          method: "GET",
+          options: {
+            cacheName: "api-summary-cache",
+            expiration: {
+              maxEntries: 50,
+              maxAgeSeconds: 60 * 10,
+            },
+          },
+        },
+        {
+          urlPattern: "/api/features",
+          handler: "NetworkFirst",
+          method: "GET",
+          options: {
+            cacheName: "api-features-cache",
+            networkTimeoutSeconds: 4,
+            expiration: {
+              maxEntries: 50,
+              maxAgeSeconds: 60 * 5,
+            },
+          },
+        },
+      ],
     },
   },
 });
