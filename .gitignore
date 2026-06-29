@@ -1,0 +1,80 @@
+# =========================
+# Root / Common
+# =========================
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Coverage / temp
+coverage/
+tmp/
+temp/
+
+# =========================
+# API (Express / Node.js)
+# =========================
+API/node_modules/
+API/dist/
+API/build/
+API/.cache/
+API/.turbo/
+API/.eslintcache
+API/.nyc_output/
+API/coverage/
+API/*.log
+
+# =========================
+# backend_pyton (Python backend)
+# =========================
+backend_pyton/__pycache__/
+backend_pyton/**/*.py[cod]
+backend_pyton/*.py[cod]
+backend_pyton/.Python
+backend_pyton/.venv/
+backend_pyton/venv/
+backend_pyton/env/
+backend_pyton/.pytest_cache/
+backend_pyton/.mypy_cache/
+backend_pyton/.ruff_cache/
+backend_pyton/.coverage
+backend_pyton/htmlcov/
+backend_pyton/build/
+backend_pyton/dist/
+backend_pyton/*.egg-info/
+
+# =========================
+# gis-dashboard (Vue 3 / Nuxt)
+# =========================
+gis-dashboard/node_modules/
+gis-dashboard/.nuxt/
+gis-dashboard/.output/
+gis-dashboard/.nitro/
+gis-dashboard/.cache/
+gis-dashboard/.tmp/
+gis-dashboard/dist/
+gis-dashboard/coverage/
+gis-dashboard/.eslintcache
+gis-dashboard/*.log
+
+# =========================
+# Markdown rules
+# =========================
+**/*.md
+!README.md

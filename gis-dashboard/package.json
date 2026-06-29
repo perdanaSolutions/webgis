@@ -1,0 +1,63 @@
+{
+  "name": "gis-dashboard",
+  "version": "1.0.0",
+  "description": "My new Nuxt module",
+  "repository": "your-org/my-module",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/module.mjs"
+    }
+  },
+  "main": "./dist/module.mjs",
+  "typesVersions": {
+    "*": {
+      ".": [
+        "./dist/types.d.mts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "prepare": "nuxt prepare",
+    "release": "npm run lint && npm run test && npm run build && changelogen --release && npm publish && git push --follow-tags",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:types": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "@nuxt/kit": "^4.4.8",
+    "leaflet": "^1.9.4",
+    "sass": "^1.101.0",
+    "vite-plugin-vuetify": "^2.1.3",
+    "vuetify": "^4.1.2"
+  },
+  "devDependencies": {
+    "@nuxt/devtools": "^3.2.4",
+    "@nuxt/eslint": "^1.16.0",
+    "@nuxt/eslint-config": "^1.15.2",
+    "@nuxt/module-builder": "^1.0.2",
+    "@nuxt/schema": "^4.4.8",
+    "@nuxt/test-utils": "^4.0.3",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@pinia/nuxt": "^0.11.3",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "latest",
+    "@vite-pwa/nuxt": "^1.1.1",
+    "changelogen": "^0.6.2",
+    "eslint": "^10.4.1",
+    "nuxt": "^4.4.8",
+    "pinia": "^3.0.4",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.8",
+    "vue-tsc": "^3.3.3"
+  }
+}
