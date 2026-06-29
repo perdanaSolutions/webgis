@@ -38,7 +38,10 @@ type Summary = {
   totalJembatan: number;
 };
 
-const API_BASE_URL = "http://localhost:4000";
+function getApiBaseUrl() {
+  const config = useRuntimeConfig();
+  return config.public.apiBaseUrl || "/api";
+}
 
 function toQuery(filters: Filters) {
   const searchParams = new URLSearchParams();
@@ -107,9 +110,10 @@ export const useMapStore = defineStore("map", {
   actions: {
     async fetchFilters() {
       const query = toQuery(this.filters);
+      const apiBaseUrl = getApiBaseUrl();
       const url = query
-        ? `${API_BASE_URL}/filters?${query}`
-        : `${API_BASE_URL}/filters`;
+        ? `${apiBaseUrl}/filters?${query}`
+        : `${apiBaseUrl}/filters`;
 
       const response = await $fetch<{
         pt: string[];
@@ -143,9 +147,10 @@ export const useMapStore = defineStore("map", {
 
     async fetchFeatures() {
       const query = toQuery(this.filters);
+      const apiBaseUrl = getApiBaseUrl();
       const url = query
-        ? `${API_BASE_URL}/features?${query}`
-        : `${API_BASE_URL}/features`;
+        ? `${apiBaseUrl}/features?${query}`
+        : `${apiBaseUrl}/features`;
 
       const response = await $fetch<GeoJSON.FeatureCollection>(url);
       this.rawFeatures = (response.features ?? []) as GeoJSONFeature[];
@@ -153,9 +158,10 @@ export const useMapStore = defineStore("map", {
 
     async fetchSummary() {
       const query = toQuery(this.filters);
+      const apiBaseUrl = getApiBaseUrl();
       const url = query
-        ? `${API_BASE_URL}/summary?${query}`
-        : `${API_BASE_URL}/summary`;
+        ? `${apiBaseUrl}/summary?${query}`
+        : `${apiBaseUrl}/summary`;
 
       const response = await $fetch<Summary>(url);
       this.summaryData = response;
