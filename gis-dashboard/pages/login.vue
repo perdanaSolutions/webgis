@@ -56,7 +56,7 @@ async function onSubmit() {
               <label for="email" class="mb-3 block text-[16px] font-bold leading-none text-[#2C1F1A]">
                 Email
               </label>
-              <input id="email" v-model="form.email" placeholder="Masukan Email Anda"
+              <input id="email" v-model="form.email" type="email" placeholder="Masukan Email Anda"
                 class="h-14 w-full rounded-2xl border border-[#D8D8DC] bg-white px-6 text-[14px] text-[#2C1F1A] outline-none placeholder:text-[#B0B0B6] focus:border-[#5B432F] focus:ring-2 focus:ring-[#5B432F]/20">
             </div>
 
