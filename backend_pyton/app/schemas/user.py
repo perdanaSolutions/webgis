@@ -43,3 +43,7 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserLoginRequest(BaseModel):
+    email: str  # FE bisa mengirimkan teks username atau email ke field ini
+    password: str
