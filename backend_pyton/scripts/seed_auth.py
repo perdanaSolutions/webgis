@@ -57,7 +57,7 @@ def seed_data():
             {"nama": "admin", "deskripsi": "Kelola user & data, scope area tertentu"},
             {"nama": "manager", "deskripsi": "Lihat semua data, input produksi & cuaca"},
             {"nama": "surveyor", "deskripsi": "Input data survei lapangan"},
-            {"names": "viewer", "deskripsi": "Read-only, hanya melihat laporan & peta"},
+            {"nama": "viewer", "deskripsi": "Read-only, hanya melihat laporan & peta"},
         ]
 
         inserted_roles = {}
