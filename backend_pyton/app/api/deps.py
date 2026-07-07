@@ -9,7 +9,10 @@ from app.core.database import SessionLocal
 from app.models.auth import User, Permission
 
 # Mengatur endpoint mana yang dijadikan acuan Swagger untuk mengambil token JWT
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form" # <--- ARINGKAN KE SINI
+)
 
 def get_db() -> Generator:
     try:
