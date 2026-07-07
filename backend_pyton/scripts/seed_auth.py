@@ -15,7 +15,12 @@ def seed_data():
     try:
         print("====== MEMULAI SEEDING DATA AUTHENTIKASI ======")
 
-        # 1. Daftar Permission Bawaan
+        # 1. Ambil nilai credential superadmin dari .env (dengan fallback default jika tidak ada)
+        SEED_ADMIN_USERNAME = os.getenv("DB_USER", "superadmin")
+        SEED_ADMIN_EMAIL = os.getenv("DB_EMAIL", "superadmin@plantation.com")
+        SEED_ADMIN_PASSWORD = os.getenv("DB_PASSWORD", "admin123")
+
+        # 2. Daftar Permission Bawaan
         permissions_data = [
             {"resource": "blok", "aksi": "read", "deskripsi": "Melihat data blok"},
             {"resource": "blok", "aksi": "write", "deskripsi": "Menambah/mengubah data blok"},
@@ -45,13 +50,13 @@ def seed_data():
         
         db.commit()
 
-        # 2. Daftar Role Bawaan
+        # 3. Daftar Role Bawaan
         roles_data = [
             {"nama": "superadmin", "deskripsi": "Akses penuh semua fitur & semua area"},
             {"nama": "admin", "deskripsi": "Kelola user & data, scope area tertentu"},
             {"nama": "manager", "deskripsi": "Lihat semua data, input produksi & cuaca"},
             {"nama": "surveyor", "deskripsi": "Input data survei lapangan"},
-            {"nama": "viewer", "deskripsi": "Read-only, hanya melihat laporan & peta"},
+            {"names": "viewer", "deskripsi": "Read-only, hanya melihat laporan & peta"},
         ]
 
         inserted_roles = {}
@@ -69,7 +74,7 @@ def seed_data():
         
         db.commit()
 
-        # 3. Hubungkan Semua Permission ke Superadmin (Many-to-Many)
+        # 4. Hubungkan Semua Permission ke Superadmin (Many-to-Many)
         superadmin_role = inserted_roles["superadmin"]
         # Kosongkan dulu relasi lama agar tidak duplikat saat skrip dijalankan ulang
         superadmin_role.permissions = []
@@ -79,26 +84,26 @@ def seed_data():
         db.commit()
         print("✓ Seluruh permission telah dihubungkan ke Role superadmin")
 
-        # 4. Buat Akun Superadmin Pertama untuk Login
-        admin_username = "superadmin"
-        admin_user = db.query(User).filter(User.username == admin_username).first()
+        # 5. Buat Akun Superadmin Pertama berdasarkan data dari .env
+        admin_user = db.query(User).filter(User.username == SEED_ADMIN_USERNAME).first()
         
         if not admin_user:
             admin_user = User(
                 id=uuid4(),
                 role_id=superadmin_role.id,
                 nama_lengkap="Super Administrator",
-                username=admin_username,
-                email="superadmin@plantation.com",
-                hashed_password=get_password_hash("admin123"), # Password default
+                username=SEED_ADMIN_USERNAME,
+                email=SEED_ADMIN_EMAIL,
+                hashed_password=get_password_hash(SEED_ADMIN_PASSWORD), 
                 is_active=True
             )
             db.add(admin_user)
             print(f"✓ User Akun Utama Berhasil Dibuat!")
-            print(f"  -> Username: {admin_username}")
-            print(f"  -> Password: admin123")
+            print(f"  -> Username: {SEED_ADMIN_USERNAME}")
+            print(f"  -> Email   : {SEED_ADMIN_EMAIL}")
+            print(f"  -> Password: {SEED_ADMIN_PASSWORD}")
         else:
-            print("i User superadmin sudah ada di database.")
+            print(f"i User dengan username '{SEED_ADMIN_USERNAME}' sudah ada di database.")
 
         db.commit()
         print("====== SEEDING AUTH BERHASIL SELESAI ======")
