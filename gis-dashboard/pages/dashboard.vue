@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
+import Header from '~/components/Header.vue'
 
 const authStore = useAuthStore()
 
@@ -224,46 +225,7 @@ function iconPath(icon: QuickAccessItem['icon'] | ModuleItem['icon']) {
 
 <template>
   <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
-    <header class="border-b border-[#ECE8E3] bg-white">
-      <div class="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4 lg:px-10">
-        <div class="flex items-center gap-3">
-          <div class="flex h-14 w-14 items-center justify-center rounded-full border border-[#E8DFD5]">
-            <div class="h-10 w-10 rounded-full border-4 border-[#D99B47] border-t-[#4A7B3F]" />
-          </div>
-          <div>
-            <h1 class="text-[20px] font-bold leading-tight">
-              {{ dashboardConfig.brandTitle }}
-            </h1>
-            <p class="text-[14px] text-[#8E8A86]">
-              {{ dashboardConfig.brandSubtitle }}
-            </p>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-3">
-          <button class="flex h-12 w-12 items-center justify-center rounded-full bg-[#FFF1E9] text-[#4D392A]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                d="M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z" />
-            </svg>
-          </button>
-
-          <button class="flex items-center gap-3 rounded-2xl border border-[#EEE6DE] bg-[#FFF8F2] px-3 py-2">
-            <div class="h-11 w-11 overflow-hidden rounded-lg bg-[#D0B59A]" />
-            <div class="text-left">
-              <p class="text-[16px] font-bold leading-tight">
-                {{ dashboardConfig.profileName }}
-              </p>
-              <p class="text-[14px] text-[#6F645B]">
-                {{ dashboardConfig.profileRole }}
-              </p>
-            </div>
-          </button>
-        </div>
-      </div>
-    </header>
-
+    <Header :brand-title="dashboardConfig.brandTitle" :brand-subtitle="dashboardConfig.brandSubtitle" />
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <section class="grid grid-cols-1 items-center gap-4 lg:grid-cols-[1fr_2fr]">
         <div>

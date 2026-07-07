@@ -63,23 +63,18 @@ export const useAuthStore = defineStore("auth", () => {
     errorMessage.value = "";
     try {
       const baseUrl = getApiBaseUrl();
-      // 1. Transformasi data ke format x-www-form-urlencoded menggunakan URLSearchParams
-      const formData = new URLSearchParams();
-      formData.append("grant_type", "");
-      formData.append("email", email); // Memetakan parameter email ke field username di API
-      formData.append("password", password);
-      formData.append("scope", "");
-      formData.append("client_id", "");
-      formData.append("client_secret", "");
 
-      // 2. Sesuaikan path route menjadi /api/v1/auth/login sesuai dengan cURL
       const response = await $fetch<LoginResponse>(`${baseUrl}/v1/auth/login`, {
         method: "POST",
         headers: {
           accept: "application/json",
-          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Type": "application/json",
         },
-        body: formData, // Kirim objek URLSearchParams
+        // $fetch otomatis melakukan JSON.stringify jika mendeteksi Content-Type json / mendeteksi object
+        body: {
+          email: email,
+          password: password,
+        },
       });
 
       setAuthData(response);
