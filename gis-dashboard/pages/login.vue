@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
 import loginImage from '~/assets/image/image_login.png'
+import { useAuthStore } from '~/stores/authStore'
 
 defineOptions({
   name: 'LoginPage',
 })
 
+const authStore = useAuthStore()
 const showPassword = ref(false)
 const form = reactive({
   email: '',
@@ -16,8 +19,22 @@ function togglePasswordVisibility() {
   showPassword.value = !showPassword.value
 }
 
+onMounted(async () => {
+  // Saat pertama load halaman login:
+  // - cek cookie token
+  // - validasi ke /api/v1/auth/me (di authStore.validateToken)
+  // - jika valid, akan redirect ke /dashboard
+  // - jika invalid/expired, tetap di /login
+  if (authStore.token) {
+    const me = await authStore.validateToken()
+    if (me) {
+      await navigateTo('/dashboard')
+    }
+  }
+})
+
 async function onSubmit() {
-  await navigateTo('/dashboard')
+  await authStore.login(form.email, form.password)
 }
 </script>
 
@@ -39,7 +56,7 @@ async function onSubmit() {
               <label for="email" class="mb-3 block text-[16px] font-bold leading-none text-[#2C1F1A]">
                 Email
               </label>
-              <input id="email" v-model="form.email" type="email" placeholder="Masukan Email Anda"
+              <input id="email" v-model="form.email" placeholder="Masukan Email Anda"
                 class="h-14 w-full rounded-2xl border border-[#D8D8DC] bg-white px-6 text-[14px] text-[#2C1F1A] outline-none placeholder:text-[#B0B0B6] focus:border-[#5B432F] focus:ring-2 focus:ring-[#5B432F]/20">
             </div>
 
@@ -76,10 +93,14 @@ async function onSubmit() {
               </a>
             </div>
 
-            <button type="submit"
-              class="mt-3 flex h-12 w-full items-center justify-center rounded-2xl bg-[#4D392A] text-[14px] font-semibold text-white transition-colors hover:bg-[#3F2E22]">
-              Masuk
+            <button type="submit" :disabled="authStore.loading"
+              class="mt-3 flex h-12 w-full items-center justify-center rounded-2xl bg-[#4D392A] text-[14px] font-semibold text-white transition-colors hover:bg-[#3F2E22] disabled:cursor-not-allowed disabled:opacity-70">
+              {{ authStore.loading ? 'Memproses...' : 'Masuk' }}
             </button>
+
+            <p v-if="authStore.errorMessage" class="text-sm text-red-600">
+              {{ authStore.errorMessage }}
+            </p>
           </form>
         </div>
       </section>

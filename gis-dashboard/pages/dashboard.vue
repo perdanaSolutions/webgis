@@ -1,6 +1,17 @@
 <script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import { useAuthStore } from '~/stores/authStore'
+
+const authStore = useAuthStore()
+
 defineOptions({
   name: 'DashboardPage',
+})
+
+onMounted(async () => {
+  if (!authStore.token) {
+    await navigateTo('/login')
+  }
 })
 
 type QuickAccessItem = {

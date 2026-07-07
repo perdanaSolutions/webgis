@@ -1,15 +1,21 @@
-const apiProxyTarget = process.env.NUXT_API_PROXY_TARGET || "http://api:4000";
-
 export default defineNuxtConfig({
-  runtimeConfig: {
-    apiProxyTarget,
-    public: {
-      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL || "/api",
+  app: {
+    head: {
+      title: "GIS PWA",
+      link: [
+        { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
+        // Jika menggunakan PNG, gunakan:
+        // { rel: 'icon', type: 'image/png', href: '/favicon.png' }
+      ],
     },
   },
-  routeRules: {
-    "/api/**": { proxy: `${apiProxyTarget}/**` },
+  runtimeConfig: {
+    public: {
+      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL,
+      apiBaseUrlPython: process.env.NUXT_PUBLIC_API_BASE_URL_PYTHON,
+    },
   },
+  routeRules: {},
   // Pastikan Leaflet berjalan di sisi klien saja (Client-side only)
   modules: ["@nuxtjs/tailwindcss", "@pinia/nuxt", "@vite-pwa/nuxt"],
   ssr: true,
