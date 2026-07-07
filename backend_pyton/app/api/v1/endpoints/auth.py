@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.api import deps  # Asumsi kamu punya file dependencies untuk get_db
 from app.models.auth import User, UserActivityLog
 
+from sqlalchemy import or_
+
 router = APIRouter()
 
 @router.post("/login")
@@ -19,8 +21,13 @@ def login_access_token(
     """
     OAuth2 compatible token login, menerima username dan password.
     """
-    # 1. Cari user berdasarkan username
-    user = db.query(User).filter(User.username == form_data.username).first()
+    # 1. Cari user berdasarkan username ATAU email
+    user = db.query(User).filter(
+        or_(
+            User.username == form_data.username,
+            User.email == form_data.username  # form_data.username menampung teks yang diinput user di kolom username
+        )
+    ).first()
     
     # 2. Validasi keberadaan user dan kecocokan password
     if not user or not security.verify_password(form_data.password, user.hashed_password):

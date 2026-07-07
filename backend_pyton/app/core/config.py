@@ -1,5 +1,6 @@
 # app/core/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -21,9 +22,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Konfigurasi seed admin (wajib dari .env)
-    SEED_ADMIN_USERNAME: str
-    SEED_ADMIN_EMAIL: str
-    SEED_ADMIN_PASSWORD: str
+    SEED_ADMIN_USERNAME: str = "superadmin"
+    SEED_ADMIN_EMAIL: str = "superadmin@plantation.com"
+    SEED_ADMIN_PASSWORD: str = "admin123"
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
     @property
     def DATABASE_URL(self) -> str:
