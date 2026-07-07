@@ -38,6 +38,8 @@ class PaginatedResponse(BaseModel):
     limit: int
     total_page: int
     data: List[Any]
+    class Config:
+        from_attributes = True
 
 # 5. Schema khusus GeoJSON Peta (Tidak di-paginate karena peta butuh semua poligon sekaligus)
 class GeoJSONFeature(BaseModel):
