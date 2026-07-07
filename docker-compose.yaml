@@ -22,12 +22,8 @@ services:
       dockerfile: Dockerfile
     container_name: gis-backend-python
     restart: unless-stopped
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: password
-      DB_NAME: gis_db
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     depends_on:
