@@ -5,6 +5,7 @@ from uuid import uuid4
 # Daftarkan path agar python bisa mendeteksi folder 'app'
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.security import get_password_hash
 from app.models.auth import Role, Permission, User
@@ -15,10 +16,10 @@ def seed_data():
     try:
         print("====== MEMULAI SEEDING DATA AUTHENTIKASI ======")
 
-        # 1. Ambil nilai credential superadmin dari .env (dengan fallback default jika tidak ada)
-        SEED_ADMIN_USERNAME = os.getenv("DB_USER", "superadmin")
-        SEED_ADMIN_EMAIL = os.getenv("DB_EMAIL", "superadmin@plantation.com")
-        SEED_ADMIN_PASSWORD = os.getenv("DB_PASSWORD", "admin123")
+        # 1. Ambil nilai credential superadmin dari .env via settings
+        seed_admin_username = settings.SEED_ADMIN_USERNAME
+        seed_admin_email = settings.SEED_ADMIN_EMAIL
+        seed_admin_password = settings.SEED_ADMIN_PASSWORD
 
         # 2. Daftar Permission Bawaan
         permissions_data = [
@@ -85,25 +86,25 @@ def seed_data():
         print("✓ Seluruh permission telah dihubungkan ke Role superadmin")
 
         # 5. Buat Akun Superadmin Pertama berdasarkan data dari .env
-        admin_user = db.query(User).filter(User.username == SEED_ADMIN_USERNAME).first()
+        admin_user = db.query(User).filter(User.username == seed_admin_username).first()
         
         if not admin_user:
             admin_user = User(
                 id=uuid4(),
                 role_id=superadmin_role.id,
                 nama_lengkap="Super Administrator",
-                username=SEED_ADMIN_USERNAME,
-                email=SEED_ADMIN_EMAIL,
-                hashed_password=get_password_hash(SEED_ADMIN_PASSWORD), 
+                username=seed_admin_username,
+                email=seed_admin_email,
+                hashed_password=get_password_hash(seed_admin_password), 
                 is_active=True
             )
             db.add(admin_user)
             print(f"✓ User Akun Utama Berhasil Dibuat!")
-            print(f"  -> Username: {SEED_ADMIN_USERNAME}")
-            print(f"  -> Email   : {SEED_ADMIN_EMAIL}")
-            print(f"  -> Password: {SEED_ADMIN_PASSWORD}")
+            print(f"  -> Username: {seed_admin_username}")
+            print(f"  -> Email   : {seed_admin_email}")
+            print(f"  -> Password: {seed_admin_password}")
         else:
-            print(f"i User dengan username '{SEED_ADMIN_USERNAME}' sudah ada di database.")
+            print(f"i User dengan username '{seed_admin_username}' sudah ada di database.")
 
         db.commit()
         print("====== SEEDING AUTH BERHASIL SELESAI ======")

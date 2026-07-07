@@ -11,6 +11,7 @@ Atau edit DEFAULT_CONFIG di bawah lalu jalankan langsung:
 """
 
 import argparse
+import os
 import time
 import sys
 from pathlib import Path
@@ -22,11 +23,11 @@ from sqlalchemy import create_engine, text
 #  DEFAULT CONFIG — edit sesuai kebutuhan
 # ============================================================
 DEFAULT_CONFIG = {
-    "host"    : "localhost",
-    "port"    : 5432,
-    "database": "gis_db",       # ← nama database PostgreSQL kamu
-    "username": "postgres",     # ← username PostgreSQL
-    "password": "password",     # ← password PostgreSQL
+    "host": os.getenv("DB_HOST", ""),
+    "port": int(os.getenv("DB_PORT", "5432")),
+    "database": os.getenv("DB_NAME", ""),
+    "username": os.getenv("DB_USER", ""),
+    "password": os.getenv("DB_PASSWORD", ""),
 }
 
 DEFAULT_TABLE    = "tpa_sga_2026"

@@ -9,6 +9,7 @@ Cara pakai dari root project:
 """
 
 import argparse
+import os
 import time
 import sys
 import json
@@ -23,11 +24,11 @@ from sqlalchemy import create_engine, text
 #  DEFAULT CONFIG — sesuaikan dengan database kamu
 # ============================================================
 DEFAULT_CONFIG = {
-    "host"    : "localhost",
-    "port"    : 5432,
-    "database": "gm_gis_perkebunan",       # ← nama database PostgreSQL
-    "username": "postgres",     # ← username PostgreSQL
-    "password": "password",     # ← password PostgreSQL
+    "host": os.getenv("DB_HOST", ""),
+    "port": int(os.getenv("DB_PORT", "5432")),
+    "database": os.getenv("DB_NAME", ""),
+    "username": os.getenv("DB_USER", ""),
+    "password": os.getenv("DB_PASSWORD", ""),
 }
 
 DEFAULT_SCHEMA   = "public"

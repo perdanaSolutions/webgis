@@ -1,29 +1,36 @@
 # app/core/config.py
-import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    # Tambahkan ini agar tidak error di main.py
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     PROJECT_NAME: str = "GIS Plantation API"
     API_V1_STR: str = "/api/v1"
-    
-    # Konfigurasi Database (Menyesuaikan dengan file .env kamu)
-    DB_HOST: str = "localhost"
-    DB_PORT: int = 5432
-    DB_USER: str = "postgres"
-    DB_PASSWORD: str = "password"
-    DB_NAME: str = "gis_db"
 
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "secret")
-    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
+    # Konfigurasi Database (wajib disuplai lewat .env)
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
+
+    # Konfigurasi Auth/JWT (wajib dari .env)
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    # Konfigurasi seed admin (wajib dari .env)
+    SEED_ADMIN_USERNAME: str
+    SEED_ADMIN_EMAIL: str
+    SEED_ADMIN_PASSWORD: str
 
     @property
     def DATABASE_URL(self) -> str:
-        return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        return (
+            f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"  # Mengabaikan variabel lain di .env jika tidak didefinisikan di sini
 
 settings = Settings()
