@@ -1,11 +1,14 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, role, permission, spatial, user
+from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log
 
 api_router = APIRouter()
 
 # Router Auth
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(user.router, prefix="/users", tags=["User Management"])
+
+# Kelompok Audit & Monitoring (Baru)
+api_router.include_router(activity_log.router, prefix="/logs", tags=["Audit Logs"]) # <--- Pasang di sini
 
 # Router Role Management
 api_router.include_router(role.router, prefix="/roles", tags=["Role Management"])

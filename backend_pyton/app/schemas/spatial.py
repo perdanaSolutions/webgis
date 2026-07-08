@@ -10,6 +10,14 @@ class PTResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class AreaResponse(BaseModel):
+    id: UUID
+    pt_id: UUID
+    nama_area: str
+    kode_area: str
+    class Config:
+        from_attributes = True
+
 # 2. Schema Estate / Area
 class EstateResponse(BaseModel):
     id: UUID
@@ -18,6 +26,7 @@ class EstateResponse(BaseModel):
     kode_estate: str
     class Config:
         from_attributes = True
+
 
 # 3. Schema Atribut Blok untuk List/Table Biasa
 class BlokResponse(BaseModel):
@@ -50,3 +59,11 @@ class GeoJSONFeature(BaseModel):
 class GeoJSONResponse(BaseModel):
     type: str = "FeatureCollection"
     features: List[GeoJSONFeature]
+
+class AfdelingResponse(BaseModel):
+    id: UUID
+    estate_id: UUID
+    nama_afdeling: str
+    kode_afdeling: str
+    class Config:
+        from_attributes = True

@@ -48,6 +48,45 @@ def get_pt_list(
         "data": data_query
     }
 
+# ==================================================
+# 2. ENDPOINT AREAS (Regional di bawah PT)
+# ==================================================
+@router.get("/areas", response_model=PaginatedResponse)
+def get_area_list(
+    pt_id: Optional[UUID] = Query(None, description="Filter Area berdasarkan PT"),
+    search: Optional[str] = Query(None, description="Cari nama/kode Area"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:read"))
+):
+    offset = (page - 1) * limit
+    where_clauses = []
+    params = {}
+
+    if pt_id:
+        where_clauses.append("pt_id = :pt_id")
+        params["pt_id"] = pt_id
+    if search:
+        where_clauses.append("(nama_area ILIKE :search OR kode_area ILIKE :search)")
+        params["search"] = f"%{search}%"
+
+    where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    total_query = db.execute(text(f"SELECT COUNT(*) FROM areas {where_str}"), params).scalar()
+    
+    data_query = db.execute(
+        text(f"SELECT id, pt_id, nama_area, kode_area FROM areas {where_str} ORDER BY nama_area LIMIT {limit} OFFSET {offset}"),
+        params
+    ).mappings().all()
+
+    return {
+        "total_data": total_query,
+        "page": page,
+        "limit": limit,
+        "total_page": math.ceil(total_query / limit),
+        "data": data_query
+    }
 
 # ==============================================
 # 2. ENDPOINT ESTATES (Dengan Cascading & Search)
@@ -78,6 +117,46 @@ def get_estate_list(
     
     data_query = db.execute(
         text(f"SELECT id, pt_id, nama_estate, kode_estate FROM estates {where_str} ORDER BY nama_estate LIMIT {limit} OFFSET {offset}"),
+        params
+    ).mappings().all()
+
+    return {
+        "total_data": total_query,
+        "page": page,
+        "limit": limit,
+        "total_page": math.ceil(total_query / limit),
+        "data": data_query
+    }
+
+# ==================================================
+# 5. ENDPOINT AFDELING (Dengan Cascading & Search)
+# ==================================================
+@router.get("/afdelings", response_model=PaginatedResponse)
+def get_afdeling_list(
+    estate_id: Optional[UUID] = Query(None, description="Filter berdasarkan Estate"),
+    search: Optional[str] = Query(None, description="Cari nama/kode Afdeling"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:read"))
+):
+    offset = (page - 1) * limit
+    where_clauses = []
+    params = {}
+
+    if estate_id:
+        where_clauses.append("estate_id = :estate_id")
+        params["estate_id"] = estate_id
+    if search:
+        where_clauses.append("(nama_afdeling ILIKE :search OR kode_afdeling ILIKE :search)")
+        params["search"] = f"%{search}%"
+
+    where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    total_query = db.execute(text(f"SELECT COUNT(*) FROM afdelings {where_str}"), params).scalar()
+    
+    data_query = db.execute(
+        text(f"SELECT id, estate_id, nama_afdeling, kode_afdeling FROM afdelings {where_str} ORDER BY nama_afdeling LIMIT {limit} OFFSET {offset}"),
         params
     ).mappings().all()
 
@@ -146,22 +225,41 @@ def get_blocks_list(
 @router.get("/blocks/geojson", response_model=GeoJSONResponse)
 def get_blocks_geojson(
     pt_id: Optional[UUID] = Query(None, description="Filter peta skala PT"),
+    area_id: Optional[UUID] = Query(None, description="Filter peta skala Area"),
     estate_id: Optional[UUID] = Query(None, description="Filter peta skala Estate"),
-    search: Optional[str] = Query(None, description="Sorot blok tertentu berdasarkan nama/kode"),
+    afdeling_id: Optional[UUID] = Query(None, description="Filter peta skala Afdeling"),
+    search: Optional[str] = Query(None, description="Sorot nama/kode blok"),
     db: Session = Depends(deps.get_db),
     current_user = Depends(deps.PermissionChecker("blok:read"))
 ):
     where_clauses = []
     params = {}
     join_str = ""
-
+    
+    # Rantai JOIN dinamis mengikuti hirarki baru
     if pt_id:
-        join_str = "JOIN estates e ON b.estate_id = e.id"
-        where_clauses.append("e.pt_id = :pt_id")
+        join_str = """
+            JOIN afdelings af ON b.afdeling_id = af.id 
+            JOIN estates e ON af.estate_id = e.id
+            JOIN areas ar ON e.area_id = ar.id
+        """
+        where_clauses.append("ar.pt_id = :pt_id")
         params["pt_id"] = pt_id
-    if estate_id:
-        where_clauses.append("b.estate_id = :estate_id")
+    elif area_id:
+        join_str = """
+            JOIN afdelings af ON b.afdeling_id = af.id 
+            JOIN estates e ON af.estate_id = e.id
+        """
+        where_clauses.append("e.area_id = :area_id")
+        params["area_id"] = area_id
+    elif estate_id:
+        join_str = "JOIN afdelings af ON b.afdeling_id = af.id"
+        where_clauses.append("af.estate_id = :estate_id")
         params["estate_id"] = estate_id
+    elif afdeling_id:
+        where_clauses.append("b.afdeling_id = :afdeling_id")
+        params["afdeling_id"] = afdeling_id
+
     if search:
         where_clauses.append("(b.nama_blok ILIKE :search OR b.kode_blok ILIKE :search)")
         params["search"] = f"%{search}%"
@@ -195,3 +293,4 @@ def get_blocks_geojson(
             })
             
     return {"type": "FeatureCollection", "features": features}
+

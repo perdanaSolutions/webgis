@@ -122,3 +122,24 @@ def get_user_me(
         "role": current_user.role.nama,
         "permissions": list_permissions
     }
+
+@router.post("/logout")
+def logout(
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user) # Wajib bawa token aktif untuk logout
+):
+    """
+    Endpoint Logout untuk mencatat log aktivitas keluar sistem.
+    Frontend tetap harus menghapus token dari localStorage setelah menembak API ini.
+    """
+    log_logout = UserActivityLog(
+        user_id=current_user.id,
+        aksi="LOGOUT",
+        resource="auth",
+        status="SUCCESS",
+        detail={"nama_lengkap": current_user.nama_lengkap}
+    )
+    db.add(log_logout)
+    db.commit()
+    
+    return {"message": "Berhasil logout dari sistem, aktivitas telah dicatat."}
