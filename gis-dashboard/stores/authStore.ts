@@ -66,7 +66,7 @@ export const useAuthStore = defineStore("auth", () => {
       // 1. Transformasi data ke format x-www-form-urlencoded menggunakan URLSearchParams
       const formData = new URLSearchParams();
       formData.append("grant_type", "");
-      formData.append("username", email); // Memetakan parameter email ke field username di API
+      formData.append("email", email); // Memetakan parameter email ke field username di API
       formData.append("password", password);
       formData.append("scope", "");
       formData.append("client_id", "");
