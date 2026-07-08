@@ -1,7 +1,8 @@
-from datetime import timedelta
+# from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,10 @@ from app.core.config import settings
 from app.models.auth import User, UserActivityLog
 from app.schemas.user import UserLoginRequest
 
+import jwt
+
 router = APIRouter()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form")
 
 # =====================================================================
 # 1. ENDPOINT LOGIN UTAMA - KHUSUS FRONTEND (Menerima JSON murni)
@@ -122,6 +126,58 @@ def get_user_me(
         "role": current_user.role.nama,
         "permissions": list_permissions
     }
+
+@router.get("/check-token")
+def check_token_validity(
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db),
+    token: str = Depends(oauth2_scheme) # <--- GANTI DI SINI (Menggunakan oauth2_scheme lokal)
+) -> Any:
+    """
+    Endpoint untuk mengecek masa berlaku token yang sedang digunakan saat ini.
+    """
+    try:
+        # (Sisa kode ke bawah seperti decode token, hitung sisa waktu, dst. tetap SAMA)
+        payload = jwt.decode(token, options={"verify_signature": False})
+        
+        exp_timestamp = payload.get("exp")
+        iat_timestamp = payload.get("iat")
+        
+        if not exp_timestamp:
+            return {"status": "error", "message": "Token tidak memiliki klaim kedaluwarsa (exp)"}
+
+        waktu_sekarang = datetime.now(timezone.utc)
+        waktu_expired = datetime.fromtimestamp(exp_timestamp, timezone.utc)
+        waktu_terbit = datetime.fromtimestamp(iat_timestamp, timezone.utc) if iat_timestamp else None
+        
+        sisa_waktu = waktu_expired - waktu_sekarang
+        sisa_detik = int(sisa_waktu.total_seconds())
+        
+        if sisa_detik > 0:
+            hari = sisa_detik // 86400
+            jam = (sisa_detik % 86400) // 3600
+            menit = (sisa_detik % 3600) // 60
+            string_sisa = f"{hari} hari, {jam} jam, {menit} menit"
+            is_expired = False
+        else:
+            string_sisa = "Token sudah kedaluwarsa"
+            is_expired = True
+
+        return {
+            "status": "success",
+            "is_expired": is_expired,
+            "konfigurasi_sistem_menit": settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+            "waktu_terbit_server": waktu_terbit.isoformat() if waktu_terbit else None,
+            "waktu_expired_server": waktu_expired.isoformat(),
+            "waktu_sekarang_server": waktu_sekarang.isoformat(),
+            "sisa_waktu_aktif": string_sisa,
+            "user": {
+                "username": current_user.username,
+                "nama_lengkap": current_user.nama_lengkap
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Gagal membedah token: {str(e)}")
 
 @router.post("/logout")
 def logout(
