@@ -12,7 +12,6 @@ const showPassword = ref(false)
 const form = reactive({
   email: '',
   password: '',
-  remember: false,
 })
 
 function togglePasswordVisibility() {
@@ -82,12 +81,6 @@ async function onSubmit() {
             </div>
 
             <div class="flex items-center justify-between gap-4">
-              <label class="flex items-center gap-3 text-[14px] text-[#8E8E93]">
-                <input v-model="form.remember" type="checkbox"
-                  class="h-4 w-4 rounded border border-[#D8D8DC] text-[#5B432F] focus:ring-[#5B432F]/30">
-                <span>Remember me?</span>
-              </label>
-
               <a href="#" class="text-[14px] text-[#8E8E93] underline underline-offset-4 hover:text-[#5B432F]">
                 Lupa Kata Sandi?
               </a>

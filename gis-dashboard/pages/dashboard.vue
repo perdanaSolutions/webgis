@@ -132,7 +132,7 @@ const moduleItems: ModuleItem[] = [
     bgClass: 'bg-rose-50',
     iconClass: 'text-rose-500',
     arrowClass: 'text-rose-500',
-    to: '/dashboard',
+    to: '/users',
     icon: 'pengguna',
   },
   {
