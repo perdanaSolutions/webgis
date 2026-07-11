@@ -1,56 +1,58 @@
-from pydantic import BaseModel
-from uuid import UUID
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Any
 
-# 1. Schema PT
-class PTResponse(BaseModel):
-    id: UUID
+# Konfigurasi dasar Pydantic v2 agar bisa membaca objek ORM SQLAlchemy otomatis
+class SpatialBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+# ==========================================
+# 1. RESPONSE UNTUK PT / PERUSAHAAN
+# ==========================================
+class PTResponse(SpatialBase):
+    id: int
     nama_pt: str
     kode_pt: str
-    class Config:
-        from_attributes = True
+    bulan: Optional[int] = None
+    tahun: Optional[int] = None
 
-class AreaResponse(BaseModel):
-    id: UUID
-    pt_id: UUID
-    nama_area: str
-    kode_area: str
-    class Config:
-        from_attributes = True
-
-# 2. Schema Estate / Area
-class EstateResponse(BaseModel):
-    id: UUID
-    pt_id: UUID
+# ==========================================
+# 2. RESPONSE UNTUK ESTATE
+# ==========================================
+class EstateResponse(SpatialBase):
+    id: str
+    pt_id: int
     nama_estate: str
     kode_estate: str
-    class Config:
-        from_attributes = True
+    bulan: Optional[int] = None
+    tahun: Optional[int] = None
 
-
-# 3. Schema Atribut Blok untuk List/Table Biasa
-class BlokResponse(BaseModel):
-    id: UUID
-    estate_id: UUID
+# ==========================================
+# 3. RESPONSE UNTUK BLOK / BLOCKS
+# ==========================================
+class BlokResponse(SpatialBase):
+    id: str
+    estate_id: str
     nama_blok: str
     kode_blok: str
     luas_ha: float
     status_tanaman: Optional[str] = None
     komoditas: Optional[str] = None
-    class Config:
-        from_attributes = True
+    bulan: Optional[int] = None
+    tahun: Optional[int] = None
 
-# 4. Wrapper untuk Server-Side Pagination (List Data)
+# ==========================================
+# 4. RESPONSE STRUKTUR PAGINATION (Bawaan Sistem Kamu)
+# ==========================================
 class PaginatedResponse(BaseModel):
     total_data: int
     page: int
     limit: int
     total_page: int
     data: List[Any]
-    class Config:
-        from_attributes = True
 
-# 5. Schema khusus GeoJSON Peta (Tidak di-paginate karena peta butuh semua poligon sekaligus)
+# ==========================================
+# 5. RESPONSE STRUKTUR GEOJSON PETA
+# ==========================================
 class GeoJSONFeature(BaseModel):
     type: str = "Feature"
     geometry: Any
@@ -59,11 +61,3 @@ class GeoJSONFeature(BaseModel):
 class GeoJSONResponse(BaseModel):
     type: str = "FeatureCollection"
     features: List[GeoJSONFeature]
-
-class AfdelingResponse(BaseModel):
-    id: UUID
-    estate_id: UUID
-    nama_afdeling: str
-    kode_afdeling: str
-    class Config:
-        from_attributes = True
