@@ -6,12 +6,13 @@ from typing import Optional
 import math
 
 from datetime import datetime
-from app.services.spatial_upload import process_geojson_upload
+from app.services import spatial_upload as service
 
 from app.api import deps
 from app.schemas.spatial import PTResponse, EstateResponse, BlokResponse, PaginatedResponse, GeoJSONResponse
 from app.models.spatial import Perusahaan, Estate, Afdeling, Blok, GeoBlok
 from sqlalchemy import or_, and_
+
 
 router = APIRouter()
 
@@ -259,68 +260,140 @@ def get_blocks_geojson(
     # Mengembalikan response langsung berbentuk aplikasi JSON murni
     return Response(content=json.dumps(geojson_response), media_type="application/json")
 
-# endpoin upload blok
-@router.post("/blocks/upload")
-async def upload_blocks_geojson(
-    bulan: int = Query(..., ge=1, le=12, description="Bulan periode data (1-12)"),
-    tahun: int = Query(..., ge=2000, le=2100, description="Tahun periode data (YYYY)"),
-    file: UploadFile = File(..., description="File GeoJSON Blok Spasial"),
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write")) # Akses untuk level write/upload
-):
-    # 1. Catat inisialisasi awal ke dalam sys_upload_log
-    log_query = text("""
-        INSERT INTO sys_upload_log (source_type, target_table, source_name, status, meta_data)
-        VALUES ('GEOJSON_UPLOAD', 'blok', :source_name, 'IN_PROGRESS', :meta_data)
-        RETURNING upload_batch_id;
-    """)
+# # endpoin upload blok
+# @router.post("/blocks/upload")
+# async def upload_blocks_geojson(
+#     bulan: int = Query(..., ge=1, le=12, description="Bulan periode data (1-12)"),
+#     tahun: int = Query(..., ge=2000, le=2100, description="Tahun periode data (YYYY)"),
+#     file: UploadFile = File(..., description="File GeoJSON Blok Spasial"),
+#     db: Session = Depends(deps.get_db),
+#     current_user = Depends(deps.PermissionChecker("blok:write")) # Akses untuk level write/upload
+# ):
+#     # 1. Catat inisialisasi awal ke dalam sys_upload_log
+#     log_query = text("""
+#         INSERT INTO sys_upload_log (source_type, target_table, source_name, status, meta_data)
+#         VALUES ('GEOJSON_UPLOAD', 'blok', :source_name, 'IN_PROGRESS', :meta_data)
+#         RETURNING upload_batch_id;
+#     """)
     
-    meta_data_json = json.dumps({"bulan": bulan, "tahun": tahun})
-    upload_batch_id = db.execute(log_query, {"source_name": file.filename, "meta_data": meta_data_json}).scalar()
-    db.commit()
+#     meta_data_json = json.dumps({"bulan": bulan, "tahun": tahun})
+#     upload_batch_id = db.execute(log_query, {"source_name": file.filename, "meta_data": meta_data_json}).scalar()
+#     db.commit()
 
-    try:
-        # Read konten berkas spasial
-        contents = await file.read()
+#     try:
+#         # Read konten berkas spasial
+#         contents = await file.read()
         
-        # Eksekusi parser service spatial
-        total_records = process_geojson_upload(db=db, geojson_content=contents, bulan=bulan, tahun=tahun)
+#         # Eksekusi parser service spatial
+#         total_records = process_geojson_upload(db=db, geojson_content=contents, bulan=bulan, tahun=tahun)
         
-        # 2. Update log status sukses
-        update_success_query = text("""
-            UPDATE sys_upload_log 
-            SET status = 'SUCCESS', record_count = :record_count, finished_at = :finished_at
-            WHERE upload_batch_id = :batch_id;
-        """)
-        db.execute(update_success_query, {
-            "record_count": total_records, 
-            "finished_at": datetime.now(), 
-            "batch_id": upload_batch_id
-        })
-        db.commit()
+#         # 2. Update log status sukses
+#         update_success_query = text("""
+#             UPDATE sys_upload_log 
+#             SET status = 'SUCCESS', record_count = :record_count, finished_at = :finished_at
+#             WHERE upload_batch_id = :batch_id;
+#         """)
+#         db.execute(update_success_query, {
+#             "record_count": total_records, 
+#             "finished_at": datetime.now(), 
+#             "batch_id": upload_batch_id
+#         })
+#         db.commit()
 
-        return {
-            "status": "success",
-            "message": f"Berhasil mengunggah file {file.filename}.",
-            "detail": f"{total_records} data blok spasial berhasil disimpan/diperbarui.",
-            "upload_batch_id": str(upload_batch_id)
-        }
+#         return {
+#             "status": "success",
+#             "message": f"Berhasil mengunggah file {file.filename}.",
+#             "detail": f"{total_records} data blok spasial berhasil disimpan/diperbarui.",
+#             "upload_batch_id": str(upload_batch_id)
+#         }
 
-    except Exception as e:
-        # 1. ISI ROLLBACK DISINI UNTUK MERESET TRANSAKSI YANG ERROR
-        db.rollback() 
+#     except Exception as e:
+#         # 1. ISI ROLLBACK DISINI UNTUK MERESET TRANSAKSI YANG ERROR
+#         db.rollback() 
         
-        # 2. Update log status gagal
-        update_fail_query = text("""
-            UPDATE sys_upload_log 
-            SET status = 'FAILED', error_message = :error_message, finished_at = :finished_at
-            WHERE upload_batch_id = :batch_id;
-        """)
-        db.execute(update_fail_query, {
-            "error_message": str(e), 
-            "finished_at": datetime.now(), 
-            "batch_id": upload_batch_id
-        })
-        db.commit()
+#         # 2. Update log status gagal
+#         update_fail_query = text("""
+#             UPDATE sys_upload_log 
+#             SET status = 'FAILED', error_message = :error_message, finished_at = :finished_at
+#             WHERE upload_batch_id = :batch_id;
+#         """)
+#         db.execute(update_fail_query, {
+#             "error_message": str(e), 
+#             "finished_at": datetime.now(), 
+#             "batch_id": upload_batch_id
+#         })
+#         db.commit()
         
-        raise HTTPException(status_code=500, detail=f"Gagal memproses berkas spasial: {str(e)}")
+#         raise HTTPException(status_code=500, detail=f"Gagal memproses berkas spasial: {str(e)}")
+
+
+# =====================================================================
+# FLOW UPLOAD 1: MASTER DATA TPH (POINT) - DENGAN PROTEKSI LOGIN
+# =====================================================================
+
+@router.post("/tph/upload-analyze", summary="TPH TAHAP 1: Analisis Atribut Master")
+async def upload_tph_analyze(
+    bulan: int = Query(..., ge=1, le=12), 
+    tahun: int = Query(..., ge=2000),
+    file: UploadFile = File(...), 
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+):
+    contents = await file.read()
+    return service.analyze_geojson_tph(db, contents, bulan, tahun)
+
+@router.post("/tph/upload-execute", summary="TPH TAHAP 2: Bulk Save Master Atribut")
+async def upload_tph_execute(
+    bulan: int = Query(..., ge=1, le=12), 
+    tahun: int = Query(..., ge=2000),
+    file: UploadFile = File(...), 
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+):
+    contents = await file.read()
+    total = service.execute_bulk_tph(db, contents, bulan, tahun)
+    return {"status": "success", "detail": f"{total} baris data TPH periode {bulan}-{tahun} berhasil masuk ke database."}
+
+
+# =====================================================================
+# FLOW UPLOAD 2: GEOMETRI BLOK (POLYGON) - DENGAN PROTEKSI LOGIN
+# =====================================================================
+
+@router.post("/blok-geometry/upload-analyze", summary="POLYGON TAHAP 1: Analisis Kesesuaian Peta")
+async def upload_geometry_analyze(
+    bulan: int = Query(..., ge=1, le=12), 
+    tahun: int = Query(..., ge=2000),
+    file: UploadFile = File(...), 
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+):
+    contents = await file.read()
+    return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
+
+@router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
+async def upload_geometry_execute(
+    bulan: int = Query(..., ge=1, le=12), 
+    tahun: int = Query(..., ge=2000),
+    file: UploadFile = File(...), 
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+):
+    contents = await file.read()
+    total = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+    return {"status": "success", "detail": f"{total} data spasial polygon blok periode {bulan}-{tahun} berhasil disuntikkan."}
+
+# ==========================================
+# AKSI HAPUS DATA PERIODE (CLEANUP DATA)
+# ==========================================
+@router.delete("/cleanup-period", summary="Hapus Semua Data Spasial & Atribut Berdasarkan Periode")
+def delete_period_data(
+    bulan: int = Query(..., ge=1, le=12, description="Bulan data yang ingin dibersihkan"),
+    tahun: int = Query(..., ge=2000, description="Tahun data yang ingin dibersihkan"),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("blok:write"))
+):
+    """
+    Gunakan ini jika terjadi kesalahan upload periode atau ingin mereset data 
+    pada bulan dan tahun tertentu dari database.
+    """
+    return service.delete_spatial_data_by_period(db, bulan, tahun)
