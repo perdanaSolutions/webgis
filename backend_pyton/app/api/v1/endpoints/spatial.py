@@ -182,12 +182,12 @@ def get_blok_list(
         )
         
     total_query = query.count()
-    data_orm = query.order_by(Blok.global_id).limit(limit).offset(offset).all()
+    data_orm = query.order_by(Blok.blok_id).limit(limit).offset(offset).all()
 
     formatted_data = []
     for row in data_orm:
         formatted_data.append({
-            "id": row.global_id,
+            "id": row.blok_id,
             "afd_id": row.afd_id,
             "nama_blok": row.nama_blok,
             "kode_blok": row.kode_blok,
@@ -224,11 +224,11 @@ def get_blocks_geojson(
     query = db.query(
         Blok, 
         func.ST_AsGeoJSON(GeoBlok.geom_polygon).label("geojson_geom")
-    ).join(GeoBlok, Blok.global_id == GeoBlok.global_id)
+    ).join(GeoBlok, Blok.blok_id == GeoBlok.blok_id)
     
     # Jika frontend memilih filter Estate tertentu, saring berdasarkan awalan ID blok
     if estate_id:
-        query = query.filter(Blok.global_id.like(f"{estate_id}%"))
+        query = query.filter(Blok.blok_id.like(f"{estate_id}%"))
         
     results = query.all()
     
@@ -242,7 +242,7 @@ def get_blocks_geojson(
             "type": "Feature",
             "geometry": json.loads(geom_json_str), # Parse string JSON dari PostGIS menjadi Object
             "properties": {
-                "global_id": blok_data.global_id,
+                "blok_id": blok_data.blok_id,
                 "nama_blok": blok_data.nama_blok,
                 "kode_blok": blok_data.kode_blok,
                 "afd_id": blok_data.afd_id,

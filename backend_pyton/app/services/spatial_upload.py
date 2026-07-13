@@ -30,9 +30,9 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
     unique_afdeling = set()
     unique_blok = set()
 
-    # Ambil global_id dari DB khusus periode terpilih
+    # Ambil blok_id dari DB khusus periode terpilih
     existing_bloks = set(r[0] for r in db.execute(
-        text("SELECT global_id FROM blok WHERE bulan = :b AND tahun = :t"), 
+        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
         {"b": bulan, "t": tahun}
     ).fetchall())
 
@@ -50,15 +50,15 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
         kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
         est_id = f"{kode_pt}_{kode_est}"
         afd_id = f"{est_id}_{kode_afd}"
-        global_id = f"{afd_id}_{kode_blok}"
+        blok_id = f"{afd_id}_{kode_blok}"
 
         # Catat statistik unik
         unique_pt.add(kode_pt)
         unique_estate.add(est_id)
         unique_afdeling.add(afd_id)
-        unique_blok.add(global_id)
+        unique_blok.add(blok_id)
 
-        if global_id in existing_bloks:
+        if blok_id in existing_bloks:
             data_update += 1
         else:
             data_baru += 1
@@ -160,14 +160,14 @@ def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int
             )
 
             # =================================================================
-            # 4. MANAGE BLOK (Cek uq_blok_kode_blok atau global_id)
+            # 4. MANAGE BLOK (Cek uq_blok_kode_blok atau blok_id)
             # =================================================================
             kode_blok = properties.get("Blok")
-            global_id = f"{afd_id}_{kode_blok}"
+            blok_id = f"{afd_id}_{kode_blok}"
             
             existing_blok = db.execute(
-                text("SELECT global_id FROM blok WHERE kode_blok = :kode OR global_id = :gid"),
-                {"kode": kode_blok, "gid": global_id}
+                text("SELECT blok_id FROM blok WHERE kode_blok = :kode OR blok_id = :gid"),
+                {"kode": kode_blok, "gid": blok_id}
             ).fetchone()
 
             if existing_blok:
@@ -176,25 +176,25 @@ def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int
                     text("""
                         UPDATE blok 
                         SET afd_id = :aid, nama_blok = :nama, tipe_blok = :tipe, bulan = :b, tahun = :t
-                        WHERE global_id = :target_gid
+                        WHERE blok_id = :target_gid
                     """), {
                         "aid": afd_id, "nama": f"Blok {kode_blok}", "tipe": properties.get("Kategori"),
                         "b": bulan, "t": tahun, "target_gid": existing_blok[0]
                     }
                 )
-                actual_global_id = existing_blok[0]
+                actual_blok_id = existing_blok[0]
             else:
                 # Jika blok baru, insert langsung
                 db.execute(
                     text("""
-                        INSERT INTO blok (global_id, afd_id, nama_blok, kode_blok, tipe_blok, bulan, tahun) 
+                        INSERT INTO blok (blok_id, afd_id, nama_blok, kode_blok, tipe_blok, bulan, tahun) 
                         VALUES (:gid, :aid, :nama, :kode, :tipe, :b, :t)
                     """), {
-                        "gid": global_id, "aid": afd_id, "nama": f"Blok {kode_blok}", 
+                        "gid": blok_id, "aid": afd_id, "nama": f"Blok {kode_blok}", 
                         "kode": kode_blok, "tipe": properties.get("Kategori"), "b": bulan, "t": tahun
                     }
                 )
-                actual_global_id = global_id
+                actual_blok_id = blok_id
 
             # =================================================================
             # 5. INSERT GEOMETRI POINT TPH (MENDUKUNG MULTI-POINT PER BLOK)
@@ -202,14 +202,14 @@ def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int
             geometry_json_str = json.dumps(geometry)
             
             # Kita biarkan id_tph terisi secara otomatis (auto-increment)
-            # Langsung INSERT tanpa melakukan UPDATE berdasarkan global_id
+            # Langsung INSERT tanpa melakukan UPDATE berdasarkan blok_id
             db.execute(
                 text("""
-                    INSERT INTO geo_tph (global_id, geom_point, kategori, bulan, tahun)
+                    INSERT INTO geo_tph (blok_id, geom_point, kategori, bulan, tahun)
                     VALUES (:gid, ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326), :kat, :b, :t)
                 """), 
                 {
-                    "gid": actual_global_id, 
+                    "gid": actual_blok_id, 
                     "geom_json": geometry_json_str, 
                     "kat": properties.get("Kategori"),
                     "b": bulan,
@@ -224,7 +224,7 @@ def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int
             # TAMBAHKAN INI: Untuk mencetak detail error aslinya dari database
             import traceback
             print(f"--- ERROR PADA INDEKS {index} ---")
-            print(f"Gid yang bermasalah: {actual_global_id}")
+            print(f"Gid yang bermasalah: {actual_blok_id}")
             traceback.print_exc() 
             print("---------------------------------")
             continue
@@ -254,12 +254,12 @@ def analyze_geojson_geometry_blok(db: Session, geojson_content: bytes, bulan: in
     blok_missing = 0 
 
     existing_bloks = set(r[0] for r in db.execute(
-        text("SELECT global_id FROM blok WHERE bulan = :b AND tahun = :t"), 
+        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
         {"b": bulan, "t": tahun}
     ).fetchall())
     
     existing_geoms = set(r[0] for r in db.execute(
-        text("SELECT global_id FROM geo_blok WHERE bulan = :b AND tahun = :t"),
+        text("SELECT blok_id FROM geo_blok WHERE bulan = :b AND tahun = :t"),
         {"b": bulan, "t": tahun}
     ).fetchall())
 
@@ -275,11 +275,11 @@ def analyze_geojson_geometry_blok(db: Session, geojson_content: bytes, bulan: in
             continue
 
         kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
-        global_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
+        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
 
-        if global_id not in existing_bloks:
+        if blok_id not in existing_bloks:
             blok_missing += 1  
-        elif global_id in existing_geoms:
+        elif blok_id in existing_geoms:
             geom_update += 1
         else:
             geom_baru += 1
@@ -303,7 +303,7 @@ def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, bulan: int, 
     record_count = 0
 
     existing_bloks = set(r[0] for r in db.execute(
-        text("SELECT global_id FROM blok WHERE bulan = :b AND tahun = :t"), 
+        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
         {"b": bulan, "t": tahun}
     ).fetchall())
 
@@ -322,9 +322,9 @@ def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, bulan: int, 
             continue
 
         kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
-        global_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
+        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
 
-        if global_id not in existing_bloks:
+        if blok_id not in existing_bloks:
             continue
 
         nested_tx = db.begin_nested()
@@ -332,17 +332,17 @@ def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, bulan: int, 
             geometry_json_str = json.dumps(geometry)
             db.execute(
                 text("""
-                    INSERT INTO geo_blok (global_id, geom_polygon, bulan, tahun)
-                    VALUES (:global_id, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326)), :bulan, :tahun)
-                    ON CONFLICT (global_id) DO UPDATE SET 
+                    INSERT INTO geo_blok (blok_id, geom_polygon, bulan, tahun)
+                    VALUES (:blok_id, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326)), :bulan, :tahun)
+                    ON CONFLICT (blok_id) DO UPDATE SET 
                         geom_polygon = EXCLUDED.geom_polygon
-                """), {"global_id": global_id, "geom_json": geometry_json_str, "bulan": bulan, "tahun": tahun}
+                """), {"blok_id": blok_id, "geom_json": geometry_json_str, "bulan": bulan, "tahun": tahun}
             )
             nested_tx.commit()
             record_count += 1
         except Exception as e:
             nested_tx.rollback()
-            print(f"Gagal mengunggah geometri blok {global_id}: {str(e)}")
+            print(f"Gagal mengunggah geometri blok {blok_id}: {str(e)}")
             continue
 
     db.commit()
@@ -357,7 +357,7 @@ def delete_spatial_data_by_period(db: Session, bulan: int, tahun: int) -> dict:
     try:
         # Cascade manual sesuai urutan constraint database
         deleted_geo_blok = db.execute(text("DELETE FROM geo_blok WHERE bulan = :b AND tahun = :t"), {"b": bulan, "t": tahun}).rowcount
-        deleted_geo_tph = db.execute(text("DELETE FROM geo_blok WHERE bulan = :b AND tahun = :t"), {"b": bulan, "t": tahun}).rowcount
+        deleted_geo_tph = db.execute(text("DELETE FROM geo_tph WHERE bulan = :b AND tahun = :t"), {"b": bulan, "t": tahun}).rowcount
         deleted_blok = db.execute(text("DELETE FROM blok WHERE bulan = :b AND tahun = :t"), {"b": bulan, "t": tahun}).rowcount
         deleted_afd = db.execute(text("DELETE FROM afdeling WHERE bulan = :b AND tahun = :t"), {"b": bounds, "t": tahun} if False else {"b": bulan, "t": tahun}).rowcount
         deleted_est = db.execute(text("DELETE FROM estate WHERE bulan = :b AND tahun = :t"), {"b": bulan, "t": tahun}).rowcount
