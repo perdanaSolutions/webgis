@@ -45,7 +45,7 @@ class Afdeling(Base):
 class Blok(Base):
     __tablename__ = "blok"
 
-    global_id = Column(String(150), primary_key=True)
+    blok_id = Column(String(150), primary_key=True)
     afd_id = Column(String(100), ForeignKey("afdeling.afd_id", ondelete="CASCADE"), nullable=False)
     nama_blok = Column(String(100), nullable=False)
     kode_blok = Column(String(50), nullable=False, unique=True)
@@ -65,7 +65,7 @@ class Blok(Base):
 class GeoBlok(Base):
     __tablename__ = "geo_blok"
 
-    global_id = Column(String(150), ForeignKey("blok.global_id", ondelete="CASCADE"), primary_key=True)
+    blok_id = Column(String(150), ForeignKey("blok.blok_id", ondelete="CASCADE"), primary_key=True)
     geom_polygon = Column(Geometry("MULTIPOLYGON", srid=4326))
     bulan = Column(Integer, nullable=True)
     tahun = Column(Integer, nullable=True)

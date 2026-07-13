@@ -343,16 +343,33 @@ async def upload_tph_analyze(
     return service.analyze_geojson_tph(db, contents, bulan, tahun)
 
 @router.post("/tph/upload-execute", summary="TPH TAHAP 2: Bulk Save Master Atribut")
+# async def upload_tph_execute(
+#     bulan: int = Query(..., ge=1, le=12), 
+#     tahun: int = Query(..., ge=2000),
+#     file: UploadFile = File(...), 
+#     db: Session = Depends(deps.get_db),
+#     current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+# ):
+#     contents = await file.read()
+#     total = service.execute_bulk_tph(db, contents, bulan, tahun)
+#     return {"status": "success", "detail": f"{total} baris data TPH periode {bulan}-{tahun} berhasil masuk ke database."}
+
 async def upload_tph_execute(
-    bulan: int = Query(..., ge=1, le=12), 
-    tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    bulan: int,
+    tahun: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(deps.get_db)
 ):
     contents = await file.read()
-    total = service.execute_bulk_tph(db, contents, bulan, tahun)
-    return {"status": "success", "detail": f"{total} baris data TPH periode {bulan}-{tahun} berhasil masuk ke database."}
+    
+    # Menampung hasil berupa dictionary statistik
+    stats = service.execute_bulk_tph(db, contents, bulan, tahun)
+    
+    return {
+        "status": "success",
+        "message": f"Proses unggah data spasial TPH periode {bulan}-{tahun} selesai.",
+        "detail": stats
+    }
 
 
 # =====================================================================
@@ -371,16 +388,35 @@ async def upload_geometry_analyze(
     return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
 
 @router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
+# async def upload_geometry_execute(
+#     bulan: int = Query(..., ge=1, le=12), 
+#     tahun: int = Query(..., ge=2000),
+#     file: UploadFile = File(...), 
+#     db: Session = Depends(deps.get_db),
+#     current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+# ):
+#     contents = await file.read()
+#     total = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+#     return {"status": "success", "detail": f"{total} data spasial polygon blok periode {bulan}-{tahun} berhasil disuntikkan."}
+
+
 async def upload_geometry_execute(
-    bulan: int = Query(..., ge=1, le=12), 
-    tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    bulan: int,
+    tahun: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(deps.get_db)
 ):
+    # ... (proses baca file geojson seperti biasa) ...
     contents = await file.read()
-    total = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
-    return {"status": "success", "detail": f"{total} data spasial polygon blok periode {bulan}-{tahun} berhasil disuntikkan."}
+    
+    # Panggil service yang kini mengembalikan dictionary statistik
+    stats = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+    
+    return {
+        "status": "success",
+        "message": f"Proses unggah spasial blok periode {bulan}-{tahun} selesai.",
+        "detail": stats
+    }
 
 # ==========================================
 # AKSI HAPUS DATA PERIODE (CLEANUP DATA)
