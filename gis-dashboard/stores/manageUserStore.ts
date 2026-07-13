@@ -13,14 +13,6 @@ export type UserItem = {
   updated_at?: string;
 };
 
-export type RoleItem = {
-  id: string;
-  nama: string;
-  deskripsi: string;
-  created_at: string;
-  permissions: string[];
-};
-
 export type CreateUserPayload = {
   username: string;
   email: string;

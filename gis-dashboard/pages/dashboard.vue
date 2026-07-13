@@ -49,6 +49,7 @@ onMounted(async () => {
       </section>
 
       <section class="mt-6 grid grid-cols-1 gap-6">
+        <!-- CONTENT QUICK ACCESS AND ANNOUNCEMENT -->
         <!-- xl:grid-cols-[1.1fr_1.4fr] -->
         <!-- <div class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
           <h3 class="text-[16px] font-bold">
@@ -117,27 +118,44 @@ onMounted(async () => {
         </div>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <NuxtLink v-for="item in dashboardService.moduleItems" :key="`module-${item.title}`" :to="item.to"
-            class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4 transition hover:shadow-sm">
-            <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl" :class="item.bgClass">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                  :d="dashboardService.iconPath(item.icon)" />
-              </svg>
-            </div>
+          <template v-if="dashboardService.loading">
+            <div v-for="i in 8" :key="`skeleton-${i}`"
+              class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4 animate-pulse">
+              <div class="h-14 w-14 shrink-0 rounded-2xl bg-slate-200"></div>
 
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-[16px] font-bold leading-tight">
-                {{ item.title }}
-              </p>
-              <p class="mt-1 line-clamp-2 text-[14px] leading-snug text-[#8A817A]">
-                {{ item.description }}
-              </p>
-            </div>
+              <div class="min-w-0 flex-1 space-y-2">
+                <div class="h-4 w-3/4 rounded bg-slate-200"></div>
+                <div class="h-3 w-full rounded bg-slate-200"></div>
+              </div>
 
-            <span class="text-[16px] font-bold" :class="item.arrowClass">→</span>
-          </NuxtLink>
+              <div class="h-4 w-4 rounded bg-slate-200"></div>
+            </div>
+          </template>
+
+          <template v-else>
+            <NuxtLink v-for="item in dashboardService.moduleItems" :key="`module-${item.title}`" :to="item.to"
+              class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4 transition hover:shadow-sm">
+
+              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl" :class="item.bgClass">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                    :d="dashboardService.iconPath(item.icon)" />
+                </svg>
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-[16px] font-bold leading-tight">
+                  {{ item.title }}
+                </p>
+                <p class="mt-1 line-clamp-2 text-[14px] leading-snug text-[#8A817A]">
+                  {{ item.description }}
+                </p>
+              </div>
+
+              <span class="text-[16px] font-bold" :class="item.arrowClass">→</span>
+            </NuxtLink>
+          </template>
         </div>
       </section>
     </div>
