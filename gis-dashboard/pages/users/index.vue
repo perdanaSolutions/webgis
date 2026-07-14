@@ -7,18 +7,43 @@ import {
   type UpdateUserPayload,
   type UserItem,
 } from "~/stores/manageUserStore";
+import { dashboardStore } from "~/stores/dashboardStore";
 
 defineOptions({
   name: "UsersManagementPage",
 });
 
 const manageUserStore = useManageUserStore();
+const dashboardStoreInstance = dashboardStore();
 
 const search = ref("");
 const showFormModal = ref(false);
 const showDeleteModal = ref(false);
+const showPermissionModal = ref(false);
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
+const selectedPermissionUser = ref<UserItem | null>(null);
+const activePermissionTab = ref<"menu" | "masterData" | "transaksi">("menu");
+const selectedMenuKeys = ref<string[]>([]);
+const selectedPtValues = ref<string[]>([]);
+const selectedEstateValues = ref<string[]>([]);
+const selectedTransaksiValues = ref<string[]>([]);
+
+const ptOptions = [
+  { value: "pt-a", label: "PT Perkebunan A" },
+  { value: "pt-b", label: "PT Perkebunan B" },
+];
+
+const estateOptions = [
+  { value: "estate-utara", label: "Estate Utara" },
+  { value: "estate-selatan", label: "Estate Selatan" },
+];
+
+const transaksiOptions = [
+  { value: "input-transaksi", label: "Input Transaksi" },
+  { value: "approval-transaksi", label: "Approval Transaksi" },
+  { value: "riwayat-transaksi", label: "Riwayat Transaksi" },
+];
 
 const form = reactive<CreateUserPayload>({
   username: "",
@@ -111,6 +136,50 @@ function closeDeleteModal() {
   showDeleteModal.value = false;
 }
 
+function openPermissionModal(user: UserItem) {
+  selectedPermissionUser.value = user;
+  activePermissionTab.value = "menu";
+  selectedMenuKeys.value = [];
+  selectedPtValues.value = [];
+  selectedEstateValues.value = [];
+  selectedTransaksiValues.value = [];
+  showPermissionModal.value = true;
+}
+
+function closePermissionModal() {
+  showPermissionModal.value = false;
+  selectedPermissionUser.value = null;
+}
+
+function toggleAllMenu() {
+  const allMenuKeys = dashboardStoreInstance.moduleItems.map((menu, index) => `${menu.to}-${index}`);
+  selectedMenuKeys.value =
+    selectedMenuKeys.value.length === allMenuKeys.length ? [] : allMenuKeys;
+}
+
+function toggleAllMasterData() {
+  const allPt = ptOptions.map((item) => item.value);
+  const allEstate = estateOptions.map((item) => item.value);
+  const isAllSelected =
+    selectedPtValues.value.length === allPt.length &&
+    selectedEstateValues.value.length === allEstate.length;
+
+  if (isAllSelected) {
+    selectedPtValues.value = [];
+    selectedEstateValues.value = [];
+    return;
+  }
+
+  selectedPtValues.value = allPt;
+  selectedEstateValues.value = allEstate;
+}
+
+function toggleAllTransaksi() {
+  const allTransaksi = transaksiOptions.map((item) => item.value);
+  selectedTransaksiValues.value =
+    selectedTransaksiValues.value.length === allTransaksi.length ? [] : allTransaksi;
+}
+
 async function submitForm() {
   if (formMode.value === "create") {
     await manageUserStore.createUser({
@@ -172,7 +241,10 @@ async function onLimitChange(event: Event) {
 }
 
 onMounted(async () => {
-  await Promise.all([manageUserStore.fetchRoles(), loadUsers(1)]);
+  await Promise.all([
+    manageUserStore.fetchRoles(),
+    loadUsers(1),
+  ]);
 });
 
 
@@ -199,7 +271,7 @@ async function gotoDashboard() {
           <p class="font-semibold tracking-wide text-[#333d4e]">Dashboard</p>
         </div>
 
-        <div class="flex flex-1 items-center justify-end gap-2">
+        <!-- <div class="flex flex-1 items-center justify-end gap-2">
           <NuxtLink to="/roles"
             class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
             Management Role
@@ -209,7 +281,7 @@ async function gotoDashboard() {
             class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
             Management Permission
           </NuxtLink>
-        </div>
+        </div> -->
       </div>
 
       <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
@@ -285,6 +357,11 @@ async function gotoDashboard() {
                     <button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 font-semibold text-red-600"
                       @click="openDeleteModal(item)">
                       Hapus
+                    </button>
+                    <button
+                      class="rounded-lg border border-red-200 bg-orange-50 px-3 py-1.5 font-semibold text-orange-600"
+                      @click="openPermissionModal(item)">
+                      Hak Akses
                     </button>
                   </div>
                 </td>
@@ -399,6 +476,130 @@ async function gotoDashboard() {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="showPermissionModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div class="w-full max-w-4xl rounded-2xl bg-white p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h3 class="text-[18px] font-bold">Hak Akses User</h3>
+            <p class="text-sm text-[#8A817A]">
+              Atur hak akses untuk
+              <span class="font-semibold text-[#2E1F18]">{{ selectedPermissionUser?.username }}</span>
+            </p>
+          </div>
+          <button class="text-[#8A817A]" @click="closePermissionModal">✕</button>
+        </div>
+
+        <div class="mb-4 flex flex-wrap gap-2 border-b border-[#EEE6DE] pb-3">
+          <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'menu'
+            ? 'bg-[#4D392A] text-white'
+            : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="activePermissionTab = 'menu'">
+            Akses Menu
+          </button>
+          <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'masterData'
+            ? 'bg-[#4D392A] text-white'
+            : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="activePermissionTab = 'masterData'">
+            Akses Perusahaan dan Akses estate
+          </button>
+          <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
+            ? 'bg-[#4D392A] text-white'
+            : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="activePermissionTab = 'transaksi'">
+            Akses transaksi
+          </button>
+        </div>
+
+        <div v-if="activePermissionTab === 'menu'" class="rounded-xl border border-[#EEE6DE] p-4">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <p class="font-semibold text-[#4D392A]">List Menu</p>
+            <button type="button"
+              class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+              @click="toggleAllMenu">
+              Ceklis Semua
+            </button>
+          </div>
+
+          <div v-if="dashboardStoreInstance.loading" class="text-[#8A817A]">
+            Memuat data menu...
+          </div>
+
+          <div v-else-if="!dashboardStoreInstance.moduleItems?.length" class="text-[#8A817A]">
+            Belum ada data menu.
+          </div>
+
+          <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <label v-for="(menu, index) in dashboardStoreInstance.moduleItems" :key="`${menu.to}-${index}`"
+              class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+              <input v-model="selectedMenuKeys" type="checkbox" class="h-4 w-4" :value="`${menu.to}-${index}`" />
+              <span>{{ menu.title ?? 'Menu' }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div v-else-if="activePermissionTab === 'masterData'" class="rounded-xl border border-[#EEE6DE] p-4">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <p class="font-semibold text-[#4D392A]">List data pt dan list data estate</p>
+            <button type="button"
+              class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+              @click="toggleAllMasterData">
+              Ceklis Semua
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <p class="mb-2 text-sm font-semibold text-[#6F645B]">Data PT</p>
+              <div class="space-y-2">
+                <label v-for="pt in ptOptions" :key="pt.value"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input v-model="selectedPtValues" type="checkbox" class="h-4 w-4" :value="pt.value" />
+                  <span>{{ pt.label }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <p class="mb-2 text-sm font-semibold text-[#6F645B]">Data Estate</p>
+              <div class="space-y-2">
+                <label v-for="estate in estateOptions" :key="estate.value"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input v-model="selectedEstateValues" type="checkbox" class="h-4 w-4" :value="estate.value" />
+                  <span>{{ estate.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="rounded-xl border border-[#EEE6DE] p-4">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <p class="font-semibold text-[#4D392A]">List data transaksi</p>
+            <button type="button"
+              class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+              @click="toggleAllTransaksi">
+              Ceklis Semua
+            </button>
+          </div>
+
+          <div class="space-y-2">
+            <label v-for="trx in transaksiOptions" :key="trx.value"
+              class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+              <input v-model="selectedTransaksiValues" type="checkbox" class="h-4 w-4" :value="trx.value" />
+              <span>{{ trx.label }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="mt-5 flex justify-end gap-2">
+          <button class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+            @click="closePermissionModal">
+            Tutup
+          </button>
+          <button class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white">
+            Simpan Hak Akses
+          </button>
+        </div>
       </div>
     </div>
 

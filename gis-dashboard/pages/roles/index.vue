@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import Header from "~/components/Header.vue";
 import { useManageRoleStore, type RoleItem } from "~/stores/manageRoleStore";
+import { usePermissionScope } from "~/composables/usePermissionScope";
 
 defineOptions({
   name: "RolesManagementPage",
@@ -35,6 +36,38 @@ const filteredRoles = computed(() => {
 const submitLoading = computed(
   () => manageRoleStore.loadingCreate || manageRoleStore.loadingUpdate,
 );
+
+const { grouped: groupedPermissions } = usePermissionScope(
+  () => manageRoleStore.permissions,
+);
+
+const groupedPermissionSections = computed(() => [
+  {
+    key: "menu",
+    label: "Level 1 - Akses Menu / Modul Dashboard",
+    items: groupedPermissions.value.menu,
+  },
+  {
+    key: "pt",
+    label: "Level 2 - Akses Data Map per PT",
+    items: groupedPermissions.value.pt,
+  },
+  {
+    key: "estate",
+    label: "Level 3 - Akses Data Map per Estate",
+    items: groupedPermissions.value.estate,
+  },
+  {
+    key: "transaction",
+    label: "Level 4 - Akses Data Transaksi",
+    items: groupedPermissions.value.transaction,
+  },
+  {
+    key: "general",
+    label: "Permission Umum / Lainnya",
+    items: groupedPermissions.value.general,
+  },
+].filter((section) => section.items.length > 0));
 
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Role" : "Edit Role",
@@ -133,7 +166,7 @@ onMounted(async () => {
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 class="text-[20px] font-bold">Daftar Role</h2>
-            <p class="text-[#8A817A]">Kelola role dan permission yang terkait.</p>
+            <p class="text-[#8A817A]">Kelola role dan permission bertingkat berdasarkan scope akses.</p>
           </div>
 
           <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
@@ -149,6 +182,25 @@ onMounted(async () => {
         <p v-if="manageRoleStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
           {{ manageRoleStore.errorMessage }}
         </p>
+
+        <div class="mb-4 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
+          <h3 class="text-[16px] font-bold text-[#4D392A]">Group Permission Bertingkat</h3>
+          <p class="mt-1 text-[#8A817A]">
+            Permission dikelompokkan ke 4 level utama agar assignment role lebih terstruktur.
+          </p>
+
+          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div v-for="section in groupedPermissionSections" :key="section.key"
+              class="rounded-lg border border-[#E7DDD3] bg-white p-3">
+              <p class="text-sm font-semibold text-[#4D392A]">{{ section.label }}</p>
+              <p class="mt-1 text-xs text-[#8A817A]">{{ section.items.length }} permission</p>
+            </div>
+            <div v-if="groupedPermissionSections.length === 0"
+              class="rounded-lg border border-dashed border-[#E7DDD3] bg-white p-3 text-[#8A817A]">
+              Belum ada data permission untuk dikelompokkan.
+            </div>
+          </div>
+        </div>
 
         <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
           <table class="min-w-full bg-white">
@@ -192,7 +244,7 @@ onMounted(async () => {
     </div>
 
     <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-3xl rounded-2xl bg-white p-5">
+      <div class="w-full max-w-4xl rounded-2xl bg-white p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
           <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
@@ -212,21 +264,31 @@ onMounted(async () => {
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-2 block text-[#6F645B]">Permission</label>
-            <div class="max-h-60 overflow-y-auto rounded-xl border border-[#EEE6DE] p-3">
+            <label class="mb-2 block text-[#6F645B]">Permission Scope</label>
+            <div class="max-h-80 overflow-y-auto rounded-xl border border-[#EEE6DE] p-3">
               <div v-if="manageRoleStore.loadingPermissions" class="text-[#8A817A]">
                 Memuat data permission...
               </div>
 
-              <label v-for="permission in manageRoleStore.permissions" :key="permission.id"
-                class="mb-2 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-[#F8F3EE]">
-                <input type="checkbox" :checked="form.permission_ids.includes(permission.id)"
-                  @change="togglePermission(permission.id)" />
-                <span class="font-semibold">{{ permission.kode }}</span>
-                <span class="text-[#8A817A]">
-                  ({{ permission.resource }} - {{ permission.aksi }})
-                </span>
-              </label>
+              <div v-else-if="groupedPermissionSections.length === 0" class="text-[#8A817A]">
+                Tidak ada data permission.
+              </div>
+
+              <div v-for="section in groupedPermissionSections" :key="`section-${section.key}`"
+                class="mb-3 rounded-xl border border-[#EFE6DE] bg-[#FFFCF9] p-3">
+                <p class="mb-2 text-sm font-bold text-[#4D392A]">{{ section.label }}</p>
+                <div class="space-y-1.5">
+                  <label v-for="permission in section.items" :key="permission.id"
+                    class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-[#F8F3EE]">
+                    <input type="checkbox" :checked="form.permission_ids.includes(permission.id)"
+                      @change="togglePermission(permission.id)" />
+                    <span class="font-semibold">{{ permission.kode }}</span>
+                    <span class="text-[#8A817A]">
+                      ({{ permission.resource }} - {{ permission.aksi }})
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 

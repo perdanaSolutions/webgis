@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { useAccessControl } from "~/composables/useAccessControl";
 
 type FeatureProperties = Record<string, string | number | null | undefined>;
 
@@ -116,6 +117,99 @@ export const useMapStore = defineStore("map", {
   },
 
   actions: {
+    applyAccessScopeToOptions() {
+      const {
+        isSuperAdmin,
+        allowedPTCodes,
+        allowedEstateCodes,
+        allowedTransactions,
+      } = useAccessControl();
+
+      if (isSuperAdmin.value) return;
+
+      const normalize = (value: string) => value.trim().toLowerCase();
+      const has = (list: string[], value: string) => {
+        if (!list.length) return true;
+        const v = normalize(value);
+        return list.some(
+          (item) => v.includes(normalize(item)) || normalize(item).includes(v),
+        );
+      };
+
+      this.options.pt = this.options.pt.filter((opt) =>
+        has(allowedPTCodes.value, opt.value),
+      );
+
+      this.options.estate = this.options.estate.filter((opt) =>
+        has(allowedEstateCodes.value, opt.value),
+      );
+
+      this.options.statusTanam = this.options.statusTanam.filter((opt) =>
+        has(allowedTransactions.value, opt.value),
+      );
+
+      if (this.filters.pt && !has(allowedPTCodes.value, this.filters.pt)) {
+        this.filters.pt = "";
+        this.filters.estate = "";
+        this.filters.afdeling = "";
+        this.filters.blok = "";
+      }
+
+      if (
+        this.filters.estate &&
+        !has(allowedEstateCodes.value, this.filters.estate)
+      ) {
+        this.filters.estate = "";
+        this.filters.afdeling = "";
+        this.filters.blok = "";
+      }
+
+      if (
+        this.filters.statusTanam &&
+        !has(allowedTransactions.value, this.filters.statusTanam)
+      ) {
+        this.filters.statusTanam = "";
+      }
+    },
+
+    applyAccessScopeToFilters() {
+      const {
+        isSuperAdmin,
+        allowedPTCodes,
+        allowedEstateCodes,
+        allowedTransactions,
+      } = useAccessControl();
+
+      if (isSuperAdmin.value) return;
+
+      const normalize = (value: string) => value.trim().toLowerCase();
+      const has = (list: string[], value: string) => {
+        if (!list.length) return true;
+        const v = normalize(value);
+        return list.some(
+          (item) => v.includes(normalize(item)) || normalize(item).includes(v),
+        );
+      };
+
+      if (this.filters.pt && !has(allowedPTCodes.value, this.filters.pt)) {
+        this.filters.pt = "";
+      }
+
+      if (
+        this.filters.estate &&
+        !has(allowedEstateCodes.value, this.filters.estate)
+      ) {
+        this.filters.estate = "";
+      }
+
+      if (
+        this.filters.statusTanam &&
+        !has(allowedTransactions.value, this.filters.statusTanam)
+      ) {
+        this.filters.statusTanam = "";
+      }
+    },
+
     async fetchFilters() {
       const query = toQuery(this.filters);
       const apiBaseUrl = getApiBaseUrl();
@@ -151,9 +245,12 @@ export const useMapStore = defineStore("map", {
           value,
         })),
       };
+
+      this.applyAccessScopeToOptions();
     },
 
     async fetchFeatures() {
+      this.applyAccessScopeToFilters();
       const query = toQuery(this.filters);
       const apiBaseUrl = getApiBaseUrl();
       const url = query
@@ -166,6 +263,7 @@ export const useMapStore = defineStore("map", {
     },
 
     async fetchSummary() {
+      this.applyAccessScopeToFilters();
       const query = toQuery(this.filters);
       const apiBaseUrl = getApiBaseUrl();
       const url = query
