@@ -22,6 +22,9 @@ router = APIRouter()
 @router.get("/pt", response_model=PaginatedResponse)
 def get_pt_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode PT"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode PT"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
@@ -29,8 +32,11 @@ def get_pt_list(
 ):
     offset = (page - 1) * limit
     
-    # UBAH DARI db.query(perusahaan) MENJADI HURUF KAPITAL:
     query = db.query(Perusahaan)
+    
+    # Filter berdasarkan kode PT
+    if kode_pt:
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
     
     if search:
         search_filter = f"%{search}%"
@@ -40,10 +46,15 @@ def get_pt_list(
                 Perusahaan.kode_pt.ilike(search_filter)
             )
         )
+    
+    # Filter bulan dan tahun (jika ada di model Perusahaan)
+    if bulan:
+        query = query.filter(Perusahaan.bulan == bulan)
+    if tahun:
+        query = query.filter(Perusahaan.tahun == tahun)
         
     total_query = query.count()
     
-    # UBAH JUGA DI SINI JIKA ADA YANG MASIH HURUF KECIL:
     data_orm = query.order_by(Perusahaan.nama_pt).limit(limit).offset(offset).all()
 
     formatted_data = []
@@ -51,7 +62,9 @@ def get_pt_list(
         formatted_data.append({
             "id": row.pt_id,        
             "nama_pt": row.nama_pt,
-            "kode_pt": row.kode_pt
+            "kode_pt": row.kode_pt,
+            "bulan": row.bulan if hasattr(row, 'bulan') else None,
+            "tahun": row.tahun if hasattr(row, 'tahun') else None
         })
 
     return {
@@ -68,7 +81,10 @@ def get_pt_list(
 @router.get("/estate", response_model=PaginatedResponse)
 def get_estate_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode Estate"),
-    pt_id: Optional[int] = Query(None, description="Filter berdasarkan ID Perusahaan"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
+    kode_est: Optional[str] = Query(None, description="Filter berdasarkan kode Estate"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
@@ -77,9 +93,20 @@ def get_estate_list(
     offset = (page - 1) * limit
     query = db.query(Estate)
     
-    # Filter relasi ke PT jika dikirim dari frontend
-    if pt_id:
-        query = query.filter(Estate.pt_id == pt_id)
+    # Filter berdasarkan kode PT (join dengan tabel Perusahaan)
+    if kode_pt:
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+    
+    # Filter berdasarkan kode Estate
+    if kode_est:
+        query = query.filter(Estate.kode_est == kode_est)
+    
+    # Filter bulan dan tahun
+    if bulan:
+        query = query.filter(Estate.bulan == bulan)
+    if tahun:
+        query = query.filter(Estate.tahun == tahun)
         
     if search:
         search_filter = f"%{search}%"
@@ -96,7 +123,7 @@ def get_estate_list(
     formatted_data = []
     for row in data_orm:
         formatted_data.append({
-            "id": row.est_id,  # Meng-alias composite string ID menjadi 'id' untuk Pydantic
+            "id": row.est_id,
             "pt_id": row.pt_id,
             "nama_estate": row.nama_estate,
             "kode_est": row.kode_est,
@@ -118,7 +145,11 @@ def get_estate_list(
 @router.get("/afdeling", response_model=PaginatedResponse)
 def get_afdeling_list(
     search: Optional[str] = Query(None, description="Cari kode Afdeling"),
-    est_id: Optional[str] = Query(None, description="Filter berdasarkan ID Estate"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
+    kode_est: Optional[str] = Query(None, description="Filter berdasarkan kode Estate"),
+    kode_afd: Optional[str] = Query(None, description="Filter berdasarkan kode Afdeling"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
@@ -127,8 +158,27 @@ def get_afdeling_list(
     offset = (page - 1) * limit
     query = db.query(Afdeling)
     
-    if est_id:
-        query = query.filter(Afdeling.est_id == est_id)
+    # Filter berdasarkan kode PT (join dengan Estate dan Perusahaan)
+    if kode_pt:
+        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+    
+    # Filter berdasarkan kode Estate (join dengan Estate)
+    if kode_est:
+        if not kode_pt:  # Jika belum di-join
+            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.filter(Estate.kode_est == kode_est)
+    
+    # Filter berdasarkan kode Afdeling
+    if kode_afd:
+        query = query.filter(Afdeling.kode_afd == kode_afd)
+    
+    # Filter bulan dan tahun
+    if bulan:
+        query = query.filter(Afdeling.bulan == bulan)
+    if tahun:
+        query = query.filter(Afdeling.tahun == tahun)
         
     if search:
         query = query.filter(Afdeling.kode_afd.ilike(f"%{search}%"))
@@ -160,7 +210,12 @@ def get_afdeling_list(
 @router.get("/blok", response_model=PaginatedResponse)
 def get_blok_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode Blok"),
-    afd_id: Optional[str] = Query(None, description="Filter berdasarkan ID Afdeling"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
+    kode_est: Optional[str] = Query(None, description="Filter berdasarkan kode Estate"),
+    kode_afd: Optional[str] = Query(None, description="Filter berdasarkan kode Afdeling"),
+    kode_blok: Optional[str] = Query(None, description="Filter berdasarkan kode Blok"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
@@ -169,8 +224,45 @@ def get_blok_list(
     offset = (page - 1) * limit
     query = db.query(Blok)
     
-    if afd_id:
-        query = query.filter(Blok.afd_id == afd_id)
+    # Flag untuk tracking apakah sudah join
+    joined_afdeling = False
+    joined_estate = False
+    
+    # Filter berdasarkan kode PT (join dengan Afdeling, Estate, Perusahaan)
+    if kode_pt:
+        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+        joined_afdeling = True
+        joined_estate = True
+    
+    # Filter berdasarkan kode Estate (join dengan Afdeling dan Estate)
+    if kode_est:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        if not joined_estate:
+            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+            joined_estate = True
+        query = query.filter(Estate.kode_est == kode_est)
+    
+    # Filter berdasarkan kode Afdeling (join dengan Afdeling)
+    if kode_afd:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        query = query.filter(Afdeling.kode_afd == kode_afd)
+    
+    # Filter berdasarkan kode Blok
+    if kode_blok:
+        query = query.filter(Blok.kode_blok == kode_blok)
+    
+    # Filter bulan dan tahun
+    if bulan:
+        query = query.filter(Blok.bulan == bulan)
+    if tahun:
+        query = query.filter(Blok.tahun == tahun)
         
     if search:
         search_filter = f"%{search}%"
@@ -209,26 +301,67 @@ def get_blok_list(
         "data": formatted_data
     }
 
-
 # ============================================================
 # 5. ENDPOINT GEOJSON BLOK PETA (Dengan Sinkronisasi Tabel Spasial)
 # ============================================================
 @router.get("/geojson")
 def get_blocks_geojson(
-    estate_id: Optional[str] = Query(None, description="Filter peta berdasarkan ID Estate saja"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
+    kode_est: Optional[str] = Query(None, description="Filter berdasarkan kode Estate"),
+    kode_afd: Optional[str] = Query(None, description="Filter berdasarkan kode Afdeling"),
+    kode_blok: Optional[str] = Query(None, description="Filter berdasarkan kode Blok"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     db: Session = Depends(deps.get_db),
     current_user = Depends(deps.PermissionChecker("blok:read"))
 ):
     # Query gabungan Blok dengan GeoBlok menggunakan ORM + PostGIS function
-    # func.ST_AsGeoJSON(GeoBlok.geom_polygon) mengubah biner EWKB menjadi string JSON spasial
     query = db.query(
         Blok, 
         func.ST_AsGeoJSON(GeoBlok.geom_polygon).label("geojson_geom")
     ).join(GeoBlok, Blok.blok_id == GeoBlok.blok_id)
     
-    # Jika frontend memilih filter Estate tertentu, saring berdasarkan awalan ID blok
-    if estate_id:
-        query = query.filter(Blok.blok_id.like(f"{estate_id}%"))
+    # Flag untuk tracking join
+    joined_afdeling = False
+    joined_estate = False
+    joined_perusahaan = False
+    
+    # Filter berdasarkan kode PT
+    if kode_pt:
+        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+        joined_afdeling = True
+        joined_estate = True
+        joined_perusahaan = True
+    
+    # Filter berdasarkan kode Estate
+    if kode_est:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        if not joined_estate:
+            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+            joined_estate = True
+        query = query.filter(Estate.kode_est == kode_est)
+    
+    # Filter berdasarkan kode Afdeling
+    if kode_afd:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        query = query.filter(Afdeling.kode_afd == kode_afd)
+    
+    # Filter berdasarkan kode Blok
+    if kode_blok:
+        query = query.filter(Blok.kode_blok == kode_blok)
+    
+    # Filter bulan dan tahun
+    if bulan:
+        query = query.filter(Blok.bulan == bulan)
+    if tahun:
+        query = query.filter(Blok.tahun == tahun)
         
     results = query.all()
     
@@ -240,7 +373,6 @@ def get_blocks_geojson(
             
         features.append({
             "type": "Feature",
-            "geometry": json.loads(geom_json_str), # Parse string JSON dari PostGIS menjadi Object
             "properties": {
                 "blok_id": blok_data.blok_id,
                 "nama_blok": blok_data.nama_blok,
@@ -248,8 +380,11 @@ def get_blocks_geojson(
                 "afd_id": blok_data.afd_id,
                 "tahun_tanam": blok_data.tahun_tanam,
                 "jenis_bibit": blok_data.jenis_bibit,
-                "status_tanam": blok_data.status_tanam
-            }
+                "status_tanam": blok_data.status_tanam,
+                "bulan": blok_data.bulan,
+                "tahun": blok_data.tahun
+            },
+            "geometry": json.loads(geom_json_str)
         })
         
     geojson_response = {
@@ -257,7 +392,6 @@ def get_blocks_geojson(
         "features": features
     }
     
-    # Mengembalikan response langsung berbentuk aplikasi JSON murni
     return Response(content=json.dumps(geojson_response), media_type="application/json")
 
 # # endpoin upload blok
@@ -343,16 +477,33 @@ async def upload_tph_analyze(
     return service.analyze_geojson_tph(db, contents, bulan, tahun)
 
 @router.post("/tph/upload-execute", summary="TPH TAHAP 2: Bulk Save Master Atribut")
+# async def upload_tph_execute(
+#     bulan: int = Query(..., ge=1, le=12), 
+#     tahun: int = Query(..., ge=2000),
+#     file: UploadFile = File(...), 
+#     db: Session = Depends(deps.get_db),
+#     current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+# ):
+#     contents = await file.read()
+#     total = service.execute_bulk_tph(db, contents, bulan, tahun)
+#     return {"status": "success", "detail": f"{total} baris data TPH periode {bulan}-{tahun} berhasil masuk ke database."}
+
 async def upload_tph_execute(
-    bulan: int = Query(..., ge=1, le=12), 
-    tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    bulan: int,
+    tahun: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(deps.get_db)
 ):
     contents = await file.read()
-    total = service.execute_bulk_tph(db, contents, bulan, tahun)
-    return {"status": "success", "detail": f"{total} baris data TPH periode {bulan}-{tahun} berhasil masuk ke database."}
+    
+    # Menampung hasil berupa dictionary statistik
+    stats = service.execute_bulk_tph(db, contents, bulan, tahun)
+    
+    return {
+        "status": "success",
+        "message": f"Proses unggah data spasial TPH periode {bulan}-{tahun} selesai.",
+        "detail": stats
+    }
 
 
 # =====================================================================
@@ -371,16 +522,35 @@ async def upload_geometry_analyze(
     return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
 
 @router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
+# async def upload_geometry_execute(
+#     bulan: int = Query(..., ge=1, le=12), 
+#     tahun: int = Query(..., ge=2000),
+#     file: UploadFile = File(...), 
+#     db: Session = Depends(deps.get_db),
+#     current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+# ):
+#     contents = await file.read()
+#     total = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+#     return {"status": "success", "detail": f"{total} data spasial polygon blok periode {bulan}-{tahun} berhasil disuntikkan."}
+
+
 async def upload_geometry_execute(
-    bulan: int = Query(..., ge=1, le=12), 
-    tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    bulan: int,
+    tahun: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(deps.get_db)
 ):
+    # ... (proses baca file geojson seperti biasa) ...
     contents = await file.read()
-    total = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
-    return {"status": "success", "detail": f"{total} data spasial polygon blok periode {bulan}-{tahun} berhasil disuntikkan."}
+    
+    # Panggil service yang kini mengembalikan dictionary statistik
+    stats = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+    
+    return {
+        "status": "success",
+        "message": f"Proses unggah spasial blok periode {bulan}-{tahun} selesai.",
+        "detail": stats
+    }
 
 # ==========================================
 # AKSI HAPUS DATA PERIODE (CLEANUP DATA)

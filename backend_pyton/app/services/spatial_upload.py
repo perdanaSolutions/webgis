@@ -4,13 +4,160 @@ from sqlalchemy import text
 from fastapi import HTTPException
 
 # =====================================================================
-# 1. MODUL UPLOAD TPH (MASTER DATA: PT -> ESTATE -> AFDELING -> BLOK)
+# 1. MODUL UPLOAD TPH (PURE SPATIAL INSERTS TO GEO_TPH)
 # =====================================================================
 
 def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> dict:
     """
-    Tahap 1 TPH: Menganalisis ringkasan data baru/lama serta menghitung 
-    jumlah entitas unik (PT, Estate, Afdeling, Blok) dari GeoJSON.
+    Tahap 1 TPH: Memeriksa validitas titik TPH terhadap data induk blok 
+    yang seharusnya sudah di-upload terlebih dahulu lewat Geo_Blok.
+    """
+    try:
+        geojson_data = json.loads(geojson_content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Format file tidak valid atau bukan JSON.")
+
+    features = geojson_data.get("features", []) if geojson_data.get("type") == "FeatureCollection" else [geojson_data]
+    
+    total_data = len(features)
+    tph_siap_insert = 0
+    induk_blok_missing = 0
+    data_invalid = 0
+
+    # Ambil daftar blok_id yang valid di DB untuk periode terpilih
+    existing_bloks = set(r[0] for r in db.execute(
+        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
+        {"b": bulan, "t": tahun}
+    ).fetchall())
+
+    for feature in features:
+        properties = feature.get("properties", {})
+        nama_pt = properties.get("PT")
+        kode_est = properties.get("EstID") or properties.get("Estate")
+        kode_afd = properties.get("Afdeling")
+        kode_blok = properties.get("Blok")
+
+        # Validasi kelengkapan properti pembentuk blok_id
+        if not all([nama_pt, kode_est, kode_afd, kode_blok]):
+            data_invalid += 1
+            continue
+            
+        kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
+        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
+
+        # TPH hanya bisa masuk jika blok induknya sudah di-upload via geo_blok
+        if blok_id in existing_bloks:
+            tph_siap_insert += 1
+        else:
+            induk_blok_missing += 1
+
+    return {
+        "tipe_upload": "SPATIAL_POINT_TPH",
+        "periode": f"{bulan}-{tahun}",
+        "total_fitur_tph": total_data,
+        "tph_siap_diunggah": tph_siap_insert,
+        "tph_tertahan_karena_blok_belum_ada": induk_blok_missing,
+        "data_properti_invalid": data_invalid
+    }
+
+
+def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> dict:
+    """
+    Tahap 2 TPH: Eksekusi pengisian titik spasial TPH secara massal dengan respons statistik spesifik.
+    Menolak/skip jika blok induk tidak ditemukan untuk menjaga integritas relasi.
+    """
+    geojson_data = json.loads(geojson_content)
+    features = geojson_data.get("features", []) if geojson_data.get("type") == "FeatureCollection" else [geojson_data]
+    
+    # Inisialisasi counter statistik spesifik
+    total_input = len(features)
+    success_count = 0
+    missing_blok_count = 0
+    invalid_prop_count = 0
+    failed_error_count = 0
+
+    # Ambil daftar induk blok yang valid di DB untuk periode terpilih
+    existing_bloks = set(r[0] for r in db.execute(
+        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
+        {"b": bulan, "t": tahun}
+    ).fetchall())
+
+    for index, feature in enumerate(features):
+        properties = feature.get("properties", {})
+        geometry = feature.get("geometry", {})
+        
+        if not geometry or not properties:
+            invalid_prop_count += 1
+            continue
+
+        nama_pt = properties.get("PT")
+        kode_est = properties.get("EstID") or properties.get("Estate")
+        kode_afd = properties.get("Afdeling")
+        kode_blok = properties.get("Blok")
+
+        # Validasi kelengkapan data properti
+        if not all([nama_pt, kode_est, kode_afd, kode_blok]):
+            invalid_prop_count += 1
+            continue
+            
+        kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
+        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
+
+        # Cek apakah blok induk sudah tersedia di DB pada periode ini
+        if blok_id not in existing_bloks:
+            missing_blok_count += 1
+            continue
+
+        nested_tx = db.begin_nested()
+        try:
+            geometry_json_str = json.dumps(geometry)
+            
+            # Eksekusi penyimpanan koordinat point TPH
+            db.execute(
+                text("""
+                    INSERT INTO geo_tph (blok_id, geom_point, kategori, bulan, tahun)
+                    VALUES (:bid, ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326), :kat, :b, :t)
+                """), 
+                {
+                    "bid": blok_id, 
+                    "geom_json": geometry_json_str, 
+                    "kat": properties.get("Kategori"),
+                    "b": bulan,
+                    "t": tahun
+                }
+            )
+
+            nested_tx.commit()
+            success_count += 1
+        except Exception as e:
+            nested_tx.rollback()
+            failed_error_count += 1
+            print(f"--- ERROR INSERT TPH INDEKS {index} ---")
+            print(f"Blok ID bermasalah: {blok_id}, Detail: {str(e)}")
+            continue
+
+    db.commit()
+    
+    # Mengembalikan dictionary berisi detail hasil pemrosesan data
+    return {
+        "total_fitur_tph_diproses": total_input,
+        "detail_status": {
+            "tph_berhasil_diunggah": success_count,
+            "tph_tertahan_karena_blok_belum_ada": missing_blok_count,
+            "data_properti_tidak_lengkap": invalid_prop_count,
+            "gagal_sistem_error": failed_error_count
+        }
+    }
+
+
+# =====================================================================
+# 2. MODUL UPLOAD GEOMETRI BLOK (MASTER DATA & SPATIAL POLYGON)
+# =====================================================================
+
+def analyze_geojson_geometry_blok(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> dict:
+    """
+    Tahap 1 Geometri Blok: Menganalisis ringkasan master data baru/lama 
+    serta menghitung jumlah entitas unik (PT, Estate, Afdeling, Blok) dari GeoJSON.
     """
     try:
         geojson_data = json.loads(geojson_content)
@@ -39,7 +186,7 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
     for feature in features:
         properties = feature.get("properties", {})
         nama_pt = properties.get("PT")
-        kode_est = properties.get("EstID") or properties.get("Estate")
+        kode_est = properties.get("EstID") or properties.get("Estate") or properties.get("Est")
         kode_afd = properties.get("Afdeling")
         kode_blok = properties.get("Blok")
 
@@ -64,7 +211,7 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
             data_baru += 1
 
     return {
-        "tipe_upload": "TPH_MASTER_DATA",
+        "tipe_upload": "GEOMETRI_BLOK_AND_MASTER_DATA",
         "periode": f"{bulan}-{tahun}",
         "total_fitur": total_data,
         "data_baru_di_periode_ini": data_baru,
@@ -79,274 +226,190 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
     }
 
 
-def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> int:
+def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> dict:
     """
-    Tahap 2 TPH: Eksekusi pengisian master data (Mengecek eksistensi manual 
-    untuk menghindari konflik Unique Constraint global).
+    Tahap 2 Geometri Blok: Melakukan pendaftaran/update master data (PT, Estate, Afdeling, Blok) 
+    sekaligus menyisipkan data koordinat spasial Polygon ke tabel geo_blok.
     """
     geojson_data = json.loads(geojson_content)
     features = geojson_data.get("features", []) if geojson_data.get("type") == "FeatureCollection" else [geojson_data]
-    record_count = 0
+    
+    # Set unik untuk melacak data yang BERHASIL diinput/di-update
+    success_pt = set()
+    success_estate = set()
+    success_afdeling = set()
+    success_blok = set()
+    success_geo_blok = 0
+    
+    # Counter untuk mencatat data yang GAGAL karena exception
+    failed_count = 0
 
     for index, feature in enumerate(features):
         properties = feature.get("properties", {})
         geometry = feature.get("geometry", {})
         if not geometry or not properties:
+            failed_count += 1
             continue
+
+        nama_pt = properties.get("PT")
+        kode_est = properties.get("EstID") or properties.get("Estate") or properties.get("Est")
+        kode_afd = properties.get("Afdeling")
+        kode_blok = properties.get("Blok")
+
+        if not all([nama_pt, kode_est, kode_afd, kode_blok]):
+            failed_count += 1
+            continue
+
+        kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
+        est_id = f"{kode_pt}_{kode_est}"
+        afd_id = f"{est_id}_{kode_afd}"
+        blok_id = f"{afd_id}_{kode_blok}"
 
         nested_tx = db.begin_nested()
         try:
             # =================================================================
-            # 1. UPSERT PERUSAHAAN (PT)
+            # 1. MANAGE PERUSAHAAN
             # =================================================================
-            nama_pt = properties.get("PT")
-            kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
-            
-            pt_row = db.execute(
-                text("""
-                    INSERT INTO perusahaan (nama_pt, kode_pt, bulan, tahun) 
-                    VALUES (:nama, :kode, :b, :t) 
-                    ON CONFLICT (kode_pt) DO UPDATE SET nama_pt = EXCLUDED.nama_pt 
-                    RETURNING pt_id
-                """), {"nama": nama_pt, "kode": kode_pt, "b": bulan, "t": tahun}
+            existing_pt = db.execute(
+                text("SELECT pt_id FROM perusahaan WHERE kode_pt = :kode"),
+                {"kode": kode_pt}
             ).fetchone()
-            pt_id = pt_row[0]
+
+            if existing_pt:
+                actual_pt_id = existing_pt[0]
+                db.execute(
+                    text("UPDATE perusahaan SET nama_pt = :nama WHERE pt_id = :id"),
+                    {"nama": nama_pt, "id": actual_pt_id}
+                )
+            else:
+                pt_row = db.execute(
+                    text("""
+                        INSERT INTO perusahaan (nama_pt, kode_pt, bulan, tahun) 
+                        VALUES (:nama, :kode, :b, :t) 
+                        RETURNING pt_id
+                    """), {"nama": nama_pt, "kode": kode_pt, "b": bulan, "t": tahun}
+                ).fetchone()
+                actual_pt_id = pt_row[0]
+            
+            success_pt.add(kode_pt)
 
             # =================================================================
-            # 2. MANAGE ESTATE (Cek uq_estate_kode_est atau est_id)
+            # 2. MANAGE ESTATE
             # =================================================================
-            kode_est = properties.get("EstID") or properties.get("Estate")
-            nama_estate = properties.get("Estate")
-            est_id = f"{kode_pt}_{kode_est}"
+            nama_estate = properties.get("Estate") or kode_est
             
-            # Cek apakah kode_est atau est_id sudah pernah ada di database
             existing_estate = db.execute(
-                text("SELECT est_id FROM estate WHERE kode_est = :kode OR est_id = :id"),
-                {"kode": kode_est, "id": est_id}
+                text("SELECT est_id FROM estate WHERE est_id = :id AND bulan = :b AND tahun = :t"),
+                {"id": est_id, "b": bulan, "t": tahun}
             ).fetchone()
 
             if existing_estate:
-                # Jika ada, lakukan UPDATE ke baris tersebut
                 db.execute(
-                    text("""
-                        UPDATE estate 
-                        SET nama_estate = :nama, pt_id = :pt, bulan = :b, tahun = :t
-                        WHERE est_id = :target_id
-                    """), {"nama": nama_estate, "pt": pt_id, "b": bulan, "t": tahun, "target_id": existing_estate[0]}
+                    text("UPDATE estate SET nama_estate = :nama, pt_id = :pt WHERE est_id = :id AND bulan = :b AND tahun = :t"),
+                    {"nama": nama_estate, "pt": actual_pt_id, "id": est_id, "b": bulan, "t": tahun}
                 )
-                actual_est_id = existing_estate[0]
             else:
-                # Jika benar-benar baru, silakan INSERT
                 db.execute(
                     text("""
                         INSERT INTO estate (est_id, pt_id, nama_estate, kode_est, bulan, tahun) 
                         VALUES (:id, :pt, :nama, :kode, :b, :t)
-                    """), {"id": est_id, "pt": pt_id, "nama": nama_estate, "kode": kode_est, "b": bulan, "t": tahun}
+                    """), {"id": est_id, "pt": actual_pt_id, "nama": nama_estate, "kode": kode_est, "b": bulan, "t": tahun}
                 )
-                actual_est_id = est_id
+            
+            success_estate.add(est_id)
 
             # =================================================================
-            # 3. UPSERT AFDELING
+            # 3. MANAGE AFDELING
             # =================================================================
-            kode_afd = properties.get("Afdeling")
-            afd_id = f"{actual_est_id}_{kode_afd}"
+            existing_afd = db.execute(
+                text("SELECT afd_id FROM afdeling WHERE afd_id = :id AND bulan = :b AND tahun = :t"),
+                {"id": afd_id, "b": bulan, "t": tahun}
+            ).fetchone()
+
+            if not existing_afd:
+                db.execute(
+                    text("""
+                        INSERT INTO afdeling (afd_id, est_id, kode_afd, bulan, tahun) 
+                        VALUES (:id, :est, :kode, :b, :t)
+                    """), {"id": afd_id, "est": est_id, "kode": kode_afd, "b": bulan, "t": tahun}
+                )
             
-            db.execute(
-                text("""
-                    INSERT INTO afdeling (afd_id, est_id, kode_afd, bulan, tahun) 
-                    VALUES (:id, :est, :kode, :b, :t) 
-                    ON CONFLICT (afd_id) DO NOTHING
-                """), {"id": afd_id, "est": actual_est_id, "kode": kode_afd, "b": bulan, "t": tahun}
-            )
+            success_afdeling.add(afd_id)
 
             # =================================================================
-            # 4. MANAGE BLOK (Cek uq_blok_kode_blok atau blok_id)
+            # 4. MANAGE BLOK
             # =================================================================
-            kode_blok = properties.get("Blok")
-            blok_id = f"{afd_id}_{kode_blok}"
-            
             existing_blok = db.execute(
-                text("SELECT blok_id FROM blok WHERE kode_blok = :kode OR blok_id = :gid"),
-                {"kode": kode_blok, "gid": blok_id}
+                text("SELECT blok_id FROM blok WHERE blok_id = :bid AND bulan = :b AND tahun = :t"),
+                {"bid": blok_id, "b": bulan, "t": tahun}
             ).fetchone()
 
             if existing_blok:
-                # Jika kode blok bentrok, update data blok yang sudah ada
                 db.execute(
                     text("""
                         UPDATE blok 
-                        SET afd_id = :aid, nama_blok = :nama, tipe_blok = :tipe, bulan = :b, tahun = :t
-                        WHERE blok_id = :target_gid
+                        SET afd_id = :aid, nama_blok = :nama, tipe_blok = :tipe
+                        WHERE blok_id = :bid AND bulan = :b AND tahun = :t
                     """), {
                         "aid": afd_id, "nama": f"Blok {kode_blok}", "tipe": properties.get("Kategori"),
-                        "b": bulan, "t": tahun, "target_gid": existing_blok[0]
+                        "bid": blok_id, "b": bulan, "t": tahun
                     }
                 )
-                actual_blok_id = existing_blok[0]
             else:
-                # Jika blok baru, insert langsung
                 db.execute(
                     text("""
                         INSERT INTO blok (blok_id, afd_id, nama_blok, kode_blok, tipe_blok, bulan, tahun) 
-                        VALUES (:gid, :aid, :nama, :kode, :tipe, :b, :t)
+                        VALUES (:bid, :aid, :nama, :kode, :tipe, :b, :t)
                     """), {
-                        "gid": blok_id, "aid": afd_id, "nama": f"Blok {kode_blok}", 
+                        "bid": blok_id, "aid": afd_id, "nama": f"Blok {kode_blok}",
                         "kode": kode_blok, "tipe": properties.get("Kategori"), "b": bulan, "t": tahun
                     }
                 )
-                actual_blok_id = blok_id
+            
+            success_blok.add(blok_id)
 
             # =================================================================
-            # 5. INSERT GEOMETRI POINT TPH (MENDUKUNG MULTI-POINT PER BLOK)
+            # 5. INSERT / UPDATE GEOMETRI POLYGON (geo_blok)
             # =================================================================
             geometry_json_str = json.dumps(geometry)
             
-            # Kita biarkan id_tph terisi secara otomatis (auto-increment)
-            # Langsung INSERT tanpa melakukan UPDATE berdasarkan blok_id
             db.execute(
                 text("""
-                    INSERT INTO geo_tph (blok_id, geom_point, kategori, bulan, tahun)
-                    VALUES (:gid, ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326), :kat, :b, :t)
-                """), 
-                {
-                    "gid": actual_blok_id, 
-                    "geom_json": geometry_json_str, 
-                    "kat": properties.get("Kategori"),
-                    "b": bulan,
-                    "t": tahun
-                }
+                    DELETE FROM geo_blok 
+                    WHERE blok_id = :blok_id AND bulan = :bulan AND tahun = :tahun
+                """), {"blok_id": blok_id, "bulan": bulan, "tahun": tahun}
             )
 
-            nested_tx.commit()
-            record_count += 1
-        except Exception as e:
-            nested_tx.rollback()
-            # TAMBAHKAN INI: Untuk mencetak detail error aslinya dari database
-            import traceback
-            print(f"--- ERROR PADA INDEKS {index} ---")
-            print(f"Gid yang bermasalah: {actual_blok_id}")
-            traceback.print_exc() 
-            print("---------------------------------")
-            continue
-
-    db.commit()
-    return record_count
-
-
-# =====================================================================
-# 2. MODUL UPLOAD GEOMETRI BLOK (SPATIAL ENRICHMENT: GEOM_POLYGON)
-# =====================================================================
-
-def analyze_geojson_geometry_blok(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> dict:
-    """
-    Tahap 1 Geometri Blok: Menganalisis statistik polygon peta.
-    """
-    try:
-        geojson_data = json.loads(geojson_content)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Format file tidak valid atau bukan JSON.")
-
-    features = geojson_data.get("features", []) if geojson_data.get("type") == "FeatureCollection" else [geojson_data]
-    
-    total_data = len(features)
-    geom_baru = 0
-    geom_update = 0
-    blok_missing = 0 
-
-    existing_bloks = set(r[0] for r in db.execute(
-        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
-        {"b": bulan, "t": tahun}
-    ).fetchall())
-    
-    existing_geoms = set(r[0] for r in db.execute(
-        text("SELECT blok_id FROM geo_blok WHERE bulan = :b AND tahun = :t"),
-        {"b": bulan, "t": tahun}
-    ).fetchall())
-
-    for feature in features:
-        properties = feature.get("properties", {})
-        kode_blok = properties.get("Blok")
-        kode_afd = properties.get("Afdeling")
-        kode_est = properties.get("Est") or properties.get("Estate")
-        nama_pt = properties.get("PT")
-
-        if not all([nama_pt, kode_est, kode_afd, kode_blok]):
-            blok_missing += 1
-            continue
-
-        kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
-        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
-
-        if blok_id not in existing_bloks:
-            blok_missing += 1  
-        elif blok_id in existing_geoms:
-            geom_update += 1
-        else:
-            geom_baru += 1
-
-    return {
-        "tipe_upload": "SPATIAL_GEOMETRY_BLOK",
-        "periode": f"{bulan}-{tahun}",
-        "total_fitur": total_data,
-        "geometri_baru_terpetakan": geom_baru,
-        "geometri_diperbarui": geom_update,
-        "induk_blok_belum_ada_di_periode_ini": blok_missing
-    }
-
-
-def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, bulan: int, tahun: int) -> int:
-    """
-    Tahap 2 Geometri Blok: Menyimpan polygon koordinat ke PostGIS geo_blok.
-    """
-    geojson_data = json.loads(geojson_content)
-    features = geojson_data.get("features", []) if geojson_data.get("type") == "FeatureCollection" else [geojson_data]
-    record_count = 0
-
-    existing_bloks = set(r[0] for r in db.execute(
-        text("SELECT blok_id FROM blok WHERE bulan = :b AND tahun = :t"), 
-        {"b": bulan, "t": tahun}
-    ).fetchall())
-
-    for index, feature in enumerate(features):
-        properties = feature.get("properties", {})
-        geometry = feature.get("geometry", {})
-        if not geometry or not properties:
-            continue
-
-        kode_blok = properties.get("Blok")
-        kode_afd = properties.get("Afdeling")
-        kode_est = properties.get("Est") or properties.get("Estate")
-        nama_pt = properties.get("PT")
-
-        if not all([nama_pt, kode_est, kode_afd, kode_blok]):
-            continue
-
-        kode_pt = nama_pt.replace(".", "").replace(" ", "_").strip().upper()
-        blok_id = f"{kode_pt}_{kode_est}_{kode_afd}_{kode_blok}"
-
-        if blok_id not in existing_bloks:
-            continue
-
-        nested_tx = db.begin_nested()
-        try:
-            geometry_json_str = json.dumps(geometry)
             db.execute(
                 text("""
                     INSERT INTO geo_blok (blok_id, geom_polygon, bulan, tahun)
                     VALUES (:blok_id, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326)), :bulan, :tahun)
-                    ON CONFLICT (blok_id) DO UPDATE SET 
-                        geom_polygon = EXCLUDED.geom_polygon
                 """), {"blok_id": blok_id, "geom_json": geometry_json_str, "bulan": bulan, "tahun": tahun}
             )
+
             nested_tx.commit()
-            record_count += 1
+            success_geo_blok += 1
+
         except Exception as e:
             nested_tx.rollback()
-            print(f"Gagal mengunggah geometri blok {blok_id}: {str(e)}")
+            failed_count += 1
+            print(f"Gagal mengunggah struktur & geometri blok {blok_id}: {str(e)}")
             continue
 
     db.commit()
-    return record_count
+    
+    # Kembalikan dictionary statistik lengkap
+    return {
+        "total_fitur_diproses": len(features),
+        "jumlah_sukses": {
+            "perusahaan_pt": len(success_pt),
+            "estate": len(success_estate),
+            "afdeling": len(success_afdeling),
+            "blok": len(success_blok),
+            "geometri_polygon_blok": success_geo_blok
+        },
+        "jumlah_gagal": failed_count
+    }
 
 # =====================================================================
 # 4. MODUL HAPUS DATA (CLEANUP UPLOAD BERDASARKAN BULAN & TAHUN)
