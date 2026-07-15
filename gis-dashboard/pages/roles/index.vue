@@ -17,6 +17,7 @@ const search = ref("");
 const showFormModal = ref(false);
 const formMode = ref("create");
 const selectedRoleId = ref("");
+const searchQueryPerusahaan = ref("");
 
 const activePermissionTab = ref("menu");
 
@@ -46,7 +47,16 @@ const submitLoading = computed(
 );
 
 const allDataPerusahaan = computed(
-  () => manageRoleStore.allDataPerusahaan ?? [],
+  () => {
+    if (!searchQueryPerusahaan.value) {
+      return manageRoleStore.allDataPerusahaan ?? [];
+    }
+    return manageRoleStore.allDataPerusahaan.filter(perusahaan =>
+      perusahaan.nama_pt.toLowerCase().includes(searchQueryPerusahaan.value.toLowerCase())
+    )
+  }
+
+
 );
 const allDataEstate = computed(
   () => manageRoleStore.allDataEstate ?? [],
@@ -324,7 +334,10 @@ onMounted(async () => {
 
             <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-[#EEE6DE] p-4">
               <div class="mb-3 flex items-center justify-between gap-2">
-                <p class="font-semibold text-[#4D392A]">List data pt dan list data estate</p>
+
+                <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+
                 <button type="button"
                   class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
                   @click="toggleAllPerusahaan">

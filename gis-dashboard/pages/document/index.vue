@@ -269,18 +269,16 @@ async function gotoDashboard() {
           <div
             class="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-2xl border border-emerald-200 p-5 flex items-center justify-between shadow-sm">
             <div>
-              <p class="text-sm font-medium text-emerald-800/80 uppercase tracking-wider">1. Data Baru di Periode Ini
+              <p class="text-sm font-medium text-emerald-800/80 uppercase tracking-wider">Data Baru di Periode Ini
               </p>
-              <h4 class="text-3xl font-black text-emerald-900 mt-1">
-                {{ documentUploadStore.summaryAnalyze.data_baru_di_periode_ini }} <span
-                  class="text-sm font-normal text-emerald-700">Fitur</span>
-              </h4>
             </div>
-            <div class="p-3 bg-emerald-500 rounded-xl text-white shadow-sm">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
+            <div class="rounded-xl text-green shadow-sm">
+              {{ documentUploadStore.summaryAnalyze.data_baru_di_periode_ini }} <span
+                class="text-sm font-normal">Fitur</span>
+              <!-- <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
                 stroke="currentColor" class="w-6 h-6">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
+              </svg> -->
             </div>
           </div>
 
@@ -292,7 +290,7 @@ async function gotoDashboard() {
               <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
                 <div class="flex items-center gap-3">
                   <div class="p-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs">PT</div>
-                  <span class="text-sm font-medium text-[#6F645B]">2. Jumlah Data Perusahaan</span>
+                  <span class="text-sm font-medium text-[#6F645B]"> Jumlah Data Perusahaan</span>
                 </div>
                 <span class="text-base font-bold text-[#6F645B]">
                   {{ documentUploadStore.summaryAnalyze.ringkasan_struktur_data?.jumlah_perusahaan_pt }}
@@ -302,7 +300,7 @@ async function gotoDashboard() {
               <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
                 <div class="flex items-center gap-3">
                   <div class="p-2 bg-amber-50 text-amber-600 rounded-lg font-bold text-xs">EST</div>
-                  <span class="text-sm font-medium text-[#6F645B]">3. Jumlah Data Estate</span>
+                  <span class="text-sm font-medium text-[#6F645B]">Jumlah Data Estate</span>
                 </div>
                 <span class="text-base font-bold text-[#6F645B]">
                   {{ documentUploadStore.summaryAnalyze.ringkasan_struktur_data?.jumlah_estate }}
@@ -312,7 +310,7 @@ async function gotoDashboard() {
               <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
                 <div class="flex items-center gap-3">
                   <div class="p-2 bg-purple-50 text-purple-600 rounded-lg font-bold text-xs">AFD</div>
-                  <span class="text-sm font-medium text-[#6F645B]">4. Jumlah Data Afdeling</span>
+                  <span class="text-sm font-medium text-[#6F645B]">Jumlah Data Afdeling</span>
                 </div>
                 <span class="text-base font-bold text-[#6F645B]">
                   {{ documentUploadStore.summaryAnalyze.ringkasan_struktur_data?.jumlah_afdeling }}
@@ -322,7 +320,7 @@ async function gotoDashboard() {
               <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
                 <div class="flex items-center gap-3">
                   <div class="p-2 bg-orange-50 text-orange-600 rounded-lg font-bold text-xs">BLK</div>
-                  <span class="text-sm font-medium text-[#6F645B]">5. Jumlah Data Blok</span>
+                  <span class="text-sm font-medium text-[#6F645B]">Jumlah Data Blok</span>
                 </div>
                 <span class="text-base font-bold text-[#6F645B]">
                   {{ documentUploadStore.summaryAnalyze.ringkasan_struktur_data?.jumlah_blok }}
