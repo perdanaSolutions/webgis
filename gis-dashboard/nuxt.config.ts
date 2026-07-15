@@ -37,6 +37,14 @@ export default defineNuxtConfig({
     ssr: {
       noExternal: ["vuetify"],
     },
+    css: {
+      preprocessorOptions: {
+        scss: {
+          // Arahkan ke lokasi file SCSS Anda (misal: src/styles/main.scss)
+          additionalData: `@import "@/styles/main.scss";`,
+        },
+      },
+    },
   },
   // Tambahkan konfigurasi tailwind di sini
   tailwindcss: {
