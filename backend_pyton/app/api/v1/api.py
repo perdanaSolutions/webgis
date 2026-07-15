@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit
+from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse
 
 api_router = APIRouter()
 
@@ -24,3 +24,9 @@ api_router.include_router(spatial.router, prefix="/spatial", tags=["Spatial Data
 
 # Router Sawit
 api_router.include_router(sawit.router, prefix="/spatial/sawit", tags=["Spatial Sawit"])
+
+# slope
+api_router.include_router(slope.router, prefix="/spatial/slope", tags=["Spatial Slope"])
+
+# landuse
+api_router.include_router(landuse.router, prefix="/spatial/landuse", tags=["Spatial Landuse"])
