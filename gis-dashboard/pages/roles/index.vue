@@ -1,24 +1,32 @@
-<script setup lang="ts">
+<script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import Header from "~/components/Header.vue";
-import { useManageRoleStore, type RoleItem } from "~/stores/manageRoleStore";
-import { usePermissionScope } from "~/composables/usePermissionScope";
+import { useManageRoleStore } from "~/stores/manageRoleStore";
+import { dashboardStore } from '~/stores/dashboardStore'
+
 
 defineOptions({
   name: "RolesManagementPage",
 });
 
 const manageRoleStore = useManageRoleStore();
+const dashboardService = dashboardStore()
+
 
 const search = ref("");
 const showFormModal = ref(false);
-const formMode = ref<"create" | "edit">("create");
+const formMode = ref("create");
 const selectedRoleId = ref("");
+
+const activePermissionTab = ref("menu");
 
 const form = reactive({
   nama: "",
   deskripsi: "",
-  permission_ids: [] as string[],
+  menu_ids: [],
+  perusahaan_ids: [],
+  estate_ids: [],
+  transaksi_ids: [],
 });
 
 const filteredRoles = computed(() => {
@@ -37,37 +45,15 @@ const submitLoading = computed(
   () => manageRoleStore.loadingCreate || manageRoleStore.loadingUpdate,
 );
 
-const { grouped: groupedPermissions } = usePermissionScope(
-  () => manageRoleStore.permissions,
+const allDataPerusahaan = computed(
+  () => manageRoleStore.allDataPerusahaan ?? [],
 );
-
-const groupedPermissionSections = computed(() => [
-  {
-    key: "menu",
-    label: "Level 1 - Akses Menu / Modul Dashboard",
-    items: groupedPermissions.value.menu,
-  },
-  {
-    key: "pt",
-    label: "Level 2 - Akses Data Map per PT",
-    items: groupedPermissions.value.pt,
-  },
-  {
-    key: "estate",
-    label: "Level 3 - Akses Data Map per Estate",
-    items: groupedPermissions.value.estate,
-  },
-  {
-    key: "transaction",
-    label: "Level 4 - Akses Data Transaksi",
-    items: groupedPermissions.value.transaction,
-  },
-  {
-    key: "general",
-    label: "Permission Umum / Lainnya",
-    items: groupedPermissions.value.general,
-  },
-].filter((section) => section.items.length > 0));
+const allDataEstate = computed(
+  () => manageRoleStore.allDataEstate ?? [],
+);
+const allDataTransaksi = computed(
+  () => manageRoleStore.allDataTransaksi ?? [],
+);
 
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Role" : "Edit Role",
@@ -76,13 +62,15 @@ const pageTitle = computed(() =>
 function resetForm() {
   form.nama = "";
   form.deskripsi = "";
-  form.permission_ids = [];
+  form.menu_ids = [];
+  activePermissionTab.value = "menu";
 }
 
-function fillForm(role: RoleItem) {
+function fillForm(role) {
   form.nama = role.nama ?? "";
   form.deskripsi = role.deskripsi ?? "";
-  form.permission_ids = (role.permissions ?? []).map((item) => item.id);
+  // form.menu_ids = (role.permissions ?? []).map((item) => item.id);
+  activePermissionTab.value = "menu";
 }
 
 function openCreateModal() {
@@ -92,7 +80,7 @@ function openCreateModal() {
   showFormModal.value = true;
 }
 
-function openEditModal(role: RoleItem) {
+function openEditModal(role) {
   formMode.value = "edit";
   selectedRoleId.value = role.id;
   fillForm(role);
@@ -103,30 +91,20 @@ function closeFormModal() {
   showFormModal.value = false;
 }
 
-function togglePermission(permissionId: string) {
-  const exists = form.permission_ids.includes(permissionId);
-
-  if (exists) {
-    form.permission_ids = form.permission_ids.filter((id) => id !== permissionId);
-    return;
-  }
-
-  form.permission_ids = [...form.permission_ids, permissionId];
-}
 
 async function submitForm() {
   if (formMode.value === "create") {
-    await manageRoleStore.createRole({
-      nama: form.nama,
-      deskripsi: form.deskripsi,
-      permission_ids: form.permission_ids,
-    });
+    // await manageRoleStore.createRole({
+    //   nama: form.nama,
+    //   deskripsi: form.deskripsi,
+    //   permission_ids: form.permission_ids,
+    // });
   } else {
-    await manageRoleStore.updateRole(selectedRoleId.value, {
-      nama: form.nama,
-      deskripsi: form.deskripsi,
-      permission_ids: form.permission_ids,
-    });
+    // await manageRoleStore.updateRole(selectedRoleId.value, {
+    //   nama: form.nama,
+    //   deskripsi: form.deskripsi,
+    //   permission_ids: form.permission_ids,
+    // });
   }
 
   showFormModal.value = false;
@@ -137,10 +115,67 @@ async function gotoUsers() {
   await navigateTo("/users");
 }
 
+const changeContent = (value) => {
+  activePermissionTab.value = value
+};
+
+const toggleAllMenu = () => {
+  const isAllSelected = form.menu_ids.length === manageRoleStore.allDataMenu.length;
+  if (isAllSelected) {
+    // Jika sudah centang semua, maka KOSONGKAN (uncheck all)
+    form.menu_ids = [];
+  } else {
+    // Jika belum semua, maka MASUKKAN SEMUA ID ke dalam array (check all)
+    form.menu_ids = manageRoleStore.allDataMenu.map(menu => menu.id);
+  }
+};
+
+const toggleAllPerusahaan = () => {
+  const isAllSelected = form.perusahaan_ids.length === allDataPerusahaan.value.length; // sesuaikan jika allDataPerusahaan adalah ref (.value)
+  if (isAllSelected) {
+    form.perusahaan_ids = [];
+  } else {
+    form.perusahaan_ids = allDataPerusahaan.value.map(p => p.id);
+  }
+};
+
+const toggleAllTransaksi = () => {
+  const isAllSelected = form.transaksi_ids.length === allDataTransaksi.value.length; // sesuaikan jika allDataTransaksi adalah ref (.value)
+  if (isAllSelected) {
+    form.transaksi_ids = [];
+  } else {
+    form.transaksi_ids = allDataTransaksi.value.map(t => t.id);
+  }
+};
+
+const toggleAllEstate = () => { };
+
+const togglePermission = (id) => {
+  let targetArray = [];
+
+  // Tentukan target array berdasarkan tab yang aktif saat ini
+  if (activePermissionTab.value === 'menu') {
+    targetArray = form.menu_ids;
+  } else if (activePermissionTab.value === 'perusahaan') {
+    targetArray = form.perusahaan_ids;
+  } else if (activePermissionTab.value === 'transaksi') {
+    targetArray = form.transaksi_ids;
+  }
+
+  // Cek apakah ID sudah ada di dalam array
+  const index = targetArray.indexOf(id);
+  if (index > -1) {
+    targetArray.splice(index, 1); // Jika sudah ada, hapus (uncheck)
+  } else {
+    targetArray.push(id); // Jika belum ada, tambahkan (check)
+  }
+};
+
 onMounted(async () => {
   await Promise.all([
     manageRoleStore.fetchRoles(),
-    manageRoleStore.fetchPermissions(),
+    manageRoleStore.initDataMenu(),
+    manageRoleStore.initDataPerusahaan(),
   ]);
 });
 </script>
@@ -159,7 +194,7 @@ onMounted(async () => {
           </svg>
         </button>
 
-        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management User</p>
+        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management Role</p>
       </div>
 
       <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
@@ -182,25 +217,6 @@ onMounted(async () => {
         <p v-if="manageRoleStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
           {{ manageRoleStore.errorMessage }}
         </p>
-
-        <div class="mb-4 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
-          <h3 class="text-[16px] font-bold text-[#4D392A]">Group Permission Bertingkat</h3>
-          <p class="mt-1 text-[#8A817A]">
-            Permission dikelompokkan ke 4 level utama agar assignment role lebih terstruktur.
-          </p>
-
-          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div v-for="section in groupedPermissionSections" :key="section.key"
-              class="rounded-lg border border-[#E7DDD3] bg-white p-3">
-              <p class="text-sm font-semibold text-[#4D392A]">{{ section.label }}</p>
-              <p class="mt-1 text-xs text-[#8A817A]">{{ section.items.length }} permission</p>
-            </div>
-            <div v-if="groupedPermissionSections.length === 0"
-              class="rounded-lg border border-dashed border-[#E7DDD3] bg-white p-3 text-[#8A817A]">
-              Belum ada data permission untuk dikelompokkan.
-            </div>
-          </div>
-        </div>
 
         <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
           <table class="min-w-full bg-white">
@@ -263,31 +279,94 @@ onMounted(async () => {
               class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
-          <div class="md:col-span-2">
-            <label class="mb-2 block text-[#6F645B]">Permission Scope</label>
-            <div class="max-h-80 overflow-y-auto rounded-xl border border-[#EEE6DE] p-3">
-              <div v-if="manageRoleStore.loadingPermissions" class="text-[#8A817A]">
-                Memuat data permission...
+          <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] p-4">
+            <div class="mb-4 flex flex-wrap gap-2 border-b border-[#EEE6DE] pb-3">
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'menu'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('menu')">
+                Akses Menu
+              </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'perusahaan'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('perusahaan')">
+                Akses Perusahaan dan Akses estate
+              </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('transaksi')">
+                Akses transaksi
+              </button>
+            </div>
+
+            <div v-show="activePermissionTab === 'menu'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-[#4D392A]">List Menu</p>
+                <button type="button"
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  @click="toggleAllMenu">
+                  Ceklis Semua
+                </button>
               </div>
 
-              <div v-else-if="groupedPermissionSections.length === 0" class="text-[#8A817A]">
-                Tidak ada data permission.
+              <div v-if="!manageRoleStore.allDataMenu.length" class="text-[#8A817A]">
+                Belum ada data permission menu.
               </div>
 
-              <div v-for="section in groupedPermissionSections" :key="`section-${section.key}`"
-                class="mb-3 rounded-xl border border-[#EFE6DE] bg-[#FFFCF9] p-3">
-                <p class="mb-2 text-sm font-bold text-[#4D392A]">{{ section.label }}</p>
-                <div class="space-y-1.5">
-                  <label v-for="permission in section.items" :key="permission.id"
-                    class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-[#F8F3EE]">
-                    <input type="checkbox" :checked="form.permission_ids.includes(permission.id)"
-                      @change="togglePermission(permission.id)" />
-                    <span class="font-semibold">{{ permission.kode }}</span>
-                    <span class="text-[#8A817A]">
-                      ({{ permission.resource }} - {{ permission.aksi }})
-                    </span>
-                  </label>
-                </div>
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input :checked="form.menu_ids.includes(menu.id)" type="checkbox" class="h-4 w-4"
+                    @change="togglePermission(menu.id)" />
+                  <span>{{ menu.title }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-[#4D392A]">List data pt dan list data estate</p>
+                <button type="button"
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  @click="toggleAllPerusahaan">
+                  Ceklis Semua
+                </button>
+              </div>
+
+              <div v-if="!allDataPerusahaan.length" class="text-[#8A817A]">
+                Belum ada data perusahaan master data.
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="perusahaan in allDataPerusahaan" :key="perusahaan.id"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input :checked="form.perusahaan_ids.includes(perusahaan.id)" type="checkbox" class="h-4 w-4"
+                    @change="togglePermission(perusahaan.id)" />
+                  <span>{{ perusahaan.nama_pt }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-show="activePermissionTab === 'transaksi'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-[#4D392A]">List data transaksi</p>
+                <button type="button"
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  @click="toggleAllTransaksi">
+                  Ceklis Semua
+                </button>
+              </div>
+
+              <div v-if="!allDataTransaksi.length" class="text-[#8A817A]">
+                Belum ada data transaksi.
+              </div>
+
+              <div v-else class="space-y-2">
+                <label v-for="transaksi in allDataTransaksi" :key="transaksi.id"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input :checked="form.transaksi_ids.includes(transaksi.id)" type="checkbox" class="h-4 w-4"
+                    @change="togglePermission(transaksi.id)" />
+                  <span>{{ transaksi.kode }}</span>
+                </label>
               </div>
             </div>
           </div>

@@ -23,6 +23,23 @@ export type UpdateRolePayload = {
   permission_ids: string[];
 };
 
+export type MenuAccessItem = {
+  id: string;
+  title: string;
+  to: string;
+};
+
+export type MasterDataAccessItem = {
+  id: string;
+  title: string;
+  type: "pt" | "estate";
+};
+
+export type TransactionAccessItem = {
+  id: string;
+  title: string;
+};
+
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
   return config.public.apiBaseUrlPython;
@@ -32,12 +49,20 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   const { $api } = useNuxtApp();
 
   const roles = ref<RoleItem[]>([]);
-  const permissions = ref<PermissionItem[]>([]);
+  const menuItems = ref<MenuAccessItem[]>([]);
+  const masterDataItems = ref<MasterDataAccessItem[]>([]);
+  const transactionItems = ref<TransactionAccessItem[]>([]);
+  const allDataMenu = ref([]);
+  const allDataPerusahaan = ref([]);
+  const allDataEstate = ref([]);
+  const allDataTransaksi = ref([]);
 
   const loadingList = ref(false);
   const loadingCreate = ref(false);
   const loadingUpdate = ref(false);
-  const loadingPermissions = ref(false);
+  const loadingMenu = ref(false);
+  const loadingMasterData = ref(false);
+  const loadingTransaction = ref(false);
   const errorMessage = ref("");
 
   const hasRoles = computed(() => roles.value.length > 0);
@@ -51,6 +76,69 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   function clearError() {
     errorMessage.value = "";
+  }
+
+  async function initDataMenu() {
+    try {
+      const baseUrl = getApiBaseUrl();
+
+      const response = await $api(`${baseUrl}/v1/menus/`, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      });
+
+      allDataMenu.value = response as any;
+
+      return response;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataPerusahaan() {
+    try {
+      const baseUrl = getApiBaseUrl();
+
+      const response = await $api(`${baseUrl}/v1/spatial/pt?limit=100`, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      });
+      var getResponse = response as any;
+      allDataPerusahaan.value = getResponse.data ?? [];
+
+      return response;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataEstate(kodept: string) {
+    try {
+      const baseUrl = getApiBaseUrl();
+
+      const response = await $api(
+        `${baseUrl}/v1/spatial/estate?kode_pt=${kodept}`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      allDataEstate.value = response as any;
+
+      return response;
+    } catch (error: any) {
+      throw error;
+    }
   }
 
   async function fetchRoles() {
@@ -74,30 +162,84 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
-  async function fetchPermissions() {
-    loadingPermissions.value = true;
+  async function fetchMasterDataItems() {
+    loadingMasterData.value = true;
     clearError();
 
     try {
       const baseUrl = getApiBaseUrl();
-      const response = await $api<PermissionItem[]>(
-        `${baseUrl}/v1/permissions/`,
+      // kerangka endpoint master data (PT & Estate)
+      const [ptResponse, estateResponse] = await Promise.all([
+        $api<any[]>(`${baseUrl}/v1/pts/`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        }),
+        $api<any[]>(`${baseUrl}/v1/estates/`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        }),
+      ]);
+
+      const normalizedPt = (ptResponse ?? []).map((item, index) => ({
+        id: String(item.id ?? item.uuid ?? `pt-${index}`),
+        title: String(
+          item.nama ?? item.name ?? item.title ?? `PT ${index + 1}`,
+        ),
+        type: "pt" as const,
+      }));
+
+      const normalizedEstate = (estateResponse ?? []).map((item, index) => ({
+        id: String(item.id ?? item.uuid ?? `estate-${index}`),
+        title: String(
+          item.nama ?? item.name ?? item.title ?? `Estate ${index + 1}`,
+        ),
+        type: "estate" as const,
+      }));
+
+      masterDataItems.value = [...normalizedPt, ...normalizedEstate];
+      return masterDataItems.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal mengambil data perusahaan & estate.",
+      );
+      throw error;
+    } finally {
+      loadingMasterData.value = false;
+    }
+  }
+
+  async function fetchTransactionItems() {
+    loadingTransaction.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      // kerangka endpoint transaksi
+      const response = await $api<any[]>(
+        `${baseUrl}/v1/transactions/access-options/`,
         {
           method: "GET",
           headers: getAuthHeaders(),
         },
       );
 
-      permissions.value = response ?? [];
-      return response;
+      transactionItems.value = (response ?? []).map((item, index) => ({
+        id: String(item.id ?? item.uuid ?? `trx-${index}`),
+        title: String(
+          item.nama ?? item.name ?? item.title ?? `Transaksi ${index + 1}`,
+        ),
+      }));
+
+      return transactionItems.value;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(
         error,
-        "Gagal mengambil data permission.",
+        "Gagal mengambil data akses transaksi.",
       );
       throw error;
     } finally {
-      loadingPermissions.value = false;
+      loadingTransaction.value = false;
     }
   }
 
@@ -145,17 +287,28 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   return {
     roles,
-    permissions,
+    menuItems,
+    masterDataItems,
+    transactionItems,
     loadingList,
     loadingCreate,
     loadingUpdate,
-    loadingPermissions,
+    loadingMenu,
+    loadingMasterData,
+    loadingTransaction,
     errorMessage,
     hasRoles,
+    allDataMenu,
+    allDataPerusahaan,
+    allDataEstate,
     fetchRoles,
-    fetchPermissions,
+    fetchMasterDataItems,
+    fetchTransactionItems,
     createRole,
     updateRole,
     clearError,
+    initDataMenu,
+    initDataPerusahaan,
+    initDataEstate,
   };
 });
