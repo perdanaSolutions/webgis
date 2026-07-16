@@ -17,9 +17,9 @@ router = APIRouter()
 
 @router.post("/menu", response_model=schemas.LogAksesMenuResponse, status_code=status.HTTP_201_CREATED)
 def create_akses_menu(payload: schemas.LogAksesMenuCreate, db: Session = Depends(deps.get_db)):
-    """Tambah hak akses menu untuk user tertentu."""
+    """Tambah hak akses menu untuk role tertentu."""
     db_akses = models.LogAksesMenu(
-        user_id=payload.user_id,
+        role_id=payload.role_id,
         menu_id=payload.menu_id
     )
     db.add(db_akses)
@@ -44,10 +44,10 @@ def update_akses_menu(log_id: int, payload: schemas.LogAksesMenuUpdate, db: Sess
     db.refresh(db_akses)
     return db_akses
 
-@router.get("/menu/user/{user_id}", response_model=List[schemas.LogAksesMenuResponse])
-def get_user_akses_menu(user_id: str, db: Session = Depends(deps.get_db)):
-    """Mendapatkan semua daftar menu yang boleh diakses oleh user tertentu."""
-    return db.query(models.LogAksesMenu).filter(models.LogAksesMenu.user_id == user_id).all()
+@router.get("/menu/role/{role_id}", response_model=List[schemas.LogAksesMenuResponse])
+def get_role_akses_menu(role_id: str, db: Session = Depends(deps.get_db)):
+    """Mendapatkan semua daftar menu yang boleh diakses oleh role tertentu."""
+    return db.query(models.LogAksesMenu).filter(models.LogAksesMenu.role_id == role_id).all()
 
 @router.delete("/menu/{log_id}", status_code=status.HTTP_200_OK)
 def delete_akses_menu(log_id: int, db: Session = Depends(deps.get_db)):
@@ -66,9 +66,9 @@ def delete_akses_menu(log_id: int, db: Session = Depends(deps.get_db)):
 
 @router.post("/data", response_model=schemas.LogAksesDataResponse, status_code=status.HTTP_201_CREATED)
 def create_akses_data(payload: schemas.LogAksesDataCreate, db: Session = Depends(deps.get_db)):
-    """Tambah hak akses wilayah (Perusahaan/Estate) untuk user tertentu."""
+    """Tambah hak akses wilayah (Perusahaan/Estate) untuk role tertentu."""
     db_akses = models.LogAksesData(
-        user_id=payload.user_id,
+        role_id=payload.role_id,
         kode_pt=payload.kode_pt,
         kode_est=payload.kode_est
     )
@@ -93,10 +93,10 @@ def update_akses_data(log_id: int, payload: schemas.LogAksesDataUpdate, db: Sess
     db.refresh(db_akses)
     return db_akses
 
-@router.get("/data/user/{user_id}", response_model=List[schemas.LogAksesDataResponse])
-def get_user_akses_data(user_id: str, db: Session = Depends(deps.get_db)):
-    """Mendapatkan daftar wilayah GIS yang boleh diakses oleh user tertentu."""
-    return db.query(models.LogAksesData).filter(models.LogAksesData.user_id == user_id).all()
+@router.get("/data/role/{role_id}", response_model=List[schemas.LogAksesDataResponse])
+def get_role_akses_data(role_id: str, db: Session = Depends(deps.get_db)):
+    """Mendapatkan daftar wilayah GIS yang boleh diakses oleh role tertentu."""
+    return db.query(models.LogAksesData).filter(models.LogAksesData.role_id == role_id).all()
 
 @router.delete("/data/{log_id}", status_code=status.HTTP_200_OK)
 def delete_akses_data(log_id: int, db: Session = Depends(deps.get_db)):
@@ -115,9 +115,9 @@ def delete_akses_data(log_id: int, db: Session = Depends(deps.get_db)):
 
 @router.post("/transaksi", response_model=schemas.LogAksesTransaksiResponse, status_code=status.HTTP_201_CREATED)
 def create_akses_transaksi(payload: schemas.LogAksesTransaksiCreate, db: Session = Depends(deps.get_db)):
-    """Tambah hak akses tabel transaksi untuk user tertentu."""
+    """Tambah hak akses tabel transaksi untuk role tertentu."""
     db_akses = models.LogAksesTransaksi(
-        user_id=payload.user_id,
+        role_id=payload.role_id,
         nama_table_transaksi=payload.nama_table_transaksi
     )
     db.add(db_akses)
@@ -141,10 +141,10 @@ def update_akses_transaksi(log_id: int, payload: schemas.LogAksesTransaksiUpdate
     db.refresh(db_akses)
     return db_akses
 
-@router.get("/transaksi/user/{user_id}", response_model=List[schemas.LogAksesTransaksiResponse])
-def get_user_akses_transaksi(user_id: str, db: Session = Depends(deps.get_db)):
-    """Mendapatkan daftar tabel transaksi yang boleh diakses oleh user tertentu."""
-    return db.query(models.LogAksesTransaksi).filter(models.LogAksesTransaksi.user_id == user_id).all()
+@router.get("/transaksi/role/{role_id}", response_model=List[schemas.LogAksesTransaksiResponse])
+def get_role_akses_transaksi(role_id: str, db: Session = Depends(deps.get_db)):
+    """Mendapatkan daftar tabel transaksi yang boleh diakses oleh role tertentu."""
+    return db.query(models.LogAksesTransaksi).filter(models.LogAksesTransaksi.role_id == role_id).all()
 
 @router.delete("/transaksi/{log_id}", status_code=status.HTTP_200_OK)
 def delete_akses_transaksi(log_id: int, db: Session = Depends(deps.get_db)):
