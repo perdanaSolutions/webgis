@@ -17,7 +17,30 @@ def get_all_roles(
 ):
     """Mengambil semua daftar role beserta permission di dalamnya"""
     roles = db.query(Role).all()
+    
     return roles
+
+@router.get("/{role_id}", response_model=RoleResponse)
+def get_role_by_id(
+    role_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.PermissionChecker("user:read")) # Proteksi hak akses
+):
+    """
+    Mengambil data detail satu Role berdasarkan ID-nya
+    beserta konfigurasi hak akses menu, data, dan transaksinya.
+    """
+    # Query ke database mencari Role berdasarkan UUID
+    role = db.query(Role).filter(Role.id == role_id).first()
+    
+    # Jika role tidak ditemukan, return 404
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role dengan ID {role_id} tidak ditemukan"
+        )
+        
+    return role
 
 
 # 2. CREATE NEW ROLE

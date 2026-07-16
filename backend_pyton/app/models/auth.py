@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Text, DateTime, ForeignKey, text, BigInte
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.akses import LogAksesMenu, LogAksesData, LogAksesTransaksi
 
 # 1. Tabel Pivot (Many-to-Many) role_permissions
 class RolePermission(Base):
@@ -46,6 +47,24 @@ class Role(Base):
         "Permission", 
         secondary="role_permissions", 
         back_populates="roles"
+    )
+
+    akses_menu = relationship(
+        "LogAksesMenu", 
+        primaryjoin="foreign(LogAksesMenu.role_id) == cast(Role.id, String)",
+        lazy="selectin" # Rekomendasi: Gunakan selectin agar relasi langsung ikut ter-load otomatis saat query Role
+    )
+    
+    akses_data = relationship(
+        "LogAksesData", 
+        primaryjoin="foreign(LogAksesData.role_id) == cast(Role.id, String)",
+        lazy="selectin"
+    )
+    
+    akses_transaksi = relationship(
+        "LogAksesTransaksi", 
+        primaryjoin="foreign(LogAksesTransaksi.role_id) == cast(Role.id, String)",
+        lazy="selectin"
     )
 
 

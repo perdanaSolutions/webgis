@@ -1,7 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, UUID4
 from uuid import UUID
 from datetime import datetime
 from typing import List, Optional
+
+from app.schemas.akses import LogAksesMenuResponse, LogAksesDataResponse, LogAksesTransaksiResponse
 
 # Schema dasar untuk Permission (digunakan di dalam detail Role)
 class PermissionInRole(BaseModel):
@@ -9,6 +11,21 @@ class PermissionInRole(BaseModel):
     kode: str
     resource: str
     aksi: str
+
+    class Config:
+        from_attributes = True
+
+class RoleResponse(BaseModel):
+    id: UUID4
+    nama: str
+    deskripsi: Optional[str] = None
+    created_at: datetime
+    # permissions: List[PermissionInRole] = [] # Hak akses legacy/lama
+    
+    # Tambahkan field baru untuk konfigurasi UI baru (Gambar 1)
+    akses_menu: List[LogAksesMenuResponse] = []
+    akses_data: List[LogAksesDataResponse] = []
+    akses_transaksi: List[LogAksesTransaksiResponse] = []
 
     class Config:
         from_attributes = True
@@ -25,7 +42,12 @@ class RoleResponse(BaseModel):
     nama: str
     deskripsi: Optional[str] = None
     created_at: datetime
-    permissions: List[PermissionInRole] = [] # Mengembalikan object detail permission-nya
+    # permissions: List[PermissionInRole] = [] # Mengembalikan object detail permission-nya
+
+    # Tambahkan field baru untuk konfigurasi UI baru (Gambar 1)
+    akses_menu: List[LogAksesMenuResponse] = []
+    akses_data: List[LogAksesDataResponse] = []
+    akses_transaksi: List[LogAksesTransaksiResponse] = []
 
     class Config:
         from_attributes = True

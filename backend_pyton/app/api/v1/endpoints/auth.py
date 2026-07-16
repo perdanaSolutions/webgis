@@ -91,7 +91,21 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
     db.add(log_sukses)
     db.commit()
 
-    list_permissions = [perm.kode for perm in user.role.permissions]
+    # list_permissions = [perm.kode for perm in user.role.permissions]
+    # list akses menu
+    list_akses_menu = [menu.menu_id for menu in user.role.akses_menu]
+
+    # list akses data
+    list_akses_data = [
+        {
+            "kode_pt": data.kode_pt,
+            "kode_est": data.kode_est
+        }
+        for data in user.role.akses_data
+    ]
+
+    # list akses transaksi
+    list_akses_transaksi = [tx.nama_table_transaksi for tx in user.role.akses_transaksi]
 
     return {
         "access_token": access_token,
@@ -102,7 +116,10 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
             "nama_lengkap": user.nama_lengkap,
             "email": user.email,
             "role": user.role.nama,
-            "permissions": list_permissions
+            "role_id": user.role.id,
+            "akses_menu": list_akses_menu,
+            "akses_data": list_akses_data,
+            "akses_transaksi": list_akses_transaksi
         }
     }
 
@@ -114,8 +131,22 @@ def get_user_me(
     Mengambil informasi profil user yang sedang aktif berdasarkan token JWT.
     Berguna untuk menjaga sesi login saat halaman web di-refresh.
     """
-    # Ambil daftar kode permission yang dimiliki oleh role user ini
-    list_permissions = [perm.kode for perm in current_user.role.permissions]
+    # # Ambil daftar kode permission yang dimiliki oleh role user ini
+    # list_permissions = [perm.kode for perm in current_user.role.permissions]
+
+    list_akses_menu = [menu.menu_id for menu in current_user.role.akses_menu]
+
+    # list akses data
+    list_akses_data = [
+        {
+            "kode_pt": data.kode_pt,
+            "kode_est": data.kode_est
+        }
+        for data in current_user.role.akses_data
+    ]
+
+    # list akses transaksi
+    list_akses_transaksi = [tx.nama_table_transaksi for tx in current_user.role.akses_transaksi]
     
     # Kembalikan data profile yang sama persis dengan response login
     return {
@@ -124,14 +155,17 @@ def get_user_me(
         "nama_lengkap": current_user.nama_lengkap,
         "email": current_user.email,
         "role": current_user.role.nama,
-        "permissions": list_permissions
+        "role_id": current_user.role.id,
+        "akses_menu": list_akses_menu,
+        "akses_data": list_akses_data,
+        "akses_transaksi": list_akses_transaksi
     }
 
 @router.get("/check-token")
 def check_token_validity(
     current_user: User = Depends(deps.get_current_user),
     db: Session = Depends(deps.get_db),
-    token: str = Depends(oauth2_scheme) # <--- GANTI DI SINI (Menggunakan oauth2_scheme lokal)
+    token: str = Depends(oauth2_scheme) 
 ) -> Any:
     """
     Endpoint untuk mengecek masa berlaku token yang sedang digunakan saat ini.
