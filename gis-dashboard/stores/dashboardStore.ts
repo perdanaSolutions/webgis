@@ -18,6 +18,7 @@ type AnnouncementItem = {
 };
 
 type ModuleItem = {
+  id: string;
   title: string;
   description: string;
   bgClass: string;
