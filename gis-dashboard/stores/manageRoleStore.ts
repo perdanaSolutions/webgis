@@ -123,7 +123,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       const baseUrl = getApiBaseUrl();
 
       const response = await $api(
-        `${baseUrl}/v1/spatial/estate?kode_pt=${kodept}`,
+        `${baseUrl}/v1/spatial/estate?kode_pt=${kodept}&limit=100`,
         {
           method: "GET",
           headers: {
@@ -133,9 +133,13 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         },
       );
 
-      allDataEstate.value = response as any;
+      const normalizedEstate = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
 
-      return response;
+      allDataEstate.value = normalizedEstate as any;
+
+      return normalizedEstate;
     } catch (error: any) {
       throw error;
     }
@@ -170,11 +174,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       const baseUrl = getApiBaseUrl();
       // kerangka endpoint master data (PT & Estate)
       const [ptResponse, estateResponse] = await Promise.all([
-        $api<any[]>(`${baseUrl}/v1/pts/`, {
+        $api<any[]>(`${baseUrl}/v1/pts?limit=100`, {
           method: "GET",
           headers: getAuthHeaders(),
         }),
-        $api<any[]>(`${baseUrl}/v1/estates/`, {
+        $api<any[]>(`${baseUrl}/v1/estates?limit=100`, {
           method: "GET",
           headers: getAuthHeaders(),
         }),
@@ -243,7 +247,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
-  async function createRole(payload: CreateRolePayload) {
+  async function createRole(payload: any) {
     loadingCreate.value = true;
     clearError();
 
@@ -255,6 +259,18 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         body: payload,
       });
 
+      var idResponseRole = response?.id ?? "";
+
+      if (idResponseRole) {
+        await createAksesMenu(idResponseRole, payload.menu_ids);
+        await createAksesPerusahaanEstate(
+          idResponseRole,
+          payload.perusahaan_ids[0],
+          payload.estate_ids,
+        );
+        await createAksesTransaksi(idResponseRole, payload.transaksi_ids);
+      }
+
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(error, "Gagal membuat role.");
@@ -264,10 +280,109 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  async function createAksesMenu(roleId: string, menusAkses: string[] = []) {
+    if (!roleId || !Array.isArray(menusAkses) || menusAkses.length === 0)
+      return;
+    createRole;
+
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      menusAkses
+        .filter((menuId) => !!menuId)
+        .map((menuId) =>
+          $api(`${baseUrl}/v1/akses-data/menu`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: {
+              role_id: roleId,
+              menu_id: menuId,
+            },
+          }),
+        ),
+    );
+  }
+
+  async function createAksesPerusahaanEstate(
+    roleId: string,
+    perusahaanId: string,
+    estateAkses: string[] = [],
+  ) {
+    if (
+      !roleId ||
+      !perusahaanId ||
+      !Array.isArray(estateAkses) ||
+      estateAkses.length === 0
+    ) {
+      return;
+    }
+
+    const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
+    const selectedPerusahaan = perusahaanList.find(
+      (item) => String(item?.id) === String(perusahaanId),
+    ) as any;
+
+    const kodePt = String(
+      selectedPerusahaan?.kode_pt ??
+        selectedPerusahaan?.kode ??
+        selectedPerusahaan?.id ??
+        "",
+    );
+
+    if (!kodePt) return;
+
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      estateAkses
+        .filter((kodeEst) => !!kodeEst)
+        .map((kodeEst) =>
+          $api(`${baseUrl}/v1/akses-data/data`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: {
+              role_id: roleId,
+              kode_pt: kodePt,
+              kode_est: String(kodeEst),
+            },
+          }),
+        ),
+    );
+  }
+
+  async function createAksesTransaksi(
+    roleId: string,
+    transaksiAkses: string[] = [],
+  ) {
+    if (
+      !roleId ||
+      !Array.isArray(transaksiAkses) ||
+      transaksiAkses.length === 0
+    ) {
+      return;
+    }
+
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      transaksiAkses
+        .filter((namaTable) => !!namaTable)
+        .map((namaTable) =>
+          $api(`${baseUrl}/v1/akses-data/transaksi`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: {
+              role_id: roleId,
+              nama_table_transaksi: String(namaTable),
+            },
+          }),
+        ),
+    );
+  }
+
   async function updateRole(roleId: string, payload: UpdateRolePayload) {
     loadingUpdate.value = true;
     clearError();
-
     try {
       const baseUrl = getApiBaseUrl();
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
@@ -301,6 +416,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     allDataMenu,
     allDataPerusahaan,
     allDataEstate,
+    allDataTransaksi,
     fetchRoles,
     fetchMasterDataItems,
     fetchTransactionItems,

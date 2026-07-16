@@ -18,6 +18,7 @@ const showFormModal = ref(false);
 const formMode = ref("create");
 const selectedRoleId = ref("");
 const searchQueryPerusahaan = ref("");
+const searchQueryEstate = ref("");
 
 const activePermissionTab = ref("menu");
 
@@ -55,12 +56,27 @@ const allDataPerusahaan = computed(
       perusahaan.nama_pt.toLowerCase().includes(searchQueryPerusahaan.value.toLowerCase())
     )
   }
-
-
 );
-const allDataEstate = computed(
-  () => manageRoleStore.allDataEstate ?? [],
-);
+
+const allDataEstate = computed(() => {
+  const estates = manageRoleStore.allDataEstate ?? [];
+  if (!searchQueryEstate.value) {
+    return estates;
+  }
+
+  const keyword = searchQueryEstate.value.toLowerCase();
+  return estates.filter((estate) => {
+    const estateName = String(
+      estate?.nama_estate ?? estate?.nama ?? estate?.title ?? "",
+    ).toLowerCase();
+    const estateCode = String(
+      estate?.kode_estate ?? estate?.kode ?? estate?.id ?? "",
+    ).toLowerCase();
+
+    return estateName.includes(keyword) || estateCode.includes(keyword);
+  });
+});
+
 const allDataTransaksi = computed(
   () => manageRoleStore.allDataTransaksi ?? [],
 );
@@ -104,17 +120,9 @@ function closeFormModal() {
 
 async function submitForm() {
   if (formMode.value === "create") {
-    // await manageRoleStore.createRole({
-    //   nama: form.nama,
-    //   deskripsi: form.deskripsi,
-    //   permission_ids: form.permission_ids,
-    // });
+    await manageRoleStore.createRole(form);
   } else {
-    // await manageRoleStore.updateRole(selectedRoleId.value, {
-    //   nama: form.nama,
-    //   deskripsi: form.deskripsi,
-    //   permission_ids: form.permission_ids,
-    // });
+    await manageRoleStore.updateRole(selectedRoleId.value, form);
   }
 
   showFormModal.value = false;
@@ -140,13 +148,37 @@ const toggleAllMenu = () => {
   }
 };
 
-const toggleAllPerusahaan = () => {
-  const isAllSelected = form.perusahaan_ids.length === allDataPerusahaan.value.length; // sesuaikan jika allDataPerusahaan adalah ref (.value)
-  if (isAllSelected) {
-    form.perusahaan_ids = [];
-  } else {
-    form.perusahaan_ids = allDataPerusahaan.value.map(p => p.id);
+const selectedPerusahaan = computed(() => {
+  const selectedId = form.perusahaan_ids[0];
+  if (!selectedId) return null;
+
+  return (
+    manageRoleStore.allDataPerusahaan.find((item) => item.id === selectedId) ??
+    null
+  );
+});
+
+const getPerusahaanCode = (perusahaan) =>
+  perusahaan?.kode_pt ?? perusahaan?.kode ?? perusahaan?.id ?? "";
+
+const selectPerusahaan = async (perusahaan) => {
+  const selectedId = perusahaan?.id;
+  if (!selectedId) return;
+
+  const isSameSelection = form.perusahaan_ids[0] === selectedId;
+  if (isSameSelection) return;
+
+  form.perusahaan_ids = [selectedId];
+  form.estate_ids = [];
+  searchQueryEstate.value = "";
+
+  const kodePt = getPerusahaanCode(perusahaan);
+  if (!kodePt) {
+    manageRoleStore.allDataEstate = [];
+    return;
   }
+
+  await manageRoleStore.initDataEstate(String(kodePt));
 };
 
 const toggleAllTransaksi = () => {
@@ -158,17 +190,42 @@ const toggleAllTransaksi = () => {
   }
 };
 
-const toggleAllEstate = () => { };
+const getEstateCode = (estate) =>
+  String(estate?.kode_estate ?? estate?.kode ?? estate?.id ?? "");
+
+const toggleAllEstate = () => {
+  const estateCodes = allDataEstate.value
+    .map((estate) => getEstateCode(estate))
+    .filter((code) => !!code);
+
+  const isAllSelected =
+    estateCodes.length > 0 &&
+    estateCodes.every((code) => form.estate_ids.includes(code));
+
+  if (isAllSelected) {
+    form.estate_ids = form.estate_ids.filter((id) => !estateCodes.includes(id));
+  } else {
+    const merged = new Set([...form.estate_ids, ...estateCodes]);
+    form.estate_ids = Array.from(merged);
+  }
+};
+
+const toggleEstate = (id) => {
+  const index = form.estate_ids.indexOf(id);
+  if (index > -1) {
+    form.estate_ids.splice(index, 1);
+  } else {
+    form.estate_ids.push(id);
+  }
+};
 
 const togglePermission = (id) => {
   let targetArray = [];
 
   // Tentukan target array berdasarkan tab yang aktif saat ini
-  if (activePermissionTab.value === 'menu') {
+  if (activePermissionTab.value === "menu") {
     targetArray = form.menu_ids;
-  } else if (activePermissionTab.value === 'perusahaan') {
-    targetArray = form.perusahaan_ids;
-  } else if (activePermissionTab.value === 'transaksi') {
+  } else if (activePermissionTab.value === "transaksi") {
     targetArray = form.transaksi_ids;
   }
 
@@ -333,29 +390,58 @@ onMounted(async () => {
             </div>
 
             <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-[#EEE6DE] p-4">
-              <div class="mb-3 flex items-center justify-between gap-2">
+              <div class="mb-3">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
 
-                <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
-                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <p class="text-xs font-semibold text-[#8A817A]">
+                    Pilih 1 perusahaan
+                  </p>
+                </div>
 
-                <button type="button"
-                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
-                  @click="toggleAllPerusahaan">
-                  Ceklis Semua
-                </button>
+                <div v-if="!allDataPerusahaan.length" class="text-[#8A817A]">
+                  Belum ada data perusahaan master data.
+                </div>
+
+                <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <label v-for="perusahaan in allDataPerusahaan" :key="perusahaan.id"
+                    class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                    <input :checked="form.perusahaan_ids[0] === perusahaan.id" type="radio" name="perusahaan_single"
+                      class="h-4 w-4" @change="selectPerusahaan(perusahaan)" />
+                    <span>{{ perusahaan.nama_pt }}</span>
+                  </label>
+                </div>
               </div>
+              <div v-if="selectedPerusahaan" class="rounded-xl border border-[#EEE6DE] p-4">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p class="font-semibold text-[#4D392A]">
+                    List Estate - {{ selectedPerusahaan.nama_pt }}
+                  </p>
+                </div>
 
-              <div v-if="!allDataPerusahaan.length" class="text-[#8A817A]">
-                Belum ada data perusahaan master data.
-              </div>
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
+                    class="w-fit rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <button type="button"
+                    class="whitespace-nowrap rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                    @click="toggleAllEstate">
+                    Ceklis Semua
+                  </button>
+                </div>
 
-              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <label v-for="perusahaan in allDataPerusahaan" :key="perusahaan.id"
-                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
-                  <input :checked="form.perusahaan_ids.includes(perusahaan.id)" type="checkbox" class="h-4 w-4"
-                    @change="togglePermission(perusahaan.id)" />
-                  <span>{{ perusahaan.nama_pt }}</span>
-                </label>
+                <div v-if="!allDataEstate.length" class="text-[#8A817A]">
+                  Belum ada data estate untuk perusahaan ini.
+                </div>
+
+                <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <label v-for="estate in allDataEstate" :key="estate.id ?? estate.kode_estate ?? estate.kode"
+                    class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                    <input :checked="form.estate_ids.includes(getEstateCode(estate))" type="checkbox" class="h-4 w-4"
+                      @change="toggleEstate(getEstateCode(estate))" />
+                    <span>{{ estate.nama_estate ?? estate.nama ?? estate.title ?? getEstateCode(estate) }}</span>
+                  </label>
+                </div>
               </div>
             </div>
 
