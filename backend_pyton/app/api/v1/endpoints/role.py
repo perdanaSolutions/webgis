@@ -13,11 +13,34 @@ router = APIRouter()
 @router.get("/", response_model=List[RoleResponse])
 def get_all_roles(
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read")) # Proteksi hak akses
+    current_user = Depends(deps.get_current_user)
 ):
     """Mengambil semua daftar role beserta permission di dalamnya"""
     roles = db.query(Role).all()
+    
     return roles
+
+@router.get("/{role_id}", response_model=RoleResponse)
+def get_role_by_id(
+    role_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user)
+):
+    """
+    Mengambil data detail satu Role berdasarkan ID-nya
+    beserta konfigurasi hak akses menu, data, dan transaksinya.
+    """
+    # Query ke database mencari Role berdasarkan UUID
+    role = db.query(Role).filter(Role.id == role_id).first()
+    
+    # Jika role tidak ditemukan, return 404
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role dengan ID {role_id} tidak ditemukan"
+        )
+        
+    return role
 
 
 # 2. CREATE NEW ROLE
@@ -25,7 +48,7 @@ def get_all_roles(
 def create_role(
     payload: RoleCreate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     """Membuat role baru dan menempelkan daftar permission terkait"""
     # Cek apakah nama role sudah terpakai

@@ -18,7 +18,7 @@ def get_activity_logs(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     """
     Mengambil semua log aktivitas pengguna dengan Server-Side Pagination, 

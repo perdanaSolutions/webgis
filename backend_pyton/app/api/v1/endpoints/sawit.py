@@ -30,7 +30,7 @@ async def upload_sawit_execute(
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
     # Sesuaikan dengan fungsi get_current_user/auth yang Anda miliki di project
-    current_user = Depends(deps.PermissionChecker("user:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     """Endpoint Tahap 2: Mengeksekusi bulk upload data titik sawit & mencatat audit log."""
     contents = await file.read()

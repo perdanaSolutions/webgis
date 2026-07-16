@@ -14,7 +14,7 @@ router = APIRouter()
 def create_menu(
     payload: MenuCreate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write")) # Batasi hanya role pengelola
+    current_user = Depends(deps.get_current_user)
 ):
     query = """
         INSERT INTO menus (title, description, bg_class, icon_class, arrow_class, "to", icon, order_position)
@@ -43,7 +43,7 @@ def update_menu(
     menu_id: UUID,
     payload: MenuUpdate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     # Cek menu ada atau tidak
     check = db.execute(text("SELECT id FROM menus WHERE id = :id"), {"id": menu_id}).first()
@@ -74,7 +74,7 @@ def update_menu(
 def delete_menu(
     menu_id: UUID,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     check = db.execute(text("SELECT id FROM menus WHERE id = :id"), {"id": menu_id}).first()
     if not check:

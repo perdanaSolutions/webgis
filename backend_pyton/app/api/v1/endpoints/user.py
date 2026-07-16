@@ -20,7 +20,7 @@ def get_users_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
     where_clauses = []
@@ -62,7 +62,7 @@ def get_users_list(
 def create_user(
     payload: UserCreate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     # Cek duplikasi username
     if db.query(User).filter(User.username == payload.username.lower()).first():
@@ -96,7 +96,7 @@ def update_user(
     user_id: UUID,
     payload: UserUpdate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -133,7 +133,7 @@ def update_user(
 def delete_user(
     user_id: UUID,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
