@@ -28,7 +28,7 @@ async def upload_landuse_execute(
     tahun: int,
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     """Endpoint Tahap 2: Mengeksekusi bulk upload data poligon landuse & mencatat audit log."""
     contents = await file.read()

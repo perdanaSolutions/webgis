@@ -28,7 +28,7 @@ def get_pt_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
     
@@ -88,7 +88,7 @@ def get_estate_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
     query = db.query(Estate)
@@ -153,7 +153,7 @@ def get_afdeling_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
     query = db.query(Afdeling)
@@ -219,7 +219,7 @@ def get_blok_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
     query = db.query(Blok)
@@ -313,7 +313,7 @@ def get_blocks_geojson(
     bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
     tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:read"))
+    current_user = Depends(deps.get_current_user)
 ):
     # Query gabungan Blok dengan GeoBlok menggunakan ORM + PostGIS function
     query = db.query(
@@ -471,7 +471,7 @@ async def upload_geometry_analyze(
     tahun: int = Query(..., ge=2000),
     file: UploadFile = File(...), 
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    current_user = Depends(deps.get_current_user)
 ):
     contents = await file.read()
     return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
@@ -505,7 +505,7 @@ async def upload_tph_analyze(
     tahun: int = Query(..., ge=2000),
     file: UploadFile = File(...), 
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))  # Proteksi Login & Hak Akses
+    current_user = Depends(deps.get_current_user)
 ):
     contents = await file.read()
     return service.analyze_geojson_tph(db, contents, bulan, tahun)
@@ -536,7 +536,7 @@ def delete_period_data(
     bulan: int = Query(..., ge=1, le=12, description="Bulan data yang ingin dibersihkan"),
     tahun: int = Query(..., ge=2000, description="Tahun data yang ingin dibersihkan"),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("blok:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     """
     Gunakan ini jika terjadi kesalahan upload periode atau ingin mereset data 

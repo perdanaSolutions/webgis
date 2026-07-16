@@ -215,7 +215,7 @@ router = APIRouter()
 @router.get("/blocks")
 def get_blocks(
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.PermissionChecker("blok:read")) # <--- KUNCI DI SINI
+    current_user = Depends(deps.get_current_user)
 ):
     # Jika kode sampai di sini, artinya user dikonfirmasi legal dan punya hak akses!
     # Kamu juga bisa tahu siapa yang akses lewat: current_user.username
@@ -229,6 +229,6 @@ def get_blocks(
 def create_block(
     payload: dict, # ganti dengan schema pydantic kamu
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.PermissionChecker("blok:write")) # <--- KUNCI DI SINI
+    current_user = Depends(deps.get_current_user)
 ):
     return {"message": "Blok berhasil ditambahkan", "by": current_user.nama_lengkap}

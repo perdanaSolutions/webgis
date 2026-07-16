@@ -10,7 +10,7 @@ router = APIRouter()
 @router.get("/tables", response_model=List[str])
 def get_database_tables(
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read")) # Proteksi akses jika perlu
+    current_user = Depends(deps.get_current_user)
 ):
     """
     Mengambil semua daftar nama tabel yang ada di dalam schema 'public' database.

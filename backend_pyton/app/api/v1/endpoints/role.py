@@ -13,7 +13,7 @@ router = APIRouter()
 @router.get("/", response_model=List[RoleResponse])
 def get_all_roles(
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read")) # Proteksi hak akses
+    current_user = Depends(deps.get_current_user)
 ):
     """Mengambil semua daftar role beserta permission di dalamnya"""
     roles = db.query(Role).all()
@@ -24,7 +24,7 @@ def get_all_roles(
 def get_role_by_id(
     role_id: UUID,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:read")) # Proteksi hak akses
+    current_user = Depends(deps.get_current_user)
 ):
     """
     Mengambil data detail satu Role berdasarkan ID-nya
@@ -48,7 +48,7 @@ def get_role_by_id(
 def create_role(
     payload: RoleCreate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.PermissionChecker("user:write"))
+    current_user = Depends(deps.get_current_user)
 ):
     """Membuat role baru dan menempelkan daftar permission terkait"""
     # Cek apakah nama role sudah terpakai
