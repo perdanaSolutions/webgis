@@ -166,74 +166,23 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
-  async function fetchMasterDataItems() {
-    loadingMasterData.value = true;
-    clearError();
-
-    try {
-      const baseUrl = getApiBaseUrl();
-      // kerangka endpoint master data (PT & Estate)
-      const [ptResponse, estateResponse] = await Promise.all([
-        $api<any[]>(`${baseUrl}/v1/pts?limit=100`, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        }),
-        $api<any[]>(`${baseUrl}/v1/estates?limit=100`, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        }),
-      ]);
-
-      const normalizedPt = (ptResponse ?? []).map((item, index) => ({
-        id: String(item.id ?? item.uuid ?? `pt-${index}`),
-        title: String(
-          item.nama ?? item.name ?? item.title ?? `PT ${index + 1}`,
-        ),
-        type: "pt" as const,
-      }));
-
-      const normalizedEstate = (estateResponse ?? []).map((item, index) => ({
-        id: String(item.id ?? item.uuid ?? `estate-${index}`),
-        title: String(
-          item.nama ?? item.name ?? item.title ?? `Estate ${index + 1}`,
-        ),
-        type: "estate" as const,
-      }));
-
-      masterDataItems.value = [...normalizedPt, ...normalizedEstate];
-      return masterDataItems.value;
-    } catch (error: any) {
-      errorMessage.value = getErrorMessage(
-        error,
-        "Gagal mengambil data perusahaan & estate.",
-      );
-      throw error;
-    } finally {
-      loadingMasterData.value = false;
-    }
-  }
-
-  async function fetchTransactionItems() {
+  async function initDataTableTransaksi() {
     loadingTransaction.value = true;
     clearError();
 
     try {
       const baseUrl = getApiBaseUrl();
       // kerangka endpoint transaksi
-      const response = await $api<any[]>(
-        `${baseUrl}/v1/transactions/access-options/`,
-        {
-          method: "GET",
-          headers: getAuthHeaders(),
-        },
-      );
+      const response = await $api<any[]>(`${baseUrl}/v1/database/tables`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
 
-      transactionItems.value = (response ?? []).map((item, index) => ({
-        id: String(item.id ?? item.uuid ?? `trx-${index}`),
-        title: String(
-          item.nama ?? item.name ?? item.title ?? `Transaksi ${index + 1}`,
-        ),
-      }));
+      const normalizedData = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      allDataTransaksi.value = normalizedData as any;
 
       return transactionItems.value;
     } catch (error: any) {
@@ -380,16 +329,214 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     );
   }
 
-  async function updateRole(roleId: string, payload: UpdateRolePayload) {
+  async function getExistingAksesByRole(roleId: string) {
+    const baseUrl = getApiBaseUrl();
+
+    const [menuAccess, dataAccess, transaksiAccess] = await Promise.all([
+      $api<any[]>(`${baseUrl}/v1/akses-data/menu/role/${roleId}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      }),
+      $api<any[]>(`${baseUrl}/v1/akses-data/data/role/${roleId}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      }),
+      $api<any[]>(`${baseUrl}/v1/akses-data/transaksi/role/${roleId}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      }),
+    ]);
+
+    return {
+      menu: Array.isArray(menuAccess) ? menuAccess : [],
+      data: Array.isArray(dataAccess) ? dataAccess : [],
+      transaksi: Array.isArray(transaksiAccess) ? transaksiAccess : [],
+    };
+  }
+
+  function uniqueStringArray(values: any[] = []) {
+    return Array.from(
+      new Set(
+        (values ?? [])
+          .map((item) => String(item ?? "").trim())
+          .filter((item) => !!item),
+      ),
+    );
+  }
+
+  async function deleteAksesMenuByLogIds(logIds: Array<string | number>) {
+    if (!Array.isArray(logIds) || logIds.length === 0) return;
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      logIds.map((logId) =>
+        $api(`${baseUrl}/v1/akses-data/menu/${logId}`, {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        }),
+      ),
+    );
+  }
+
+  async function deleteAksesDataByLogIds(logIds: Array<string | number>) {
+    if (!Array.isArray(logIds) || logIds.length === 0) return;
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      logIds.map((logId) =>
+        $api(`${baseUrl}/v1/akses-data/data/${logId}`, {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        }),
+      ),
+    );
+  }
+
+  async function deleteAksesTransaksiByLogIds(logIds: Array<string | number>) {
+    if (!Array.isArray(logIds) || logIds.length === 0) return;
+    const baseUrl = getApiBaseUrl();
+
+    await Promise.all(
+      logIds.map((logId) =>
+        $api(`${baseUrl}/v1/akses-data/transaksi/${logId}`, {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        }),
+      ),
+    );
+  }
+
+  async function updateRole(roleId: string, payload: any) {
     loadingUpdate.value = true;
     clearError();
     try {
       const baseUrl = getApiBaseUrl();
+
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
         method: "PUT",
         headers: getAuthHeaders(),
         body: payload,
       });
+
+      const existing = await getExistingAksesByRole(roleId);
+
+      const selectedMenuIds = uniqueStringArray(payload?.menu_ids ?? []);
+      const existingMenuIds = uniqueStringArray(
+        (existing.menu ?? []).map((item: any) => item?.menu_id),
+      );
+
+      const existingDataKeys = uniqueStringArray(
+        (existing.data ?? []).map(
+          (item: any) =>
+            `${String(item?.kode_pt ?? "")}|${String(item?.kode_est ?? "")}`,
+        ),
+      );
+
+      const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
+      const selectedPerusahaan = perusahaanList.find(
+        (item) =>
+          String(item?.id) === String(payload?.perusahaan_ids?.[0] ?? ""),
+      ) as any;
+
+      const selectedKodePt = String(
+        selectedPerusahaan?.kode_pt ??
+          selectedPerusahaan?.kode ??
+          selectedPerusahaan?.id ??
+          "",
+      );
+
+      const selectedEstateCodes = uniqueStringArray(payload?.estate_ids ?? []);
+      const selectedDataKeys = uniqueStringArray(
+        selectedEstateCodes.map(
+          (kodeEst) => `${selectedKodePt}|${String(kodeEst)}`,
+        ),
+      );
+
+      const selectedTransaksiNames = uniqueStringArray(
+        payload?.transaksi_ids ?? [],
+      );
+      const existingTransaksiNames = uniqueStringArray(
+        (existing.transaksi ?? []).map(
+          (item: any) => item?.nama_table_transaksi,
+        ),
+      );
+
+      const menuToDelete = (existing.menu ?? []).filter(
+        (item: any) => !selectedMenuIds.includes(String(item?.menu_id ?? "")),
+      );
+      const menuToCreate = selectedMenuIds.filter(
+        (menuId) => !existingMenuIds.includes(menuId),
+      );
+
+      const dataToDelete = (existing.data ?? []).filter((item: any) => {
+        const key = `${String(item?.kode_pt ?? "")}|${String(item?.kode_est ?? "")}`;
+        return !selectedDataKeys.includes(key);
+      });
+      const dataToCreate = selectedDataKeys.filter(
+        (key) => !existingDataKeys.includes(key),
+      );
+
+      const transaksiToDelete = (existing.transaksi ?? []).filter(
+        (item: any) =>
+          !selectedTransaksiNames.includes(
+            String(item?.nama_table_transaksi ?? ""),
+          ),
+      );
+      const transaksiToCreate = selectedTransaksiNames.filter(
+        (name) => !existingTransaksiNames.includes(name),
+      );
+
+      await deleteAksesMenuByLogIds(
+        menuToDelete.map((item: any) => item?.id).filter((id: any) => !!id),
+      );
+      await deleteAksesDataByLogIds(
+        dataToDelete.map((item: any) => item?.id).filter((id: any) => !!id),
+      );
+      await deleteAksesTransaksiByLogIds(
+        transaksiToDelete
+          .map((item: any) => item?.id)
+          .filter((id: any) => !!id),
+      );
+
+      if (menuToCreate.length > 0) {
+        await createAksesMenu(roleId, menuToCreate);
+      }
+
+      if (dataToCreate.length > 0) {
+        const groupedByPt = dataToCreate.reduce(
+          (acc: Record<string, string[]>, key) => {
+            const [kodePt, kodeEst] = String(key).split("|");
+            if (!kodePt || !kodeEst) return acc;
+            if (!acc[kodePt]) acc[kodePt] = [];
+            acc[kodePt].push(kodeEst);
+            return acc;
+          },
+          {},
+        );
+
+        await Promise.all(
+          Object.entries(groupedByPt).map(async ([kodePt, estateCodes]) => {
+            const perusahaan = perusahaanList.find((item: any) => {
+              const itemKodePt = String(
+                item?.kode_pt ?? item?.kode ?? item?.id ?? "",
+              );
+              return itemKodePt === String(kodePt);
+            });
+
+            if (!perusahaan?.id) return;
+
+            await createAksesPerusahaanEstate(
+              roleId,
+              String(perusahaan.id),
+              uniqueStringArray(estateCodes),
+            );
+          }),
+        );
+      }
+
+      if (transaksiToCreate.length > 0) {
+        await createAksesTransaksi(roleId, transaksiToCreate);
+      }
 
       return response;
     } catch (error: any) {
@@ -418,13 +565,13 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     allDataEstate,
     allDataTransaksi,
     fetchRoles,
-    fetchMasterDataItems,
-    fetchTransactionItems,
     createRole,
     updateRole,
+    getExistingAksesByRole,
     clearError,
     initDataMenu,
     initDataPerusahaan,
     initDataEstate,
+    initDataTableTransaksi,
   };
 });

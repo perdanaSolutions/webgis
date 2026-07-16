@@ -92,11 +92,41 @@ function resetForm() {
   activePermissionTab.value = "menu";
 }
 
-function fillForm(role) {
+async function fillForm(role) {
   form.nama = role.nama ?? "";
   form.deskripsi = role.deskripsi ?? "";
-  // form.menu_ids = (role.permissions ?? []).map((item) => item.id);
+  form.menu_ids = [];
+  form.perusahaan_ids = [];
+  form.estate_ids = [];
+  form.transaksi_ids = [];
   activePermissionTab.value = "menu";
+
+  const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
+
+  form.menu_ids = (existingAkses?.menu ?? [])
+    .map((item) => String(item?.menu_id ?? ""))
+    .filter((id) => !!id);
+
+  const dataAkses = existingAkses?.data ?? [];
+  if (dataAkses.length > 0) {
+    const kodePt = String(dataAkses[0]?.kode_pt ?? "");
+    const selectedPerusahaan = (manageRoleStore.allDataPerusahaan ?? []).find(
+      (item) => String(getPerusahaanCode(item)) === kodePt,
+    );
+
+    if (selectedPerusahaan?.id) {
+      form.perusahaan_ids = [selectedPerusahaan.id];
+      await manageRoleStore.initDataEstate(String(kodePt));
+    }
+
+    form.estate_ids = dataAkses
+      .map((item) => String(item?.kode_est ?? ""))
+      .filter((id) => !!id);
+  }
+
+  form.transaksi_ids = (existingAkses?.transaksi ?? [])
+    .map((item) => String(item?.nama_table_transaksi ?? ""))
+    .filter((id) => !!id);
 }
 
 function openCreateModal() {
@@ -106,11 +136,11 @@ function openCreateModal() {
   showFormModal.value = true;
 }
 
-function openEditModal(role) {
+async function openEditModal(role) {
   formMode.value = "edit";
   selectedRoleId.value = role.id;
-  fillForm(role);
   showFormModal.value = true;
+  await fillForm(role);
 }
 
 function closeFormModal() {
@@ -181,12 +211,28 @@ const selectPerusahaan = async (perusahaan) => {
   await manageRoleStore.initDataEstate(String(kodePt));
 };
 
+const getTransaksiCode = (transaksi) =>
+  String(transaksi?.id ?? transaksi?.nama_table_transaksi ?? transaksi ?? "");
+
 const toggleAllTransaksi = () => {
-  const isAllSelected = form.transaksi_ids.length === allDataTransaksi.value.length; // sesuaikan jika allDataTransaksi adalah ref (.value)
+  const transaksiCodes = allDataTransaksi.value
+    .map((transaksi) => getTransaksiCode(transaksi))
+    .filter((code) => !!code);
+
+  const isAllSelected =
+    transaksiCodes.length > 0 &&
+    transaksiCodes.every((code) => form.transaksi_ids.includes(code));
+
   if (isAllSelected) {
-    form.transaksi_ids = [];
+    form.transaksi_ids = form.transaksi_ids.filter(
+      (id) => !transaksiCodes.includes(String(id)),
+    );
   } else {
-    form.transaksi_ids = allDataTransaksi.value.map(t => t.id);
+    const merged = new Set([
+      ...form.transaksi_ids.map((id) => String(id)),
+      ...transaksiCodes,
+    ]);
+    form.transaksi_ids = Array.from(merged);
   }
 };
 
@@ -243,6 +289,7 @@ onMounted(async () => {
     manageRoleStore.fetchRoles(),
     manageRoleStore.initDataMenu(),
     manageRoleStore.initDataPerusahaan(),
+    manageRoleStore.initDataTableTransaksi(),
   ]);
 });
 </script>
@@ -291,7 +338,9 @@ onMounted(async () => {
               <tr>
                 <th class="px-4 py-3 font-bold">Nama</th>
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
-                <th class="px-4 py-3 font-bold">Jumlah Permission</th>
+                <th class="px-4 py-3 font-bold">Menu</th>
+                <th class="px-4 py-3 font-bold">Perusahaan & Estate</th>
+                <th class="px-4 py-3 font-bold">Transaksi</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
             </thead>
@@ -305,9 +354,11 @@ onMounted(async () => {
               <tr v-for="item in filteredRoles" :key="item.id" class="border-t border-[#F0E8E0]">
                 <td class="px-4 py-3">{{ item.nama }}</td>
                 <td class="px-4 py-3">{{ item.deskripsi }}</td>
-                <td class="px-4 py-3">{{ item.permissions?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_menu?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_data?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_transaksi?.length ?? 0 }}</td>
                 <td class="px-4 py-3">
-                  <button
+                  <button v-if="item.nama != 'superadmin'"
                     class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
                     @click="openEditModal(item)">
                     Edit
@@ -459,12 +510,12 @@ onMounted(async () => {
                 Belum ada data transaksi.
               </div>
 
-              <div v-else class="space-y-2">
-                <label v-for="transaksi in allDataTransaksi" :key="transaksi.id"
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="transaksi in allDataTransaksi" :key="getTransaksiCode(transaksi)"
                   class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
-                  <input :checked="form.transaksi_ids.includes(transaksi.id)" type="checkbox" class="h-4 w-4"
-                    @change="togglePermission(transaksi.id)" />
-                  <span>{{ transaksi.kode }}</span>
+                  <input :checked="form.transaksi_ids.includes(getTransaksiCode(transaksi))" type="checkbox"
+                    class="h-4 w-4" @change="togglePermission(getTransaksiCode(transaksi))" />
+                  <span>{{ transaksi?.title ?? transaksi?.nama_table_transaksi ?? transaksi }}</span>
                 </label>
               </div>
             </div>

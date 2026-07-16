@@ -1,6 +1,7 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
+import { useAuthStore } from "./authStore";
 
 type QuickAccessItem = {
   title: string;
@@ -47,6 +48,8 @@ function getApiBaseUrl() {
 
 export const dashboardStore = defineStore("dashboard", () => {
   const { $api } = useNuxtApp();
+
+  const authStore = useAuthStore();
 
   const dashboardConfig = {
     brandTitle: "Dashboard",
@@ -137,8 +140,26 @@ export const dashboardStore = defineStore("dashboard", () => {
           "Content-Type": "application/json",
         },
       });
+      var informasiUser = authStore.user;
+      var filterDataMenu = [] as any;
 
-      moduleItems.value = response;
+      if (
+        informasiUser &&
+        response &&
+        Array.isArray(informasiUser.akses_menu)
+      ) {
+        var aksesMenuIds = informasiUser.akses_menu;
+        filterDataMenu = response.filter(function (menu) {
+          // Pastikan menu memiliki properti id (sesuaikan nama propertinya, misal: menu.id atau menu.menu_id)
+          return aksesMenuIds.includes(menu.id);
+        });
+      } else {
+        // Jika user tidak punya akses_menu atau response kosong, default ke array kosong
+        filterDataMenu = [];
+      }
+
+      // Output terakhir diset ke moduleItems.value
+      moduleItems.value = filterDataMenu;
 
       return response;
     } catch (error: any) {

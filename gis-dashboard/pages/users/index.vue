@@ -359,22 +359,20 @@ async function gotoDashboard() {
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Role</label>
-            <select v-model="form.role_id" required
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3 outline-none">
-              <option value="" disabled>Pilih role</option>
-              <option v-for="role in manageUserStore.roles" :key="role.id" :value="role.id">
-                {{ role.nama }}
-              </option>
-            </select>
+            <v-select :model-value="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
+              placeholder="Pilih role" variant="plain" density="comfortable"
+              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
+              @update:model-value="form.role_id = $event"></v-select>
           </div>
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Status</label>
-            <select v-model="form.is_active"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3 outline-none">
-              <option :value="true">Aktif</option>
-              <option :value="false">Nonaktif</option>
-            </select>
+            <v-select :model-value="form.is_active" :items="[
+              { label: 'Aktif', value: true },
+              { label: 'Nonaktif', value: false }
+            ]" item-title="label" item-value="value" variant="plain" density="comfortable"
+              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
+              @update:model-value="form.is_active = $event"></v-select>
           </div>
 
           <div class="md:col-span-2">
