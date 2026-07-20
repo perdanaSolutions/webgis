@@ -99,7 +99,9 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
     list_akses_data = [
         {
             "kode_pt": data.kode_pt,
-            "kode_est": data.kode_est
+            "kode_est": data.kode_est,
+            "kode_area": data.kode_area,
+            "kode_afd": data.kode_afd
         }
         for data in user.role.akses_data
     ]
@@ -140,7 +142,9 @@ def get_user_me(
     list_akses_data = [
         {
             "kode_pt": data.kode_pt,
-            "kode_est": data.kode_est
+            "kode_est": data.kode_est,
+            "kode_area": data.kode_area,
+            "kode_afd": data.kode_afd
         }
         for data in current_user.role.akses_data
     ]

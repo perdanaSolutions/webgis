@@ -19,6 +19,8 @@ class LogAksesData(Base):
     role_id = Column(String, nullable=False)
     kode_pt = Column(String, nullable=True)
     kode_est = Column(String, nullable=True)
+    kode_area = Column(String, nullable=True)
+    kode_afd = Column(String, nullable=True)
     created_date = Column(DateTime, server_default=func.now())
     update_date = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

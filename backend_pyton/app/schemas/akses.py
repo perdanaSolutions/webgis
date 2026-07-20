@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # 1. Schemas Log Akses Menu
 class LogAksesMenuBase(BaseModel):
@@ -22,12 +22,24 @@ class LogAksesDataBase(BaseModel):
     role_id: str
     kode_pt: str = None
     kode_est: str = None
+    kode_area: Optional[str] = None
+    kode_afd: Optional[str] = None
 
 class LogAksesDataCreate(LogAksesDataBase):
-    pass
+    role_id: str
+    kode_pt: str
+    kode_est: str
+    # Menggunakan List agar frontend bisa mengirim banyak area atau afdeling sekaligus
+    kode_area: Optional[List[str]] = None
+    kode_afd: Optional[List[str]] = None
 
 class LogAksesDataResponse(LogAksesDataBase):
     id: int
+    role_id: str
+    kode_pt: str
+    kode_area: Optional[str] = None
+    kode_est: Optional[str] = None
+    kode_afd: Optional[str] = None
     created_date: datetime
     update_date: datetime
     class Config:
@@ -58,6 +70,8 @@ class LogAksesDataUpdate(BaseModel):
     role_id: Optional[str] = None
     kode_pt: Optional[str] = None
     kode_est: Optional[str] = None
+    kode_area: Optional[str] = None
+    kode_afd: Optional[str] = None
 
 # 3. Update Schema untuk Log Akses Transaksi
 class LogAksesTransaksiUpdate(BaseModel):
