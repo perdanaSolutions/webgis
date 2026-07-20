@@ -295,8 +295,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         await createAksesMenu(idResponseRole, payload.menu_ids);
         await createAksesPerusahaanEstate(
           idResponseRole,
-          payload.perusahaan_ids[0],
-          payload.estate_ids,
+          payload.perusahaan_ids ?? [],
+          payload.estate_ids ?? [],
+          payload.area_ids ?? [],
+          payload.afdeling_ids ?? [],
         );
         await createAksesTransaksi(idResponseRole, payload.transaksi_ids);
       }
@@ -335,48 +337,88 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   async function createAksesPerusahaanEstate(
     roleId: string,
-    perusahaanId: string,
+    perusahaanIds: string[] = [],
     estateAkses: string[] = [],
+    areaAkses: string[] = [],
+    afdelingAkses: string[] = [],
   ) {
     if (
       !roleId ||
-      !perusahaanId ||
+      !Array.isArray(perusahaanIds) ||
+      perusahaanIds.length === 0 ||
       !Array.isArray(estateAkses) ||
-      estateAkses.length === 0
+      estateAkses.length === 0 ||
+      !Array.isArray(areaAkses) ||
+      areaAkses.length === 0
     ) {
       return;
     }
 
     const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
-    const selectedPerusahaan = perusahaanList.find(
-      (item) => String(item?.id) === String(perusahaanId),
-    ) as any;
-
-    const kodePt = String(
-      selectedPerusahaan?.kode_pt ??
-        selectedPerusahaan?.kode ??
-        selectedPerusahaan?.id ??
-        "",
-    );
-
-    if (!kodePt) return;
+    const uniquePerusahaanIds = uniqueStringArray(perusahaanIds);
+    const uniqueEstateCodes = uniqueStringArray(estateAkses);
+    const uniqueAreaCodes = uniqueStringArray(areaAkses);
+    const uniqueAfdelingCodes = uniqueStringArray(afdelingAkses);
 
     const baseUrl = getApiBaseUrl();
 
-    await Promise.all(
-      estateAkses
-        .filter((kodeEst) => !!kodeEst)
-        .map((kodeEst) =>
-          $api(`${baseUrl}/v1/akses-data/data`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: {
+    const requestBodies: Array<{
+      role_id: string;
+      kode_pt: string;
+      kode_est: string;
+      kode_area: string[];
+      kode_afd: string[];
+    }> = [];
+
+    for (const perusahaanId of uniquePerusahaanIds) {
+      const selectedPerusahaan = perusahaanList.find(
+        (item) => String(item?.id) === String(perusahaanId),
+      ) as any;
+
+      const kodePt = String(
+        selectedPerusahaan?.kode_pt ??
+          selectedPerusahaan?.kode ??
+          selectedPerusahaan?.id ??
+          "",
+      );
+
+      if (!kodePt) continue;
+
+      for (const kodeEst of uniqueEstateCodes) {
+        for (const kodeArea of uniqueAreaCodes) {
+          if (uniqueAfdelingCodes.length > 0) {
+            for (const kodeAfd of uniqueAfdelingCodes) {
+              requestBodies.push({
+                role_id: roleId,
+                kode_pt: kodePt,
+                kode_est: String(kodeEst),
+                kode_area: [String(kodeArea)],
+                kode_afd: [String(kodeAfd)],
+              });
+            }
+          } else {
+            requestBodies.push({
               role_id: roleId,
               kode_pt: kodePt,
               kode_est: String(kodeEst),
-            },
-          }),
-        ),
+              kode_area: [String(kodeArea)],
+              kode_afd: [],
+            });
+          }
+        }
+      }
+    }
+
+    if (requestBodies.length === 0) return;
+
+    await Promise.all(
+      requestBodies.map((body) =>
+        $api(`${baseUrl}/v1/akses-data/data`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body,
+        }),
+      ),
     );
   }
 
@@ -608,8 +650,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
             await createAksesPerusahaanEstate(
               roleId,
-              String(perusahaan.id),
+              [String(perusahaan.id)],
               uniqueStringArray(estateCodes),
+              uniqueStringArray(payload?.area_ids ?? []),
+              uniqueStringArray(payload?.afdeling_ids ?? []),
             );
           }),
         );

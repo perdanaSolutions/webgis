@@ -585,8 +585,8 @@ onMounted(async () => {
               <div class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <p class="font-semibold text-[#4D392A]">Level 1 - Area</p>
-                  <input v-model="searchQueryArea" type="text" placeholder="Cari area..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <!-- <input v-model="searchQueryArea" type="text" placeholder="Cari area..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
                 </div>
                 <div v-if="!allDataArea.length" class="text-[#8A817A]">
                   Belum ada data area.
@@ -604,8 +604,8 @@ onMounted(async () => {
               <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <p class="font-semibold text-[#4D392A]">Level 2 - Perusahaan</p>
-                  <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <!-- <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
                 </div>
 
                 <div class="space-y-3">
@@ -633,8 +633,8 @@ onMounted(async () => {
               <div v-if="groupedEstateByPerusahaan.length" class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <p class="font-semibold text-[#4D392A]">Level 3 - Estate</p>
-                  <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <!-- <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
                 </div>
 
                 <div class="space-y-3">
@@ -661,8 +661,8 @@ onMounted(async () => {
               <div v-if="groupedAfdelingByEstate.length" class="rounded-xl border border-[#EEE6DE] p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <p class="font-semibold text-[#4D392A]">Level 4 - Afdeling</p>
-                  <input v-model="searchQueryAfdeling" type="text" placeholder="Cari afdeling..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <!-- <input v-model="searchQueryAfdeling" type="text" placeholder="Cari afdeling..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
                 </div>
 
                 <div class="space-y-3">
