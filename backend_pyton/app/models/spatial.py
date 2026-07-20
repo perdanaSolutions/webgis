@@ -1,19 +1,41 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Identity
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from geoalchemy2 import Geometry
 from app.core.database import Base
+
+
+class Area(Base):
+    __tablename__ = "area"
+
+    # UBAH BARIS INI: Ganti identity=True menjadi autoincrement=True
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    area_id = Column(String(50), nullable=False, unique=True, index=True)
+    nama = Column(String(150), nullable=False)
+    kode_area = Column(String(50), nullable=False)
+    bulan = Column(Integer, nullable=False)
+    tahun = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    perusahaans = relationship("Perusahaan", back_populates="area")
+
 
 class Perusahaan(Base):
     __tablename__ = "perusahaan"
 
     pt_id = Column(Integer, primary_key=True, index=True)
+    
+    # Tambahkan kolom area_id sebagai ForeignKey ke area.area_id sesuai migrasi
+    area_id = Column(String(50), ForeignKey("area.area_id", ondelete="SET NULL"), nullable=True)
+    
     nama_pt = Column(String(150), nullable=False)
     kode_pt = Column(String(50), nullable=False, unique=True)
     bulan = Column(Integer, nullable=True)
     tahun = Column(Integer, nullable=True)
 
+    # Definisikan relasi balik ke Area
+    area = relationship("Area", back_populates="perusahaans")
     estates = relationship("Estate", back_populates="perusahaan", cascade="all, delete-orphan")
-
 
 class Estate(Base):
     __tablename__ = "estate"

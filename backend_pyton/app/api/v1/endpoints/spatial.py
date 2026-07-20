@@ -10,19 +10,15 @@ from app.services import spatial_upload as service
 
 from app.api import deps
 from app.schemas.spatial import PTResponse, EstateResponse, BlokResponse, PaginatedResponse, GeoJSONResponse
-from app.models.spatial import Perusahaan, Estate, Afdeling, Blok, GeoBlok
+from app.models.spatial import Area, Perusahaan, Estate, Afdeling, Blok, GeoBlok
 from sqlalchemy import or_, and_
 
 
 router = APIRouter()
 
-# ==========================================
-# 1. ENDPOINT PT (Dengan Server-Side Search)
-# ==========================================
-@router.get("/pt", response_model=PaginatedResponse)
-def get_pt_list(
-    search: Optional[str] = Query(None, description="Cari nama atau kode PT"),
-    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode PT"),
+@router.get("/area", response_model=PaginatedResponse)
+def get_area_list(
+    search: Optional[str] = Query(None, description="Cari nama atau kode area"),
     bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
     tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
@@ -31,12 +27,72 @@ def get_pt_list(
     current_user = Depends(deps.get_current_user)
 ):
     offset = (page - 1) * limit
+    query = db.query(Area)
     
+    # Filter Pencarian Global
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            or_(
+                Area.nama.ilike(search_filter),
+                Area.kode_area.ilike(search_filter),
+                Area.area_id.ilike(search_filter)
+            )
+        )
+    
+    # Filter Periode
+    if bulan:
+        query = query.filter(Area.bulan == bulan)
+    if tahun:
+        query = query.filter(Area.tahun == tahun)
+        
+    total_query = query.count()
+    data_orm = query.order_by(Area.nama).limit(limit).offset(offset).all()
+
+    formatted_data = []
+    for row in data_orm:
+        formatted_data.append({
+            "id": row.id,
+            "area_id": row.area_id,
+            "nama": row.nama,
+            "kode_area": row.kode_area,
+            "bulan": row.bulan,
+            "tahun": row.tahun
+        })
+
+    return {
+        "total_data": total_query,
+        "page": page,
+        "limit": limit,
+        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
+        "data": formatted_data
+    }
+
+# ==========================================
+# 1. ENDPOINT PT (Dengan Server-Side Search)
+# ==========================================
+@router.get("/pt", response_model=PaginatedResponse)
+def get_pt_list(
+    search: Optional[str] = Query(None, description="Cari nama atau kode PT"),
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode PT"),
+    area_id: Optional[str] = Query(None, description="Filter berdasarkan ID Area (contoh: AR_BERAU)"), # <-- TAMBAHAN FILTER
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user)
+):
+    offset = (page - 1) * limit
     query = db.query(Perusahaan)
     
     # Filter berdasarkan kode PT
     if kode_pt:
         query = query.filter(Perusahaan.kode_pt == kode_pt)
+        
+    # Filter berdasarkan area_id (Tambahan Baru)
+    if area_id:
+        query = query.filter(Perusahaan.area_id == area_id)
     
     if search:
         search_filter = f"%{search}%"
@@ -47,14 +103,13 @@ def get_pt_list(
             )
         )
     
-    # Filter bulan dan tahun (jika ada di model Perusahaan)
+    # Filter bulan dan tahun
     if bulan:
         query = query.filter(Perusahaan.bulan == bulan)
     if tahun:
         query = query.filter(Perusahaan.tahun == tahun)
         
     total_query = query.count()
-    
     data_orm = query.order_by(Perusahaan.nama_pt).limit(limit).offset(offset).all()
 
     formatted_data = []
@@ -63,6 +118,9 @@ def get_pt_list(
             "id": row.pt_id,        
             "nama_pt": row.nama_pt,
             "kode_pt": row.kode_pt,
+            "area_id": row.area_id,  # <-- Menampilkan area_id terikat
+            # Menampilkan nama master area secara dinamis memanfaatkan relasi ORM
+            "nama_area": row.area.nama if row.area else None, 
             "bulan": row.bulan if hasattr(row, 'bulan') else None,
             "tahun": row.tahun if hasattr(row, 'tahun') else None
         })
@@ -476,25 +534,43 @@ async def upload_geometry_analyze(
     contents = await file.read()
     return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
 
-@router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
-async def upload_geometry_execute(
+# @router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
+# async def upload_geometry_execute(
+#     bulan: int,
+#     tahun: int,
+#     file: UploadFile = File(...),
+#     db: Session = Depends(deps.get_db)
+# ):
+#     # ... (proses baca file geojson seperti biasa) ...
+#     contents = await file.read()
+    
+#     # Panggil service yang kini mengembalikan dictionary statistik
+#     stats = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
+    
+#     return {
+#         "status": "success",
+#         "message": f"Proses unggah spasial blok periode {bulan}-{tahun} selesai.",
+#         "detail": stats
+#     }
+
+@router.post("/blok-geometry/upload-execute")
+async def upload_blok_geometry(
     bulan: int,
     tahun: int,
     file: UploadFile = File(...),
-    db: Session = Depends(deps.get_db)
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user)
 ):
-    # ... (proses baca file geojson seperti biasa) ...
     contents = await file.read()
-    
-    # Panggil service yang kini mengembalikan dictionary statistik
-    stats = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
-    
-    return {
-        "status": "success",
-        "message": f"Proses unggah spasial blok periode {bulan}-{tahun} selesai.",
-        "detail": stats
-    }
-
+    result = service.execute_bulk_geometry_blok(
+        db=db,
+        geojson_content=contents,
+        filename=file.filename, # <-- Kirim nama berkas
+        bulan=bulan,
+        tahun=tahun,
+        user_id=current_user.id # <-- Kirim ID User pembawa token
+    )
+    return {"status": "success", "data": result}
 # =====================================================================
 # FLOW UPLOAD 1: MASTER DATA TPH (POINT) - DENGAN PROTEKSI LOGIN
 # =====================================================================
