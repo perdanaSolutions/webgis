@@ -53,8 +53,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   const masterDataItems = ref<MasterDataAccessItem[]>([]);
   const transactionItems = ref<TransactionAccessItem[]>([]);
   const allDataMenu = ref([]);
+  const allDataArea = ref([]);
   const allDataPerusahaan = ref([]);
   const allDataEstate = ref([]);
+  const allDataAfdeling = ref([]);
   const allDataTransaksi = ref([]);
 
   const loadingList = ref(false);
@@ -98,6 +100,29 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  async function initDataArea() {
+    try {
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint area jika berbeda
+      const response = await $api(`${baseUrl}/v1/spatial/area?limit=100`, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      });
+
+      const getResponse = response as any;
+      allDataArea.value =
+        getResponse?.data ?? (Array.isArray(response) ? response : []);
+
+      return allDataArea.value;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
   async function initDataPerusahaan() {
     try {
       const baseUrl = getApiBaseUrl();
@@ -113,6 +138,34 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       allDataPerusahaan.value = getResponse.data ?? [];
 
       return response;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataPerusahaanByArea(areaId: string) {
+    try {
+      if (!areaId) return [];
+
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint perusahaan by area jika berbeda
+      const response = await $api(
+        `${baseUrl}/v1/spatial/pt?area_id=${encodeURIComponent(areaId)}&limit=100`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const normalized = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      return normalized as any[];
     } catch (error: any) {
       throw error;
     }
@@ -140,6 +193,34 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       allDataEstate.value = normalizedEstate as any;
 
       return normalizedEstate;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataAfdelingByEstate(kodeEstate: string) {
+    try {
+      if (!kodeEstate) return [];
+
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint afdeling by estate jika berbeda
+      const response = await $api(
+        `${baseUrl}/v1/spatial/afdeling?kode_est=${encodeURIComponent(kodeEstate)}&limit=100`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const normalized = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      return normalized as any[];
     } catch (error: any) {
       throw error;
     }
@@ -561,8 +642,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     errorMessage,
     hasRoles,
     allDataMenu,
+    allDataArea,
     allDataPerusahaan,
     allDataEstate,
+    allDataAfdeling,
     allDataTransaksi,
     fetchRoles,
     createRole,
@@ -570,8 +653,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     getExistingAksesByRole,
     clearError,
     initDataMenu,
+    initDataArea,
     initDataPerusahaan,
+    initDataPerusahaanByArea,
     initDataEstate,
+    initDataAfdelingByEstate,
     initDataTableTransaksi,
   };
 });
