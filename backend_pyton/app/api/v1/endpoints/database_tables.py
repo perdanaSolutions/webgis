@@ -35,7 +35,7 @@ def get_database_tables(
         "log_akses_transaksi", 
         "permissions", "roles", "role_permissions",
         "spatial_ref_sys", 
-        "afdeling", "blok", "estate", "menus", "perusahaan", "spatial_ref_sys", "sys_upload_log",
+        "area", "afdeling", "blok", "estate", "menus", "perusahaan", "spatial_ref_sys", "sys_upload_log",
         "user_activity_log", "users"
     }
     filtered_tables = [table for table in tables if table not in ignored_tables]
