@@ -172,7 +172,10 @@ async function onLimitChange(event: Event) {
 }
 
 onMounted(async () => {
-  await Promise.all([manageUserStore.fetchRoles(), loadUsers(1)]);
+  await Promise.all([
+    manageUserStore.fetchRoles(),
+    loadUsers(1),
+  ]);
 });
 
 
@@ -184,7 +187,7 @@ async function gotoDashboard() {
 
 <template>
   <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
-    <Header brand-title="Management User" brand-subtitle="Kelola data pengguna dan hak akses" />
+    <Header brand-title="Management User" brand-subtitle="Kelola data pengguna dan role" />
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center justify-between gap-3">
         <div class="flex items-center gap-3">
@@ -203,11 +206,6 @@ async function gotoDashboard() {
           <NuxtLink to="/roles"
             class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
             Management Role
-          </NuxtLink>
-
-          <NuxtLink to="/permissions"
-            class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
-            Management Permission
           </NuxtLink>
         </div>
       </div>
@@ -361,22 +359,20 @@ async function gotoDashboard() {
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Role</label>
-            <select v-model="form.role_id" required
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3 outline-none">
-              <option value="" disabled>Pilih role</option>
-              <option v-for="role in manageUserStore.roles" :key="role.id" :value="role.id">
-                {{ role.nama }}
-              </option>
-            </select>
+            <v-select :model-value="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
+              placeholder="Pilih role" variant="plain" density="comfortable"
+              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
+              @update:model-value="form.role_id = $event"></v-select>
           </div>
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Status</label>
-            <select v-model="form.is_active"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3 outline-none">
-              <option :value="true">Aktif</option>
-              <option :value="false">Nonaktif</option>
-            </select>
+            <v-select :model-value="form.is_active" :items="[
+              { label: 'Aktif', value: true },
+              { label: 'Nonaktif', value: false }
+            ]" item-title="label" item-value="value" variant="plain" density="comfortable"
+              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
+              @update:model-value="form.is_active = $event"></v-select>
           </div>
 
           <div class="md:col-span-2">

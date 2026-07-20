@@ -16,6 +16,13 @@ type GeoJsonCollection = GeoJSON.FeatureCollection<
   Record<string, string | number | boolean | null | undefined>
 >;
 
+function getAuthHeaders() {
+  return {
+    accept: "application/json",
+    "Content-Type": "application/json",
+  };
+}
+
 const UPLOAD_CATEGORIES: UploadCategory[] = [
   {
     value: "blok",
@@ -62,18 +69,21 @@ const UPLOAD_CATEGORIES: UploadCategory[] = [
 
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
-  return config.public.apiBaseUrl || "/api";
+  return config.public.apiBaseUrlPython || "/api";
 }
 
 export const useDocumentUploadStore = defineStore("document-upload", {
   state: () => ({
     categories: UPLOAD_CATEGORIES as UploadCategory[],
     selectedCategory: "" as string,
+    month: "" as string,
+    year: "" as string,
     selectedFile: null as File | null,
     parsedGeoJson: null as GeoJsonCollection | null,
-    previewRows: [] as GeoJsonFeature[],
+    allPreviewRows: [] as GeoJsonFeature[],
     errorMessage: "" as string,
     successMessage: "" as string,
+    summaryAnalyze: {} as Record<string, any>,
     isParsing: false,
     isUploading: false,
     uploadProgress: 0,
@@ -81,7 +91,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
 
   getters: {
     hasPreview(state): boolean {
-      return Boolean(state.parsedGeoJson && state.previewRows.length > 0);
+      return Boolean(state.parsedGeoJson && state.allPreviewRows.length > 0);
     },
     featureCount(state): number {
       return state.parsedGeoJson?.features?.length ?? 0;
@@ -92,14 +102,27 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     resetMessages() {
       this.errorMessage = "";
       this.successMessage = "";
+      this.summaryAnalyze = {};
     },
 
     resetSelection() {
       this.selectedFile = null;
       this.parsedGeoJson = null;
-      this.previewRows = [];
+      this.allPreviewRows = [];
       this.uploadProgress = 0;
       this.resetMessages();
+    },
+
+    getYearList() {
+      const currentYear = new Date().getFullYear(); // Mendapatkan tahun sekarang (2026)
+      const years = [];
+
+      // Looping untuk mengambil tahun sekarang sampai 10 tahun ke belakang
+      for (let i = 0; i <= 10; i++) {
+        years.push(String(currentYear - i));
+      }
+
+      return years;
     },
 
     setCategory(category: string) {
@@ -111,7 +134,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.resetMessages();
       this.selectedFile = file;
       this.parsedGeoJson = null;
-      this.previewRows = [];
+      this.allPreviewRows = [];
 
       if (!file) return;
 
@@ -141,11 +164,11 @@ export const useDocumentUploadStore = defineStore("document-upload", {
 
         this.uploadProgress = 75;
         this.parsedGeoJson = json;
-        this.previewRows = json.features.slice(0, 10) as GeoJsonFeature[];
+        this.allPreviewRows = json.features as GeoJsonFeature[];
         this.uploadProgress = 100;
       } catch (error) {
         this.parsedGeoJson = null;
-        this.previewRows = [];
+        this.allPreviewRows = [];
         this.uploadProgress = 0;
         this.errorMessage =
           error instanceof Error
@@ -161,10 +184,19 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     },
 
     async submitUpload() {
-      this.resetMessages();
+      if (Object.keys(this.summaryAnalyze).length === 0) {
+        this.resetMessages();
+      }
+
+      const { $api } = useNuxtApp();
 
       if (!this.selectedCategory) {
         this.errorMessage = "Silakan pilih kategori data terlebih dahulu.";
+        return;
+      }
+
+      if (!this.month || !this.year) {
+        this.errorMessage = "Silakan pilih bulan dan tahun.";
         return;
       }
 
@@ -173,25 +205,55 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         return;
       }
 
+      // const apiBaseUrl = getApiBaseUrl();
+      // console.log("Selected Category :", this.selectedCategory);
+      // console.log("base url :", apiBaseUrl);
+
       this.isUploading = true;
       this.uploadProgress = 15;
 
       try {
         const apiBaseUrl = getApiBaseUrl();
         const formData = new FormData();
-        formData.append("category", this.selectedCategory);
+        var urlUploadByCategory = "";
+
+        if (
+          this.selectedCategory === "blok" &&
+          Object.keys(this.summaryAnalyze).length === 0
+        ) {
+          urlUploadByCategory = "/v1/spatial/blok-geometry/upload-analyze";
+        } else if (
+          this.selectedCategory === "blok" &&
+          Object.keys(this.summaryAnalyze).length > 0
+        ) {
+          urlUploadByCategory = "/v1/spatial/blok-geometry/upload-execute";
+        }
+
         formData.append("file", this.selectedFile);
-        formData.append("feature_count", String(this.featureCount));
+        // formData.append("feature_count", String(this.featureCount));
 
         this.uploadProgress = 45;
 
-        await $fetch(`${apiBaseUrl}/spatial/upload`, {
-          method: "POST",
-          body: formData,
-        });
+        var response = await $api(
+          `${apiBaseUrl}${urlUploadByCategory}?bulan=${this.month}&tahun=${this.year}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
 
         this.uploadProgress = 100;
-        this.successMessage = "Upload GeoJSON berhasil diproses.";
+        if (Object.keys(this.summaryAnalyze).length > 0) {
+          this.successMessage = "Upload GeoJSON berhasil diproses.";
+          this.summaryAnalyze = {};
+          this.selectedFile = null;
+          this.parsedGeoJson = null;
+          this.selectedCategory = "";
+          this.month = "";
+          this.year = "";
+        } else {
+          this.summaryAnalyze = response as any;
+        }
       } catch (error) {
         this.errorMessage =
           error instanceof Error ? error.message : "Upload GeoJSON gagal.";

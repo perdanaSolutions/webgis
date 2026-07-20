@@ -1,23 +1,34 @@
-<script setup lang="ts">
+<script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import Header from "~/components/Header.vue";
-import { useManageRoleStore, type RoleItem } from "~/stores/manageRoleStore";
+import { useManageRoleStore } from "~/stores/manageRoleStore";
+import { dashboardStore } from '~/stores/dashboardStore'
+
 
 defineOptions({
   name: "RolesManagementPage",
 });
 
 const manageRoleStore = useManageRoleStore();
+const dashboardService = dashboardStore()
+
 
 const search = ref("");
 const showFormModal = ref(false);
-const formMode = ref<"create" | "edit">("create");
+const formMode = ref("create");
 const selectedRoleId = ref("");
+const searchQueryPerusahaan = ref("");
+const searchQueryEstate = ref("");
+
+const activePermissionTab = ref("menu");
 
 const form = reactive({
   nama: "",
   deskripsi: "",
-  permission_ids: [] as string[],
+  menu_ids: [],
+  perusahaan_ids: [],
+  estate_ids: [],
+  transaksi_ids: [],
 });
 
 const filteredRoles = computed(() => {
@@ -36,6 +47,40 @@ const submitLoading = computed(
   () => manageRoleStore.loadingCreate || manageRoleStore.loadingUpdate,
 );
 
+const allDataPerusahaan = computed(
+  () => {
+    if (!searchQueryPerusahaan.value) {
+      return manageRoleStore.allDataPerusahaan ?? [];
+    }
+    return manageRoleStore.allDataPerusahaan.filter(perusahaan =>
+      perusahaan.nama_pt.toLowerCase().includes(searchQueryPerusahaan.value.toLowerCase())
+    )
+  }
+);
+
+const allDataEstate = computed(() => {
+  const estates = manageRoleStore.allDataEstate ?? [];
+  if (!searchQueryEstate.value) {
+    return estates;
+  }
+
+  const keyword = searchQueryEstate.value.toLowerCase();
+  return estates.filter((estate) => {
+    const estateName = String(
+      estate?.nama_estate ?? estate?.nama ?? estate?.title ?? "",
+    ).toLowerCase();
+    const estateCode = String(
+      estate?.kode_estate ?? estate?.kode ?? estate?.id ?? "",
+    ).toLowerCase();
+
+    return estateName.includes(keyword) || estateCode.includes(keyword);
+  });
+});
+
+const allDataTransaksi = computed(
+  () => manageRoleStore.allDataTransaksi ?? [],
+);
+
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Role" : "Edit Role",
 );
@@ -43,13 +88,45 @@ const pageTitle = computed(() =>
 function resetForm() {
   form.nama = "";
   form.deskripsi = "";
-  form.permission_ids = [];
+  form.menu_ids = [];
+  activePermissionTab.value = "menu";
 }
 
-function fillForm(role: RoleItem) {
+async function fillForm(role) {
   form.nama = role.nama ?? "";
   form.deskripsi = role.deskripsi ?? "";
-  form.permission_ids = (role.permissions ?? []).map((item) => item.id);
+  form.menu_ids = [];
+  form.perusahaan_ids = [];
+  form.estate_ids = [];
+  form.transaksi_ids = [];
+  activePermissionTab.value = "menu";
+
+  const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
+
+  form.menu_ids = (existingAkses?.menu ?? [])
+    .map((item) => String(item?.menu_id ?? ""))
+    .filter((id) => !!id);
+
+  const dataAkses = existingAkses?.data ?? [];
+  if (dataAkses.length > 0) {
+    const kodePt = String(dataAkses[0]?.kode_pt ?? "");
+    const selectedPerusahaan = (manageRoleStore.allDataPerusahaan ?? []).find(
+      (item) => String(getPerusahaanCode(item)) === kodePt,
+    );
+
+    if (selectedPerusahaan?.id) {
+      form.perusahaan_ids = [selectedPerusahaan.id];
+      await manageRoleStore.initDataEstate(String(kodePt));
+    }
+
+    form.estate_ids = dataAkses
+      .map((item) => String(item?.kode_est ?? ""))
+      .filter((id) => !!id);
+  }
+
+  form.transaksi_ids = (existingAkses?.transaksi ?? [])
+    .map((item) => String(item?.nama_table_transaksi ?? ""))
+    .filter((id) => !!id);
 }
 
 function openCreateModal() {
@@ -59,41 +136,23 @@ function openCreateModal() {
   showFormModal.value = true;
 }
 
-function openEditModal(role: RoleItem) {
+async function openEditModal(role) {
   formMode.value = "edit";
   selectedRoleId.value = role.id;
-  fillForm(role);
   showFormModal.value = true;
+  await fillForm(role);
 }
 
 function closeFormModal() {
   showFormModal.value = false;
 }
 
-function togglePermission(permissionId: string) {
-  const exists = form.permission_ids.includes(permissionId);
-
-  if (exists) {
-    form.permission_ids = form.permission_ids.filter((id) => id !== permissionId);
-    return;
-  }
-
-  form.permission_ids = [...form.permission_ids, permissionId];
-}
 
 async function submitForm() {
   if (formMode.value === "create") {
-    await manageRoleStore.createRole({
-      nama: form.nama,
-      deskripsi: form.deskripsi,
-      permission_ids: form.permission_ids,
-    });
+    await manageRoleStore.createRole(form);
   } else {
-    await manageRoleStore.updateRole(selectedRoleId.value, {
-      nama: form.nama,
-      deskripsi: form.deskripsi,
-      permission_ids: form.permission_ids,
-    });
+    await manageRoleStore.updateRole(selectedRoleId.value, form);
   }
 
   showFormModal.value = false;
@@ -104,10 +163,133 @@ async function gotoUsers() {
   await navigateTo("/users");
 }
 
+const changeContent = (value) => {
+  activePermissionTab.value = value
+};
+
+const toggleAllMenu = () => {
+  const isAllSelected = form.menu_ids.length === manageRoleStore.allDataMenu.length;
+  if (isAllSelected) {
+    // Jika sudah centang semua, maka KOSONGKAN (uncheck all)
+    form.menu_ids = [];
+  } else {
+    // Jika belum semua, maka MASUKKAN SEMUA ID ke dalam array (check all)
+    form.menu_ids = manageRoleStore.allDataMenu.map(menu => menu.id);
+  }
+};
+
+const selectedPerusahaan = computed(() => {
+  const selectedId = form.perusahaan_ids[0];
+  if (!selectedId) return null;
+
+  return (
+    manageRoleStore.allDataPerusahaan.find((item) => item.id === selectedId) ??
+    null
+  );
+});
+
+const getPerusahaanCode = (perusahaan) =>
+  perusahaan?.kode_pt ?? perusahaan?.kode ?? perusahaan?.id ?? "";
+
+const selectPerusahaan = async (perusahaan) => {
+  const selectedId = perusahaan?.id;
+  if (!selectedId) return;
+
+  const isSameSelection = form.perusahaan_ids[0] === selectedId;
+  if (isSameSelection) return;
+
+  form.perusahaan_ids = [selectedId];
+  form.estate_ids = [];
+  searchQueryEstate.value = "";
+
+  const kodePt = getPerusahaanCode(perusahaan);
+  if (!kodePt) {
+    manageRoleStore.allDataEstate = [];
+    return;
+  }
+
+  await manageRoleStore.initDataEstate(String(kodePt));
+};
+
+const getTransaksiCode = (transaksi) =>
+  String(transaksi?.id ?? transaksi?.nama_table_transaksi ?? transaksi ?? "");
+
+const toggleAllTransaksi = () => {
+  const transaksiCodes = allDataTransaksi.value
+    .map((transaksi) => getTransaksiCode(transaksi))
+    .filter((code) => !!code);
+
+  const isAllSelected =
+    transaksiCodes.length > 0 &&
+    transaksiCodes.every((code) => form.transaksi_ids.includes(code));
+
+  if (isAllSelected) {
+    form.transaksi_ids = form.transaksi_ids.filter(
+      (id) => !transaksiCodes.includes(String(id)),
+    );
+  } else {
+    const merged = new Set([
+      ...form.transaksi_ids.map((id) => String(id)),
+      ...transaksiCodes,
+    ]);
+    form.transaksi_ids = Array.from(merged);
+  }
+};
+
+const getEstateCode = (estate) =>
+  String(estate?.kode_estate ?? estate?.kode ?? estate?.id ?? "");
+
+const toggleAllEstate = () => {
+  const estateCodes = allDataEstate.value
+    .map((estate) => getEstateCode(estate))
+    .filter((code) => !!code);
+
+  const isAllSelected =
+    estateCodes.length > 0 &&
+    estateCodes.every((code) => form.estate_ids.includes(code));
+
+  if (isAllSelected) {
+    form.estate_ids = form.estate_ids.filter((id) => !estateCodes.includes(id));
+  } else {
+    const merged = new Set([...form.estate_ids, ...estateCodes]);
+    form.estate_ids = Array.from(merged);
+  }
+};
+
+const toggleEstate = (id) => {
+  const index = form.estate_ids.indexOf(id);
+  if (index > -1) {
+    form.estate_ids.splice(index, 1);
+  } else {
+    form.estate_ids.push(id);
+  }
+};
+
+const togglePermission = (id) => {
+  let targetArray = [];
+
+  // Tentukan target array berdasarkan tab yang aktif saat ini
+  if (activePermissionTab.value === "menu") {
+    targetArray = form.menu_ids;
+  } else if (activePermissionTab.value === "transaksi") {
+    targetArray = form.transaksi_ids;
+  }
+
+  // Cek apakah ID sudah ada di dalam array
+  const index = targetArray.indexOf(id);
+  if (index > -1) {
+    targetArray.splice(index, 1); // Jika sudah ada, hapus (uncheck)
+  } else {
+    targetArray.push(id); // Jika belum ada, tambahkan (check)
+  }
+};
+
 onMounted(async () => {
   await Promise.all([
     manageRoleStore.fetchRoles(),
-    manageRoleStore.fetchPermissions(),
+    manageRoleStore.initDataMenu(),
+    manageRoleStore.initDataPerusahaan(),
+    manageRoleStore.initDataTableTransaksi(),
   ]);
 });
 </script>
@@ -126,14 +308,14 @@ onMounted(async () => {
           </svg>
         </button>
 
-        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management User</p>
+        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management Role</p>
       </div>
 
       <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 class="text-[20px] font-bold">Daftar Role</h2>
-            <p class="text-[#8A817A]">Kelola role dan permission yang terkait.</p>
+            <p class="text-[#8A817A]">Kelola role dan permission bertingkat berdasarkan scope akses.</p>
           </div>
 
           <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
@@ -156,7 +338,9 @@ onMounted(async () => {
               <tr>
                 <th class="px-4 py-3 font-bold">Nama</th>
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
-                <th class="px-4 py-3 font-bold">Jumlah Permission</th>
+                <th class="px-4 py-3 font-bold">Menu</th>
+                <th class="px-4 py-3 font-bold">Perusahaan & Estate</th>
+                <th class="px-4 py-3 font-bold">Transaksi</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
             </thead>
@@ -170,9 +354,11 @@ onMounted(async () => {
               <tr v-for="item in filteredRoles" :key="item.id" class="border-t border-[#F0E8E0]">
                 <td class="px-4 py-3">{{ item.nama }}</td>
                 <td class="px-4 py-3">{{ item.deskripsi }}</td>
-                <td class="px-4 py-3">{{ item.permissions?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_menu?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_data?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ item.akses_transaksi?.length ?? 0 }}</td>
                 <td class="px-4 py-3">
-                  <button
+                  <button v-if="item.nama != 'superadmin'"
                     class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
                     @click="openEditModal(item)">
                     Edit
@@ -192,7 +378,7 @@ onMounted(async () => {
     </div>
 
     <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-3xl rounded-2xl bg-white p-5">
+      <div class="w-full max-w-4xl rounded-2xl bg-white p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
           <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
@@ -211,22 +397,127 @@ onMounted(async () => {
               class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
-          <div class="md:col-span-2">
-            <label class="mb-2 block text-[#6F645B]">Permission</label>
-            <div class="max-h-60 overflow-y-auto rounded-xl border border-[#EEE6DE] p-3">
-              <div v-if="manageRoleStore.loadingPermissions" class="text-[#8A817A]">
-                Memuat data permission...
+          <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] p-4">
+            <div class="mb-4 flex flex-wrap gap-2 border-b border-[#EEE6DE] pb-3">
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'menu'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('menu')">
+                Akses Menu
+              </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'perusahaan'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('perusahaan')">
+                Akses Perusahaan dan Akses estate
+              </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
+                ? 'bg-[#4D392A] text-white'
+                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('transaksi')">
+                Akses transaksi
+              </button>
+            </div>
+
+            <div v-show="activePermissionTab === 'menu'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-[#4D392A]">List Menu</p>
+                <button type="button"
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  @click="toggleAllMenu">
+                  Ceklis Semua
+                </button>
               </div>
 
-              <label v-for="permission in manageRoleStore.permissions" :key="permission.id"
-                class="mb-2 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-[#F8F3EE]">
-                <input type="checkbox" :checked="form.permission_ids.includes(permission.id)"
-                  @change="togglePermission(permission.id)" />
-                <span class="font-semibold">{{ permission.kode }}</span>
-                <span class="text-[#8A817A]">
-                  ({{ permission.resource }} - {{ permission.aksi }})
-                </span>
-              </label>
+              <div v-if="!manageRoleStore.allDataMenu.length" class="text-[#8A817A]">
+                Belum ada data permission menu.
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input :checked="form.menu_ids.includes(menu.id)" type="checkbox" class="h-4 w-4"
+                    @change="togglePermission(menu.id)" />
+                  <span>{{ menu.title }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
+                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+
+                  <p class="text-xs font-semibold text-[#8A817A]">
+                    Pilih 1 perusahaan
+                  </p>
+                </div>
+
+                <div v-if="!allDataPerusahaan.length" class="text-[#8A817A]">
+                  Belum ada data perusahaan master data.
+                </div>
+
+                <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <label v-for="perusahaan in allDataPerusahaan" :key="perusahaan.id"
+                    class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                    <input :checked="form.perusahaan_ids[0] === perusahaan.id" type="radio" name="perusahaan_single"
+                      class="h-4 w-4" @change="selectPerusahaan(perusahaan)" />
+                    <span>{{ perusahaan.nama_pt }}</span>
+                  </label>
+                </div>
+              </div>
+              <div v-if="selectedPerusahaan" class="rounded-xl border border-[#EEE6DE] p-4">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p class="font-semibold text-[#4D392A]">
+                    List Estate - {{ selectedPerusahaan.nama_pt }}
+                  </p>
+                </div>
+
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
+                    class="w-fit rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" />
+                  <button type="button"
+                    class="whitespace-nowrap rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                    @click="toggleAllEstate">
+                    Ceklis Semua
+                  </button>
+                </div>
+
+                <div v-if="!allDataEstate.length" class="text-[#8A817A]">
+                  Belum ada data estate untuk perusahaan ini.
+                </div>
+
+                <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <label v-for="estate in allDataEstate" :key="estate.id ?? estate.kode_estate ?? estate.kode"
+                    class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                    <input :checked="form.estate_ids.includes(getEstateCode(estate))" type="checkbox" class="h-4 w-4"
+                      @change="toggleEstate(getEstateCode(estate))" />
+                    <span>{{ estate.nama_estate ?? estate.nama ?? estate.title ?? getEstateCode(estate) }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div v-show="activePermissionTab === 'transaksi'" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-[#4D392A]">List data transaksi</p>
+                <button type="button"
+                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  @click="toggleAllTransaksi">
+                  Ceklis Semua
+                </button>
+              </div>
+
+              <div v-if="!allDataTransaksi.length" class="text-[#8A817A]">
+                Belum ada data transaksi.
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="transaksi in allDataTransaksi" :key="getTransaksiCode(transaksi)"
+                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  <input :checked="form.transaksi_ids.includes(getTransaksiCode(transaksi))" type="checkbox"
+                    class="h-4 w-4" @change="togglePermission(getTransaksiCode(transaksi))" />
+                  <span>{{ transaksi?.title ?? transaksi?.nama_table_transaksi ?? transaksi }}</span>
+                </label>
+              </div>
             </div>
           </div>
 

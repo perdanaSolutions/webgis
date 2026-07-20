@@ -5,6 +5,7 @@ import {
   useManagePermissionStore,
   type PermissionItem,
 } from "~/stores/managePermissionStore";
+import { parsePermissionMeta } from "~/composables/usePermissionScope";
 
 defineOptions({
   name: "PermissionsManagementPage",
@@ -42,6 +43,44 @@ const filteredPermissions = computed(() => {
 const submitLoading = computed(
   () => managePermissionStore.loadingCreate || managePermissionStore.loadingUpdate,
 );
+
+const permissionScopeGroups = computed(() =>
+  managePermissionStore.scopeGroups.filter((group) => group.items.length > 0),
+);
+
+const selectedScopePreview = computed(() => {
+  if (!form.kode && !form.resource && !form.aksi && !form.deskripsi) {
+    return {
+      categoryLabel: "Belum terdeteksi",
+      ptCode: "-",
+      estateCode: "-",
+      transactionCode: "-",
+    };
+  }
+
+  const meta = parsePermissionMeta({
+    id: selectedPermissionId.value || "draft",
+    kode: form.kode,
+    resource: form.resource,
+    aksi: form.aksi,
+    deskripsi: form.deskripsi,
+  });
+
+  const categoryMap: Record<string, string> = {
+    menu: "Level 1 - Menu / Modul Dashboard",
+    pt: "Level 2 - Akses PT",
+    estate: "Level 3 - Akses Estate",
+    transaction: "Level 4 - Akses Transaksi",
+    general: "Permission Umum / Lainnya",
+  };
+
+  return {
+    categoryLabel: categoryMap[meta.category] ?? "Permission Umum / Lainnya",
+    ptCode: meta.ptCode ?? "-",
+    estateCode: meta.estateCode ?? "-",
+    transactionCode: meta.transactionCode ?? "-",
+  };
+});
 
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Permission" : "Edit Permission",
@@ -146,7 +185,7 @@ onMounted(async () => {
           <div>
             <h2 class="text-[20px] font-bold">Daftar Permission</h2>
             <p class="text-[#8A817A]">
-              Kelola permission (kode, resource, aksi, deskripsi).
+              Kelola permission bertingkat: menu, PT, estate, dan transaksi.
             </p>
           </div>
 
@@ -163,6 +202,26 @@ onMounted(async () => {
         <p v-if="managePermissionStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
           {{ managePermissionStore.errorMessage }}
         </p>
+
+        <!-- <div class="mb-4 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
+          <h3 class="text-[16px] font-bold text-[#4D392A]">Struktur Permission Bertingkat</h3>
+          <p class="mt-1 text-[#8A817A]">
+            Preview kategori permission berdasarkan data saat ini. Ini membantu memastikan flow level akses konsisten.
+          </p>
+
+          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div v-for="group in permissionScopeGroups" :key="group.category"
+              class="rounded-lg border border-[#E7DDD3] bg-white p-3">
+              <p class="text-sm font-semibold text-[#4D392A]">{{ group.label }}</p>
+              <p class="mt-1 text-xs text-[#8A817A]">{{ group.items.length }} permission</p>
+            </div>
+
+            <div v-if="permissionScopeGroups.length === 0"
+              class="rounded-lg border border-dashed border-[#E7DDD3] bg-white p-3 text-[#8A817A]">
+              Belum ada data permission yang bisa dikategorikan.
+            </div>
+          </div>
+        </div> -->
 
         <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
           <table class="min-w-full bg-white">
@@ -217,47 +276,100 @@ onMounted(async () => {
     </div>
 
     <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-2xl rounded-2xl bg-white p-5">
+      <div class="w-full max-w-3xl rounded-2xl bg-white p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
           <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
         </div>
 
-        <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
-          <div>
-            <label class="mb-1 block text-[#6F645B]">Kode</label>
-            <input v-model="form.kode" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+        <form @submit.prevent="submitForm">
+
+          <div class="mx-4 p-4">
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+
+              <button
+                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                Menu
+              </button>
+
+              <button
+                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                Perusahaan & Estate
+              </button>
+
+              <button
+                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                Transaksi
+              </button>
+
+            </div>
           </div>
 
-          <div>
-            <label class="mb-1 block text-[#6F645B]">Resource</label>
-            <input v-model="form.resource" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
-          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 
-          <div>
-            <label class="mb-1 block text-[#6F645B]">Aksi</label>
-            <input v-model="form.aksi" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
-          </div>
+            <div>
+              <label class="mb-1 block text-[#6F645B]">Kode</label>
+              <input v-model="form.kode" required type="text"
+                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            </div>
 
-          <div class="md:col-span-2">
-            <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
-            <textarea v-model="form.deskripsi" rows="3"
-              class="w-full rounded-xl border border-[#EEE6DE] px-3 py-2 outline-none" />
-          </div>
+            <div>
+              <label class="mb-1 block text-[#6F645B]">Resource</label>
+              <input v-model="form.resource" required type="text"
+                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            </div>
 
-          <div class="md:col-span-2 mt-2 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
-              @click="closeFormModal">
-              Batal
-            </button>
-            <button type="submit" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
-              :disabled="submitLoading">
-              {{ submitLoading ? "Menyimpan..." : "Simpan" }}
-            </button>
+            <div>
+              <label class="mb-1 block text-[#6F645B]">Aksi</label>
+              <input v-model="form.aksi" required type="text"
+                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
+              <textarea v-model="form.deskripsi" rows="3"
+                class="w-full rounded-xl border border-[#EEE6DE] px-3 py-2 outline-none" />
+            </div>
+
+            <!-- <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
+              <h4 class="text-[15px] font-bold text-[#4D392A]">Preview Scope Permission</h4>
+              <p class="mt-1 text-[13px] text-[#8A817A]">
+                Kategori akan terdeteksi otomatis dari kombinasi kode/resource/deskripsi.
+              </p>
+
+              <div class="mt-3 grid grid-cols-1 gap-2 text-[13px] md:grid-cols-2">
+                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
+                  <p class="text-[#8A817A]">Kategori</p>
+                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.categoryLabel }}</p>
+                </div>
+                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
+                  <p class="text-[#8A817A]">PT Scope</p>
+                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.ptCode }}</p>
+                </div>
+                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
+                  <p class="text-[#8A817A]">Estate Scope</p>
+                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.estateCode }}</p>
+                </div>
+                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
+                  <p class="text-[#8A817A]">Transaction Scope</p>
+                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.transactionCode }}</p>
+                </div>
+              </div>
+            </div> -->
+
+
+            <div class="md:col-span-2 mt-2 flex justify-end gap-2">
+              <button type="button"
+                class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+                @click="closeFormModal">
+                Batal
+              </button>
+              <button type="submit"
+                class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+                :disabled="submitLoading">
+                {{ submitLoading ? "Menyimpan..." : "Simpan" }}
+              </button>
+            </div>
           </div>
         </form>
       </div>
