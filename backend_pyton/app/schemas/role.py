@@ -1,50 +1,31 @@
-from pydantic import BaseModel, UUID4
+from pydantic import BaseModel
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-from typing import List, Optional
 
-from app.schemas.akses import LogAksesMenuResponse, LogAksesDataResponse, LogAksesTransaksiResponse
+# Import skema response & create dari akses.py
+from app.schemas.akses import (
+    LogAksesDataCreate, 
+    LogAksesMenuResponse, 
+    LogAksesDataResponse, 
+    LogAksesTransaksiResponse
+)
 
-# Schema dasar untuk Permission (digunakan di dalam detail Role)
-class PermissionInRole(BaseModel):
-    id: UUID
-    kode: str
-    resource: str
-    aksi: str
-
-    class Config:
-        from_attributes = True
-
-class RoleResponse(BaseModel):
-    id: UUID4
+class RoleBase(BaseModel):
     nama: str
     deskripsi: Optional[str] = None
+
+class RoleCreate(RoleBase):
+    # Payload yang dikirim oleh Frontend saat buat/edit Role
+    akses_menu: Optional[List[str]] = []                 # Berisi list menu_id (e.g. ["menu-1", "menu-2"])
+    akses_data: Optional[List[LogAksesDataCreate]] = []  # Berisi list object wilayah GIS
+    akses_transaksi: Optional[List[str]] = []            # Berisi list nama tabel (e.g. ["trx_panen"])
+
+class RoleResponse(RoleBase):
+    id: UUID
     created_at: datetime
-    # permissions: List[PermissionInRole] = [] # Hak akses legacy/lama
     
-    # Tambahkan field baru untuk konfigurasi UI baru (Gambar 1)
-    akses_menu: List[LogAksesMenuResponse] = []
-    akses_data: List[LogAksesDataResponse] = []
-    akses_transaksi: List[LogAksesTransaksiResponse] = []
-
-    class Config:
-        from_attributes = True
-
-# Schema untuk Input saat membuat/mengubah Role
-class RoleCreate(BaseModel):
-    nama: str
-    deskripsi: Optional[str] = None
-    permission_ids: Optional[List[UUID]] = [] # Mengirimkan list UUID permission yang ingin ditempelkan
-
-# Schema untuk Output data Role
-class RoleResponse(BaseModel):
-    id: UUID
-    nama: str
-    deskripsi: Optional[str] = None
-    created_at: datetime
-    # permissions: List[PermissionInRole] = [] # Mengembalikan object detail permission-nya
-
-    # Tambahkan field baru untuk konfigurasi UI baru (Gambar 1)
+    # Menampilkan detail log akses yang aktif pada Role
     akses_menu: List[LogAksesMenuResponse] = []
     akses_data: List[LogAksesDataResponse] = []
     akses_transaksi: List[LogAksesTransaksiResponse] = []
