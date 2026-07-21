@@ -29,7 +29,7 @@ class Perusahaan(Base):
     area_id = Column(String(50), ForeignKey("area.area_id", ondelete="SET NULL"), nullable=True)
     
     nama_pt = Column(String(150), nullable=False)
-    kode_pt = Column(String(50), nullable=False, unique=True)
+    kode_pt = Column(String(50), nullable=False, unique=False)
     bulan = Column(Integer, nullable=True)
     tahun = Column(Integer, nullable=True)
 
@@ -43,7 +43,7 @@ class Estate(Base):
     est_id = Column(String(50), primary_key=True)
     pt_id = Column(Integer, ForeignKey("perusahaan.pt_id", ondelete="CASCADE"), nullable=False)
     nama_estate = Column(String(100), nullable=False)
-    kode_est = Column(String(50), nullable=False, unique=True)
+    kode_est = Column(String(50), nullable=False, unique=False)
     bulan = Column(Integer, nullable=True)
     tahun = Column(Integer, nullable=True)
 
@@ -70,7 +70,7 @@ class Blok(Base):
     blok_id = Column(String(150), primary_key=True)
     afd_id = Column(String(100), ForeignKey("afdeling.afd_id", ondelete="CASCADE"), nullable=False)
     nama_blok = Column(String(100), nullable=False)
-    kode_blok = Column(String(50), nullable=False, unique=True)
+    kode_blok = Column(String(50), nullable=False, unique=False)
     tipe_blok = Column(String(50), nullable=True)
     jenis_topografi = Column(String(100), nullable=True)
     jenis_tanah = Column(String(100), nullable=True)
