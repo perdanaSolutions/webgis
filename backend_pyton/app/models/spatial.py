@@ -10,7 +10,7 @@ class Area(Base):
 
     # UBAH BARIS INI: Ganti identity=True menjadi autoincrement=True
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    area_id = Column(String(50), nullable=False, unique=True, index=True)
+    area_id = Column(String(50), nullable=False, unique=False, index=True)
     nama = Column(String(150), nullable=False)
     kode_area = Column(String(50), nullable=False)
     bulan = Column(Integer, nullable=False)
