@@ -326,18 +326,29 @@ def execute_bulk_geometry_blok(db: Session, geojson_content: bytes, filename: st
             # A. MANAGE MASTER AREA
             # =================================================================
             existing_area = db.execute(
-                text("SELECT id FROM area WHERE area_id = :aid AND bulan = :b AND tahun = :t"),
-                {"aid": area_id, "b": bulan, "t": tahun}
+                text("""
+                    SELECT id FROM area 
+                    WHERE (area_id = :aid OR kode_area = :kode) 
+                      AND bulan = :b 
+                      AND tahun = :t
+                """),
+                {"aid": area_id, "kode": kode_area, "b": bulan, "t": tahun}
             ).fetchone()
 
-            if not existing_area:
-                db.execute(
+            if existing_area:
+                actual_area_pk_id = existing_area[0]
+                print(f"--- AREA EKSIS (SKIP INSERT): {area_id} / {kode_area} untuk periode {bulan}-{tahun} ---")
+            else:
+                area_row = db.execute(
                     text("""
                         INSERT INTO area (area_id, nama, kode_area, bulan, tahun)
                         VALUES (:aid, :nama, :kode, :b, :t)
+                        RETURNING id
                     """),
                     {"aid": area_id, "nama": nama_area_clean, "kode": kode_area, "b": bulan, "t": tahun}
-                )
+                ).fetchone()
+                actual_area_pk_id = area_row[0]
+                
             success_area.add(area_id)
 
             # =================================================================
