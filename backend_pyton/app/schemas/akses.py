@@ -85,3 +85,25 @@ class LogAksesTransaksiResponse(LogAksesTransaksiBase):
 
     class Config:
         from_attributes = True
+
+class AfdelingItem(BaseModel):
+    id_afdeling: str
+    nama_afdeling: Optional[str] = None
+
+class EstateItem(BaseModel):
+    id_estate: str
+    nama_estate: Optional[str] = None
+    afdeling: List[AfdelingItem] = []
+
+class PerusahaanItem(BaseModel):
+    id_perusahaan: str
+    nama_perusahaan: Optional[str] = None
+    estate: List[EstateItem] = []
+
+class AreaTreeSchema(BaseModel):
+    id_area: str
+    nama_area: Optional[str] = None
+    perusahaan: List[PerusahaanItem] = []
+
+    class Config:
+        from_attributes = True
