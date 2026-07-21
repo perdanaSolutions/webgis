@@ -1,0 +1,70 @@
+[
+  {
+    "id_area": "AR_BERAU",
+    "nama_area": "BERAU",
+    "perusahaan": [
+      {
+        "id_perusahaan": "1",
+        "nama_perusahaan": "PT. TANJUNG BUYU PERKASA PLANTATION",
+        "estate": [
+          {
+            "id_estate": "PT_TANJUNG_BUYU_PERKASA_PLANTATION_E004",
+            "nama_estate": "Biatan Estate",
+            "afdeling": [
+              {
+                "id_afdeling": "PT_TANJUNG_BUYU_PERKASA_PLANTATION_E004_AFDI01",
+                "nama_afdeling": "AFDI01"
+              }
+            ]
+          },
+          {
+            "id_estate": "PT_TANJUNG_BUYU_PERKASA_PLANTATION_E001",
+            "nama_estate": "Talisayan 1 Estate",
+            "afdeling": [
+              {
+                "id_afdeling": "PT_TANJUNG_BUYU_PERKASA_PLANTATION_E004_AFDI01",
+                "nama_afdeling": "AFDI01"
+              },
+              {
+                "id_afdeling": "PT_TANJUNG_BUYU_PERKASA_PLANTATION_E001_AFDI06",
+                "nama_afdeling": "AFDI06"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id_area": "AR_KUTIM1",
+    "nama_area": "KUTIM1",
+    "perusahaan": [
+      {
+        "id_perusahaan": "3",
+        "nama_perusahaan": "PT. TELEN",
+        "estate": [
+          {
+            "id_estate": "PT_TELEN_E006",
+            "nama_estate": "Bukit Permata 1 Estate",
+            "afdeling": [
+              {
+                "id_afdeling": "PT_TELEN_E006_AFDI02",
+                "nama_afdeling": "AFDI02"
+              }
+            ]
+          },
+          {
+            "id_estate": "PT_TELEN_E011",
+            "nama_estate": "Sei Karangan Estate",
+            "afdeling": [
+              {
+                "id_afdeling": "PT_TELEN_E011_AFDI03",
+                "nama_afdeling": "AFDI03"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

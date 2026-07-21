@@ -32,6 +32,10 @@ const form = reactive({
   estate_ids: [],
   afdeling_ids: [],
   transaksi_ids: [],
+  selected_area_items: [],
+  selected_perusahaan_items: [],
+  selected_estate_items: [],
+  selected_afdeling_items: [],
 });
 
 const perusahaanByAreaMap = ref({});
@@ -137,6 +141,10 @@ function resetForm() {
   form.estate_ids = [];
   form.afdeling_ids = [];
   form.transaksi_ids = [];
+  form.selected_area_items = [];
+  form.selected_perusahaan_items = [];
+  form.selected_estate_items = [];
+  form.selected_afdeling_items = [];
 
   searchQueryArea.value = "";
   searchQueryPerusahaan.value = "";
@@ -164,6 +172,10 @@ async function fillForm(role) {
   afdelingByEstateMap.value = {};
   activePermissionTab.value = "menu";
 
+  if (!(manageRoleStore.allDataPerusahaan ?? []).length) {
+    await manageRoleStore.initDataPerusahaan();
+  }
+
   const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
 
   form.menu_ids = (existingAkses?.menu ?? [])
@@ -172,27 +184,69 @@ async function fillForm(role) {
 
   const dataAkses = existingAkses?.data ?? [];
   if (dataAkses.length > 0) {
-    const perusahaanCodes = Array.from(
+    const uniqueAreaCodes = Array.from(
+      new Set(dataAkses.map((item) => String(item?.kode_area ?? "")).filter(Boolean)),
+    );
+    const uniquePerusahaanCodes = Array.from(
       new Set(dataAkses.map((item) => String(item?.kode_pt ?? "")).filter(Boolean)),
     );
-
-    const selectedPerusahaan = (manageRoleStore.allDataPerusahaan ?? []).filter(
-      (item) => perusahaanCodes.includes(String(getPerusahaanCode(item))),
+    const uniqueEstateCodes = Array.from(
+      new Set(dataAkses.map((item) => String(item?.kode_est ?? "")).filter(Boolean)),
     );
-    form.perusahaan_ids = selectedPerusahaan.map((item) => String(item.id));
+    const uniqueAfdelingCodes = Array.from(
+      new Set(dataAkses.map((item) => String(item?.kode_afd ?? "")).filter(Boolean)),
+    );
 
-    form.estate_ids = dataAkses
-      .map((item) => String(item?.kode_est ?? ""))
-      .filter((id) => !!id);
+    const allAreas = manageRoleStore.allDataArea ?? [];
+    form.area_ids = allAreas
+      .filter((area) => uniqueAreaCodes.includes(String(getAreaId(area))))
+      .map((area) => String(area?.id ?? ""))
+      .filter(Boolean);
 
-    form.afdeling_ids = dataAkses
-      .map((item) => String(item?.kode_afd ?? ""))
-      .filter((id) => !!id);
+    for (const area of allAreas) {
+      const areaCode = String(getAreaId(area));
+      if (!uniqueAreaCodes.includes(areaCode)) continue;
+
+      if (!perusahaanByAreaMap.value[areaCode]) {
+        const perusahaanByArea = await manageRoleStore.initDataPerusahaanByArea(areaCode);
+        perusahaanByAreaMap.value[areaCode] = perusahaanByArea ?? [];
+      }
+    }
+
+    const selectedPerusahaan = (manageRoleStore.allDataPerusahaan ?? []).filter((item) =>
+      uniquePerusahaanCodes.includes(String(getPerusahaanCode(item))),
+    );
+    form.perusahaan_ids = selectedPerusahaan
+      .map((item) => String(item?.id ?? ""))
+      .filter(Boolean);
+
+    for (const perusahaan of selectedPerusahaan) {
+      const kodePt = String(getPerusahaanCode(perusahaan));
+      if (!kodePt) continue;
+
+      if (!estateByPerusahaanMap.value[kodePt]) {
+        const estates = await manageRoleStore.initDataEstate(kodePt);
+        estateByPerusahaanMap.value[kodePt] = estates ?? [];
+      }
+    }
+
+    form.estate_ids = uniqueEstateCodes;
+
+    for (const kodeEst of uniqueEstateCodes) {
+      if (!afdelingByEstateMap.value[kodeEst]) {
+        const afdelings = await manageRoleStore.initDataAfdelingByEstate(kodeEst);
+        afdelingByEstateMap.value[kodeEst] = afdelings ?? [];
+      }
+    }
+
+    form.afdeling_ids = uniqueAfdelingCodes;
   }
 
   form.transaksi_ids = (existingAkses?.transaksi ?? [])
     .map((item) => String(item?.nama_table_transaksi ?? ""))
     .filter((id) => !!id);
+
+  pruneDownstreamSelections();
 }
 
 function openCreateModal() {
@@ -248,7 +302,7 @@ const getPerusahaanCode = (perusahaan) =>
   String(perusahaan?.kode_pt ?? perusahaan?.kode ?? perusahaan?.id ?? "");
 
 const getEstateCode = (estate) =>
-  String(estate?.kode_estate ?? estate?.kode ?? estate?.id ?? "");
+  String(estate?.kode_est ?? "");
 
 const getAfdelingCode = (afdeling) =>
   String(afdeling?.kode_afd ?? afdeling?.kode_afdeling ?? afdeling?.kode ?? afdeling?.id ?? "");
@@ -321,11 +375,23 @@ const toggleArea = async (area) => {
 
   if (index > -1) {
     form.area_ids.splice(index, 1);
+    form.selected_area_items = form.selected_area_items.filter(
+      (item) => String(item?.id ?? "") !== id,
+    );
 
     delete perusahaanByAreaMap.value[areaId];
     pruneDownstreamSelections();
   } else {
     form.area_ids.push(id);
+    form.selected_area_items = [
+      ...form.selected_area_items,
+      {
+        id: String(area?.id ?? ""),
+        area_id: String(area?.area_id ?? ""),
+        nama_area: String(area?.nama_area ?? area?.nama ?? ""),
+      },
+    ];
+
     if (!perusahaanByAreaMap.value[areaId]) {
       const data = await manageRoleStore.initDataPerusahaanByArea(areaId);
       perusahaanByAreaMap.value[areaId] = data ?? [];
@@ -343,10 +409,26 @@ const togglePerusahaan = async (perusahaan) => {
 
   if (index > -1) {
     form.perusahaan_ids.splice(index, 1);
+    form.selected_perusahaan_items = form.selected_perusahaan_items.filter(
+      (item) => String(item?.id ?? "") !== id,
+    );
     delete estateByPerusahaanMap.value[perusahaanCode];
     pruneDownstreamSelections();
   } else {
     form.perusahaan_ids.push(id);
+    form.selected_perusahaan_items = [
+      ...form.selected_perusahaan_items,
+      {
+        id: String(perusahaan?.id ?? ""),
+        kode_pt: String(perusahaan?.kode_pt ?? perusahaan?.kode ?? ""),
+        kode_area: String(
+          perusahaan?.kode_area ?? perusahaan?.area_id ?? perusahaan?.area?.area_id ?? "",
+        ),
+        nama_pt: String(
+          perusahaan?.nama_pt ?? perusahaan?.nama_perusahaan ?? perusahaan?.nama ?? "",
+        ),
+      },
+    ];
     if (!estateByPerusahaanMap.value[perusahaanCode]) {
       const data = await manageRoleStore.initDataEstate(perusahaanCode);
       estateByPerusahaanMap.value[perusahaanCode] = data ?? [];
@@ -362,10 +444,22 @@ const toggleEstate = async (estate) => {
   const index = form.estate_ids.indexOf(code);
   if (index > -1) {
     form.estate_ids.splice(index, 1);
+    form.selected_estate_items = form.selected_estate_items.filter(
+      (item) => String(item?.kode_est ?? "") !== code,
+    );
     delete afdelingByEstateMap.value[code];
     pruneDownstreamSelections();
   } else {
     form.estate_ids.push(code);
+    form.selected_estate_items = [
+      ...form.selected_estate_items,
+      {
+        id: String(estate?.id ?? ""),
+        kode_est: String(estate?.kode_est ?? ""),
+        kode_pt: String(estate?.kode_pt ?? estate?.pt_kode ?? ""),
+        nama_estate: String(estate?.nama_estate ?? estate?.nama ?? ""),
+      },
+    ];
     if (!afdelingByEstateMap.value[code]) {
       const data = await manageRoleStore.initDataAfdelingByEstate(code);
       afdelingByEstateMap.value[code] = data ?? [];
@@ -374,15 +468,31 @@ const toggleEstate = async (estate) => {
   }
 };
 
-const toggleAfdeling = (id) => {
+const toggleAfdeling = (id, afdeling = null, estateCode = "") => {
   const code = String(id ?? "");
   if (!code) return;
 
   const index = form.afdeling_ids.indexOf(code);
   if (index > -1) {
     form.afdeling_ids.splice(index, 1);
+    form.selected_afdeling_items = form.selected_afdeling_items.filter(
+      (item) => String(item?.kode_afd ?? "") !== code,
+    );
   } else {
     form.afdeling_ids.push(code);
+    form.selected_afdeling_items = [
+      ...form.selected_afdeling_items,
+      {
+        id: String(afdeling?.id ?? ""),
+        kode_afd: code,
+        kode_est: String(
+          afdeling?.kode_est ?? estateCode ?? "",
+        ),
+        nama_afdeling: String(
+          afdeling?.nama_afdeling ?? afdeling?.nama ?? afdeling?.kode_afd ?? code,
+        ),
+      },
+    ];
   }
 };
 
@@ -678,7 +788,8 @@ onMounted(async () => {
                       <label v-for="afdeling in group.afdelings" :key="getAfdelingCode(afdeling)"
                         class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
                         <input :checked="form.afdeling_ids.includes(getAfdelingCode(afdeling))" type="checkbox"
-                          class="h-4 w-4" @change="toggleAfdeling(getAfdelingCode(afdeling))" />
+                          class="h-4 w-4"
+                          @change="toggleAfdeling(getAfdelingCode(afdeling), afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
                           }}</span>
                       </label>
