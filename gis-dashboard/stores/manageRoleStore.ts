@@ -589,11 +589,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
     console.log(`hasil body payload : ${JSON.stringify(bodyPayload)}`);
 
-    // await $api(`${baseUrl}/v1/akses-data/data`, {
-    //   method: "POST",
-    //   headers: getAuthHeaders(),
-    //   body: bodyPayload,
-    // });
+    await $api(`${baseUrl}/v1/akses-data/data/role/${roleId}`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: bodyPayload,
+    });
   }
 
   async function createAksesTransaksi(
