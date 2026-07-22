@@ -12,6 +12,7 @@ from app.api import deps
 from app.schemas.spatial import PTResponse, EstateResponse, BlokResponse, PaginatedResponse, GeoJSONResponse
 from app.models.spatial import Area, Perusahaan, Estate, Afdeling, Blok, GeoBlok
 from sqlalchemy import or_, and_
+from sqlalchemy import desc
 
 
 router = APIRouter()
@@ -40,11 +41,22 @@ def get_area_list(
             )
         )
     
-    # Filter Periode
-    if bulan:
-        query = query.filter(Area.bulan == bulan)
-    if tahun:
-        query = query.filter(Area.tahun == tahun)
+    # 2. Logika Periode (Manual Input vs Auto Latest)
+    if bulan is not None or tahun is not None:
+        # Jika user mengisi salah satu / keduanya secara eksplisit
+        if bulan is not None:
+            query = query.filter(Area.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(Area.tahun == tahun)
+    else:
+        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
+        latest_period = db.query(Area.tahun, Area.bulan)\
+            .order_by(desc(Area.tahun), desc(Area.bulan))\
+            .first()
+            
+        if latest_period:
+            latest_tahun, latest_bulan = latest_period
+            query = query.filter(Area.tahun == latest_tahun, Area.bulan == latest_bulan)
         
     total_query = query.count()
     data_orm = query.order_by(Area.nama).limit(limit).offset(offset).all()
@@ -104,10 +116,21 @@ def get_pt_list(
         )
     
     # Filter bulan dan tahun
-    if bulan:
-        query = query.filter(Perusahaan.bulan == bulan)
-    if tahun:
-        query = query.filter(Perusahaan.tahun == tahun)
+    if bulan is not None or tahun is not None:
+        # Jika user mengisi salah satu / keduanya secara eksplisit
+        if bulan is not None:
+            query = query.filter(Perusahaan.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(Perusahaan.tahun == tahun)
+    else:
+        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
+        latest_period = db.query(Perusahaan.tahun, Perusahaan.bulan)\
+            .order_by(desc(Perusahaan.tahun), desc(Perusahaan.bulan))\
+            .first()
+            
+        if latest_period:
+            latest_tahun, latest_bulan = latest_period
+            query = query.filter(Perusahaan.tahun == latest_tahun, Perusahaan.bulan == latest_bulan)
         
     total_query = query.count()
     data_orm = query.order_by(Perusahaan.nama_pt).limit(limit).offset(offset).all()
@@ -161,10 +184,21 @@ def get_estate_list(
         query = query.filter(Estate.kode_est == kode_est)
     
     # Filter bulan dan tahun
-    if bulan:
-        query = query.filter(Estate.bulan == bulan)
-    if tahun:
-        query = query.filter(Estate.tahun == tahun)
+    if bulan is not None or tahun is not None:
+        # Jika user mengisi salah satu / keduanya secara eksplisit
+        if bulan is not None:
+            query = query.filter(Estate.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(Estate.tahun == tahun)
+    else:
+        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
+        latest_period = db.query(Estate.tahun, Estate.bulan)\
+            .order_by(desc(Estate.tahun), desc(Estate.bulan))\
+            .first()
+            
+        if latest_period:
+            latest_tahun, latest_bulan = latest_period
+            query = query.filter(Estate.tahun == latest_tahun, Estate.bulan == latest_bulan)
         
     if search:
         search_filter = f"%{search}%"
@@ -233,10 +267,21 @@ def get_afdeling_list(
         query = query.filter(Afdeling.kode_afd == kode_afd)
     
     # Filter bulan dan tahun
-    if bulan:
-        query = query.filter(Afdeling.bulan == bulan)
-    if tahun:
-        query = query.filter(Afdeling.tahun == tahun)
+    if bulan is not None or tahun is not None:
+        # Jika user mengisi salah satu / keduanya secara eksplisit
+        if bulan is not None:
+            query = query.filter(Afdeling.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(Afdeling.tahun == tahun)
+    else:
+        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
+        latest_period = db.query(Afdeling.tahun, Afdeling.bulan)\
+            .order_by(desc(Afdeling.tahun), desc(Afdeling.bulan))\
+            .first()
+            
+        if latest_period:
+            latest_tahun, latest_bulan = latest_period
+            query = query.filter(Afdeling.tahun == latest_tahun, Afdeling.bulan == latest_bulan)
         
     if search:
         query = query.filter(Afdeling.kode_afd.ilike(f"%{search}%"))
@@ -317,10 +362,21 @@ def get_blok_list(
         query = query.filter(Blok.kode_blok == kode_blok)
     
     # Filter bulan dan tahun
-    if bulan:
-        query = query.filter(Blok.bulan == bulan)
-    if tahun:
-        query = query.filter(Blok.tahun == tahun)
+    if bulan is not None or tahun is not None:
+        # Jika user mengisi salah satu / keduanya secara eksplisit
+        if bulan is not None:
+            query = query.filter(Blok.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(Blok.tahun == tahun)
+    else:
+        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
+        latest_period = db.query(Blok.tahun, Blok.bulan)\
+            .order_by(desc(Blok.tahun), desc(Blok.bulan))\
+            .first()
+            
+        if latest_period:
+            latest_tahun, latest_bulan = latest_period
+            query = query.filter(Blok.tahun == latest_tahun, Blok.bulan == latest_bulan)
         
     if search:
         search_filter = f"%{search}%"
