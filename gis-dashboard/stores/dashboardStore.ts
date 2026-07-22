@@ -143,24 +143,28 @@ export const dashboardStore = defineStore("dashboard", () => {
       var informasiUser = authStore.user;
       var filterDataMenu = [] as any;
 
-      if (
-        informasiUser &&
-        response &&
-        Array.isArray(informasiUser.akses_menu)
-      ) {
-        var aksesMenuIds = informasiUser.akses_menu;
-        filterDataMenu = response.filter(function (menu) {
-          // Pastikan menu memiliki properti id (sesuaikan nama propertinya, misal: menu.id atau menu.menu_id)
-          return aksesMenuIds.includes(menu.id);
-        });
+      // console.log(`informasi user : ${JSON.stringify(informasiUser)}`);
+      if (informasiUser?.role === "superadmin" && response) {
+        // console.log(`name role : ${informasiUser?.role}`);
+        filterDataMenu = response;
       } else {
-        // Jika user tidak punya akses_menu atau response kosong, default ke array kosong
-        filterDataMenu = [];
+        if (
+          informasiUser &&
+          response &&
+          Array.isArray(informasiUser.akses_menu)
+        ) {
+          var aksesMenuIds = informasiUser.akses_menu;
+          filterDataMenu = response.filter(function (menu) {
+            // Pastikan menu memiliki properti id (sesuaikan nama propertinya, misal: menu.id atau menu.menu_id)
+            return aksesMenuIds.includes(menu.id);
+          });
+        } else {
+          // Jika user tidak punya akses_menu atau response kosong, default ke array kosong
+          filterDataMenu = [];
+        }
       }
-
       // Output terakhir diset ke moduleItems.value
       moduleItems.value = filterDataMenu;
-
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(

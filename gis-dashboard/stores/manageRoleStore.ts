@@ -53,8 +53,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   const masterDataItems = ref<MasterDataAccessItem[]>([]);
   const transactionItems = ref<TransactionAccessItem[]>([]);
   const allDataMenu = ref([]);
+  const allDataArea = ref([]);
   const allDataPerusahaan = ref([]);
   const allDataEstate = ref([]);
+  const allDataAfdeling = ref([]);
   const allDataTransaksi = ref([]);
 
   const loadingList = ref(false);
@@ -98,6 +100,29 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  async function initDataArea() {
+    try {
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint area jika berbeda
+      const response = await $api(`${baseUrl}/v1/spatial/area?limit=100`, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      });
+
+      const getResponse = response as any;
+      allDataArea.value =
+        getResponse?.data ?? (Array.isArray(response) ? response : []);
+
+      return allDataArea.value;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
   async function initDataPerusahaan() {
     try {
       const baseUrl = getApiBaseUrl();
@@ -113,6 +138,34 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       allDataPerusahaan.value = getResponse.data ?? [];
 
       return response;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataPerusahaanByArea(areaId: string) {
+    try {
+      if (!areaId) return [];
+
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint perusahaan by area jika berbeda
+      const response = await $api(
+        `${baseUrl}/v1/spatial/pt?area_id=${encodeURIComponent(areaId)}&limit=100`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const normalized = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      return normalized as any[];
     } catch (error: any) {
       throw error;
     }
@@ -140,6 +193,34 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       allDataEstate.value = normalizedEstate as any;
 
       return normalizedEstate;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataAfdelingByEstate(kodeEstate: string) {
+    try {
+      if (!kodeEstate) return [];
+
+      const baseUrl = getApiBaseUrl();
+
+      // TODO: sesuaikan endpoint afdeling by estate jika berbeda
+      const response = await $api(
+        `${baseUrl}/v1/spatial/afdeling?kode_est=${encodeURIComponent(kodeEstate)}&limit=100`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const normalized = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      return normalized as any[];
     } catch (error: any) {
       throw error;
     }
@@ -199,7 +280,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   async function createRole(payload: any) {
     loadingCreate.value = true;
     clearError();
-
+    // console.log(`data payload : ${JSON.stringify(payload)}`);
     try {
       const baseUrl = getApiBaseUrl();
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/`, {
@@ -208,14 +289,19 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         body: payload,
       });
 
+      // console.log(`hasil create role : ${JSON.stringify(response)}`);
+
       var idResponseRole = response?.id ?? "";
 
       if (idResponseRole) {
         await createAksesMenu(idResponseRole, payload.menu_ids);
-        await createAksesPerusahaanEstate(
+        await createAksesData(
           idResponseRole,
-          payload.perusahaan_ids[0],
-          payload.estate_ids,
+          payload.perusahaan_ids ?? [],
+          payload.estate_ids ?? [],
+          payload.area_ids ?? [],
+          payload.afdeling_ids ?? [],
+          payload,
         );
         await createAksesTransaksi(idResponseRole, payload.transaksi_ids);
       }
@@ -252,51 +338,262 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     );
   }
 
-  async function createAksesPerusahaanEstate(
+  async function createAksesData(
     roleId: string,
-    perusahaanId: string,
+    perusahaanIds: string[] = [],
     estateAkses: string[] = [],
+    areaAkses: string[] = [],
+    afdelingAkses: string[] = [],
+    selectedHierarchy: any = {},
   ) {
+    if (!roleId) return;
+
+    const uniqueAreaIds = uniqueStringArray(areaAkses);
+    const uniquePerusahaanIds = uniqueStringArray(perusahaanIds);
+    const uniqueEstateCodes = uniqueStringArray(estateAkses);
+    const uniqueAfdelingCodes = uniqueStringArray(afdelingAkses);
+
     if (
-      !roleId ||
-      !perusahaanId ||
-      !Array.isArray(estateAkses) ||
-      estateAkses.length === 0
+      uniqueAreaIds.length === 0 ||
+      uniquePerusahaanIds.length === 0 ||
+      uniqueEstateCodes.length === 0 ||
+      uniqueAfdelingCodes.length === 0
     ) {
       return;
     }
 
-    const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
-    const selectedPerusahaan = perusahaanList.find(
-      (item) => String(item?.id) === String(perusahaanId),
-    ) as any;
-
-    const kodePt = String(
-      selectedPerusahaan?.kode_pt ??
-        selectedPerusahaan?.kode ??
-        selectedPerusahaan?.id ??
-        "",
-    );
-
-    if (!kodePt) return;
-
     const baseUrl = getApiBaseUrl();
 
-    await Promise.all(
-      estateAkses
-        .filter((kodeEst) => !!kodeEst)
-        .map((kodeEst) =>
-          $api(`${baseUrl}/v1/akses-data/data`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: {
-              role_id: roleId,
-              kode_pt: kodePt,
-              kode_est: String(kodeEst),
-            },
-          }),
-        ),
+    const normalize = (v: any) => String(v ?? "").trim();
+
+    const areaList = (allDataArea.value ?? []) as any[];
+    const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
+
+    const selectedAreaItems = Array.isArray(
+      selectedHierarchy?.selected_area_items,
+    )
+      ? selectedHierarchy.selected_area_items
+      : [];
+    const selectedPerusahaanItems = Array.isArray(
+      selectedHierarchy?.selected_perusahaan_items,
+    )
+      ? selectedHierarchy.selected_perusahaan_items
+      : [];
+    const selectedEstateItems = Array.isArray(
+      selectedHierarchy?.selected_estate_items,
+    )
+      ? selectedHierarchy.selected_estate_items
+      : [];
+    const selectedAfdelingItems = Array.isArray(
+      selectedHierarchy?.selected_afdeling_items,
+    )
+      ? selectedHierarchy.selected_afdeling_items
+      : [];
+
+    const selectedAreas =
+      selectedAreaItems.length > 0
+        ? selectedAreaItems.map((area: any) => ({
+            id: normalize(area?.id),
+            area_id: normalize(area?.area_id ?? area?.id),
+            nama_area: normalize(area?.nama_area ?? area?.nama ?? area?.id),
+          }))
+        : areaList
+            .filter((area: any) => uniqueAreaIds.includes(normalize(area?.id)))
+            .map((area) => ({
+              id: normalize(area?.id),
+              area_id: normalize(area?.area_id ?? area?.id),
+              nama_area: normalize(area?.nama_area ?? area?.nama ?? area?.id),
+            }));
+
+    const selectedPerusahaan =
+      selectedPerusahaanItems.length > 0
+        ? selectedPerusahaanItems.map((pt: any) => ({
+            id: normalize(pt?.id),
+            kode_pt: normalize(pt?.kode_pt ?? pt?.kode ?? pt?.id),
+            kode_area: normalize(
+              pt?.kode_area ?? pt?.area_id ?? pt?.area?.area_id,
+            ),
+            nama_pt: normalize(
+              pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? pt?.kode_pt,
+            ),
+          }))
+        : perusahaanList
+            .filter((pt) => {
+              const id = normalize(pt?.id);
+              const kodePt = normalize(pt?.kode_pt ?? pt?.kode);
+              return (
+                uniquePerusahaanIds.includes(id) ||
+                uniquePerusahaanIds.includes(kodePt)
+              );
+            })
+            .map((pt) => ({
+              id: normalize(pt?.id),
+              kode_pt: normalize(pt?.kode_pt ?? pt?.kode ?? pt?.id),
+              kode_area: normalize(
+                pt?.kode_area ?? pt?.area_id ?? pt?.area?.area_id,
+              ),
+              nama_pt: normalize(
+                pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? pt?.kode_pt,
+              ),
+            }));
+
+    const selectedEstateMap = new Map<
+      string,
+      { id: string; kode_est: string; kode_pt: string; nama_estate: string }
+    >();
+    if (selectedEstateItems.length > 0) {
+      selectedEstateItems.forEach((est: any) => {
+        const kodeEst = normalize(est?.kode_est ?? est?.id);
+        if (!kodeEst) return;
+        selectedEstateMap.set(kodeEst, {
+          id: normalize(est?.id ?? kodeEst),
+          kode_est: kodeEst,
+          kode_pt: normalize(est?.kode_pt),
+          nama_estate: normalize(est?.nama_estate ?? est?.nama ?? kodeEst),
+        });
+      });
+    }
+
+    const selectedAfdelingMap = new Map<
+      string,
+      { id: string; kode_afd: string; kode_est: string; nama_afdeling: string }
+    >();
+    if (selectedAfdelingItems.length > 0) {
+      selectedAfdelingItems.forEach((afd: any) => {
+        const kodeAfd = normalize(afd?.kode_afd ?? afd?.id);
+        if (!kodeAfd) return;
+        selectedAfdelingMap.set(kodeAfd, {
+          id: normalize(afd?.id ?? kodeAfd),
+          kode_afd: kodeAfd,
+          kode_est: normalize(afd?.kode_est),
+          nama_afdeling: normalize(
+            afd?.nama_afdeling ?? afd?.nama ?? afd?.kode_afd ?? kodeAfd,
+          ),
+        });
+      });
+    }
+
+    const areaNodes = selectedAreas.map((area: any) => {
+      const areaId = normalize(area?.area_id ?? area?.id);
+      const areaName = normalize(area?.nama_area ?? area?.nama ?? areaId);
+
+      return {
+        id_area: areaId,
+        nama_area: areaName,
+        perusahaan: [] as Array<{
+          id_perusahaan: string;
+          nama_perusahaan: string;
+          estate: Array<{
+            id_estate: string;
+            nama_estate: string;
+            afdeling: Array<{
+              id_afdeling: string;
+              nama_afdeling: string;
+            }>;
+          }>;
+        }>,
+      };
+    });
+
+    const areaMap = new Map<string, any>();
+    areaNodes.forEach((node: any) =>
+      areaMap.set(normalize(node.id_area), node),
     );
+
+    for (const perusahaan of selectedPerusahaan) {
+      const ptAreaCode = normalize(perusahaan?.kode_area);
+      const ptCode = normalize(perusahaan?.kode_pt ?? perusahaan?.id);
+      const ptName = normalize(perusahaan?.nama_pt ?? ptCode);
+
+      const areaNode = areaMap.get(ptAreaCode);
+      if (!areaNode || !ptCode) continue;
+
+      const estatesResponse = await initDataEstate(ptCode);
+      const estates = (estatesResponse ?? []) as any[];
+
+      const estateNodes: Array<{
+        id_estate: string;
+        nama_estate: string;
+        afdeling: Array<{ id_afdeling: string; nama_afdeling: string }>;
+      }> = [];
+
+      for (const estate of estates) {
+        const kodeEst = normalize(estate?.kode_est ?? estate?.id);
+        if (!kodeEst || !uniqueEstateCodes.includes(kodeEst)) continue;
+
+        const selectedEstateMeta = selectedEstateMap.get(kodeEst);
+
+        const afdelingsResponse = await initDataAfdelingByEstate(kodeEst);
+        const afdelings = (afdelingsResponse ?? []) as any[];
+
+        const afdelingNodes = afdelings
+          .filter((afd) => {
+            const kodeAfd = normalize(
+              afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
+            );
+            return !!kodeAfd && uniqueAfdelingCodes.includes(kodeAfd);
+          })
+          .map((afd) => ({
+            id_afdeling: normalize(
+              selectedAfdelingMap.get(
+                normalize(
+                  afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
+                ),
+              )?.id ??
+                afd?.id ??
+                afd?.kode_afd ??
+                afd?.kode ??
+                "",
+            ),
+            nama_afdeling: normalize(
+              afd?.kode_afd ??
+                afd?.nama_afdeling ??
+                afd?.nama ??
+                afd?.kode ??
+                "",
+            ),
+          }));
+
+        if (afdelingNodes.length === 0) continue;
+
+        estateNodes.push({
+          id_estate: normalize(
+            selectedEstateMeta?.id ?? estate?.id ?? estate?.kode_est ?? "",
+          ),
+          nama_estate: normalize(
+            selectedEstateMeta?.nama_estate ??
+              estate?.nama_estate ??
+              estate?.nama ??
+              estate?.kode_est ??
+              "",
+          ),
+          afdeling: afdelingNodes,
+        });
+      }
+
+      if (estateNodes.length === 0) continue;
+
+      areaNode.perusahaan.push({
+        id_perusahaan: normalize(perusahaan?.id ?? perusahaan?.kode_pt ?? ""),
+        nama_perusahaan: ptName,
+        estate: estateNodes,
+      });
+    }
+
+    const bodyPayload = areaNodes.filter(
+      (area: any) =>
+        Array.isArray(area.perusahaan) && area.perusahaan.length > 0,
+    );
+
+    if (bodyPayload.length === 0) return;
+
+    console.log(`hasil body payload : ${JSON.stringify(bodyPayload)}`);
+
+    // await $api(`${baseUrl}/v1/akses-data/data`, {
+    //   method: "POST",
+    //   headers: getAuthHeaders(),
+    //   body: bodyPayload,
+    // });
   }
 
   async function createAksesTransaksi(
@@ -415,7 +712,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
         method: "PUT",
         headers: getAuthHeaders(),
-        body: payload,
+        body: {
+          nama: payload.nama,
+          deskripsi: payload.deskripsi,
+        },
       });
 
       const existing = await getExistingAksesByRole(roleId);
@@ -525,10 +825,12 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
             if (!perusahaan?.id) return;
 
-            await createAksesPerusahaanEstate(
+            await createAksesData(
               roleId,
-              String(perusahaan.id),
+              [String(perusahaan.id)],
               uniqueStringArray(estateCodes),
+              uniqueStringArray(payload?.area_ids ?? []),
+              uniqueStringArray(payload?.afdeling_ids ?? []),
             );
           }),
         );
@@ -561,8 +863,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     errorMessage,
     hasRoles,
     allDataMenu,
+    allDataArea,
     allDataPerusahaan,
     allDataEstate,
+    allDataAfdeling,
     allDataTransaksi,
     fetchRoles,
     createRole,
@@ -570,8 +874,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     getExistingAksesByRole,
     clearError,
     initDataMenu,
+    initDataArea,
     initDataPerusahaan,
+    initDataPerusahaanByArea,
     initDataEstate,
+    initDataAfdelingByEstate,
     initDataTableTransaksi,
   };
 });

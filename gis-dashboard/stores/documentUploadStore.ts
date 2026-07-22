@@ -215,19 +215,24 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       try {
         const apiBaseUrl = getApiBaseUrl();
         const formData = new FormData();
-        var urlUploadByCategory = "";
 
-        if (
-          this.selectedCategory === "blok" &&
-          Object.keys(this.summaryAnalyze).length === 0
-        ) {
-          urlUploadByCategory = "/v1/spatial/blok-geometry/upload-analyze";
-        } else if (
-          this.selectedCategory === "blok" &&
-          Object.keys(this.summaryAnalyze).length > 0
-        ) {
-          urlUploadByCategory = "/v1/spatial/blok-geometry/upload-execute";
-        }
+        const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
+        const actionType = isAnalyze ? "analyze" : "execute";
+
+        // 2. Mapping base URL untuk setiap kategori
+        const urlMapping: Record<string, string> = {
+          blok: `/v1/spatial/blok-geometry/upload-${actionType}`,
+          tph: `/v1/spatial/tph/upload-${actionType}`,
+          pokok_sawit: `/v1/spatial/sawit/spatial/sawit/${isAnalyze ? "analyze" : "upload"}`,
+          landuse: `/v1/spatial/landuse/${isAnalyze ? "analyze" : "upload"}`,
+          jalan: `/v1/spatial/jalan/${isAnalyze ? "analyze" : "upload"}`,
+          slope: `/v1/spatial/slope/${isAnalyze ? "analyze" : "upload"}`,
+          drainase: `/v1/spatial/drainase/${isAnalyze ? "analyze" : "upload"}`,
+          jembatan: `/v1/spatial/jembatan/${isAnalyze ? "analyze" : "upload"}`,
+        };
+
+        // 3. Ambil URL berdasarkan kategori yang dipilih (berikan fallback string kosong jika tidak cocok)
+        const urlUploadByCategory = urlMapping[this.selectedCategory] || "";
 
         formData.append("file", this.selectedFile);
         // formData.append("feature_count", String(this.featureCount));

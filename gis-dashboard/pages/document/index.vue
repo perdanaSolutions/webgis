@@ -289,6 +289,16 @@ async function gotoDashboard() {
 
               <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
                 <div class="flex items-center gap-3">
+                  <div class="p-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs">AREA</div>
+                  <span class="text-sm font-medium text-[#6F645B]"> Jumlah Data Area</span>
+                </div>
+                <span class="text-base font-bold text-[#6F645B]">
+                  {{ documentUploadStore.summaryAnalyze.ringkasan_struktur_data?.jumlah_master_area }}
+                </span>
+              </div>
+
+              <div class="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#EEE6DE] rounded-xl">
+                <div class="flex items-center gap-3">
                   <div class="p-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs">PT</div>
                   <span class="text-sm font-medium text-[#6F645B]"> Jumlah Data Perusahaan</span>
                 </div>
