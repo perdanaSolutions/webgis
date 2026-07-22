@@ -134,7 +134,7 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isQuickMenuOpen"
-            class="fixed inset-x-4 top-30 z-50 rounded-2xl border border-[#EEE6DE] bg-white p-3 shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[500px] sm:max-w-[90vw]">
+            class="fixed inset-x-4 top-30 z-[1500] rounded-2xl border border-[#EEE6DE] bg-white p-3 shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[500px] sm:max-w-[90vw]">
             <p class="mb-3 px-2 text-[14px] font-bold text-[#4D392A]">
               Quick Menu
             </p>

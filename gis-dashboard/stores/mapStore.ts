@@ -1,36 +1,64 @@
+import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import { useAccessControl } from "~/composables/useAccessControl";
-
-type FeatureProperties = Record<string, string | number | null | undefined>;
-
-type GeoJSONFeature = GeoJSON.Feature<GeoJSON.Geometry, FeatureProperties>;
-
-type Filters = {
-  pt: string;
-  estate: string;
-  afdeling: string;
-  blok: string;
-  tahunTanam: string;
-  statusTanam: string;
-  jenisBibit: string;
-};
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 type OptionItem = {
   label: string;
   value: string;
 };
 
-type FilterOptions = {
-  pt: OptionItem[];
-  estate: OptionItem[];
-  afdeling: OptionItem[];
-  blok: OptionItem[];
-  tahunTanam: OptionItem[];
-  statusTanam: OptionItem[];
-  jenisBibit: OptionItem[];
+type AreaItem = {
+  id?: string | number;
+  area_id?: string;
+  kode_area?: string;
+  nama_area?: string;
+  nama?: string;
 };
 
-type Summary = {
+type PtItem = {
+  id?: string | number;
+  kode_pt?: string;
+  kode?: string;
+  nama_pt?: string;
+  nama_perusahaan?: string;
+  nama?: string;
+};
+
+type EstateItem = {
+  id?: string | number;
+  kode_est?: string;
+  kode?: string;
+  nama_estate?: string;
+  nama?: string;
+};
+
+type AfdelingItem = {
+  id?: string | number;
+  kode_afd?: string;
+  kode_afdeling?: string;
+  kode?: string;
+  nama_afdeling?: string;
+  nama?: string;
+};
+
+type BlokItem = {
+  id?: string | number;
+  blok_id?: string;
+  kode_blok?: string;
+  kode?: string;
+  nama_blok?: string;
+  nama?: string;
+};
+
+type MapFilters = {
+  area?: string;
+  pt: string;
+  estate: string;
+  afdeling: string;
+  blok: string;
+};
+
+type MapSummary = {
   totalBlok: number;
   totalLuasTanam: number;
   totalPokok: number;
@@ -39,343 +67,442 @@ type Summary = {
   totalJembatan: number;
 };
 
-type CacheBucket<T> = {
-  data: T;
-  timestamp: number;
-};
-
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
-  return config.public.apiBaseUrl || "/api";
+  return config.public.apiBaseUrlPython;
 }
 
-function toQuery(filters: Filters) {
-  const searchParams = new URLSearchParams();
+export const useMapStore = defineStore("map", () => {
+  const { $api } = useNuxtApp();
 
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value) searchParams.set(key, value);
-  });
+  const areaOptions = ref<OptionItem[]>([]);
+  const ptOptions = ref<OptionItem[]>([]);
+  const estateOptions = ref<OptionItem[]>([]);
+  const afdelingOptions = ref<OptionItem[]>([]);
+  const blokOptions = ref<OptionItem[]>([]);
 
-  return searchParams.toString();
-}
+  const selectedArea = ref("");
+  const selectedPt = ref("");
+  const selectedEstate = ref("");
+  const selectedAfdeling = ref("");
+  const selectedBlok = ref("");
 
-export const useMapStore = defineStore("map", {
-  state: () => ({
-    rawFeatures: [] as GeoJSONFeature[],
-    lastLoadedAt: 0,
-    filters: {
-      pt: "",
-      estate: "",
-      afdeling: "",
-      blok: "",
-      tahunTanam: "",
-      statusTanam: "",
-      jenisBibit: "",
-    } as Filters,
-    options: {
-      pt: [],
-      estate: [],
-      afdeling: [],
-      blok: [],
-      tahunTanam: [],
-      statusTanam: [],
-      jenisBibit: [],
-    } as FilterOptions,
-    summaryData: {
-      totalBlok: 0,
-      totalLuasTanam: 0,
-      totalPokok: 0,
-      totalJalan: 0,
-      totalDrainase: 0,
-      totalJembatan: 0,
-    } as Summary,
-    isLoaded: false,
-    isLoading: false,
-  }),
+  const loadingArea = ref(false);
+  const loadingPt = ref(false);
+  const loadingEstate = ref(false);
+  const loadingAfdeling = ref(false);
+  const loadingBlok = ref(false);
+  const errorMessage = ref("");
 
-  getters: {
-    filteredFeatures(state): GeoJSONFeature[] {
-      return state.rawFeatures;
-    },
+  const hasArea = computed(() => areaOptions.value.length > 0);
+  const hasPt = computed(() => ptOptions.value.length > 0);
+  const hasEstate = computed(() => estateOptions.value.length > 0);
+  const hasAfdeling = computed(() => afdelingOptions.value.length > 0);
+  const hasBlok = computed(() => blokOptions.value.length > 0);
 
-    filteredGeoJSON(): GeoJSON.FeatureCollection {
-      return {
-        type: "FeatureCollection",
-        features: this.filteredFeatures,
-      };
-    },
+  function clearError() {
+    errorMessage.value = "";
+  }
 
-    filterOptions(state): FilterOptions {
-      return state.options;
-    },
+  function getAuthHeaders() {
+    return {
+      accept: "application/json",
+      "Content-Type": "application/json",
+    };
+  }
 
-    summary(state): Summary {
-      return state.summaryData;
-    },
-  },
+  function normalizeText(value: unknown): string {
+    return String(value ?? "").trim();
+  }
 
-  actions: {
-    applyAccessScopeToOptions() {
-      const {
-        isSuperAdmin,
-        allowedPTCodes,
-        allowedEstateCodes,
-        allowedTransactions,
-      } = useAccessControl();
+  function mapAreaToOption(item: AreaItem): OptionItem {
+    const value = normalizeText(
+      item.area_id ?? item.kode_area ?? item.id ?? "",
+    );
+    const label = normalizeText(item.nama_area ?? item.nama ?? value);
+    return { label, value };
+  }
 
-      if (isSuperAdmin.value) return;
+  function mapPtToOption(item: PtItem): OptionItem {
+    const value = normalizeText(item.kode_pt ?? item.kode ?? item.id ?? "");
+    const label = normalizeText(
+      item.nama_pt ?? item.nama_perusahaan ?? item.nama ?? value,
+    );
+    return { label, value };
+  }
 
-      const normalize = (value: string) => value.trim().toLowerCase();
-      const has = (list: string[], value: string) => {
-        if (!list.length) return true;
-        const v = normalize(value);
-        return list.some(
-          (item) => v.includes(normalize(item)) || normalize(item).includes(v),
-        );
-      };
+  function mapEstateToOption(item: EstateItem): OptionItem {
+    const value = normalizeText(item.kode_est ?? item.kode ?? item.id ?? "");
+    const label = normalizeText(item.nama_estate ?? item.nama ?? value);
+    return { label, value };
+  }
 
-      this.options.pt = this.options.pt.filter((opt) =>
-        has(allowedPTCodes.value, opt.value),
+  function mapAfdelingToOption(item: AfdelingItem): OptionItem {
+    const value = normalizeText(
+      item.kode_afd ?? item.kode_afdeling ?? item.kode ?? item.id ?? "",
+    );
+    const label = normalizeText(item.nama_afdeling ?? item.nama ?? value);
+    return { label, value };
+  }
+
+  function mapBlokToOption(item: BlokItem): OptionItem {
+    const value = normalizeText(
+      item.blok_id ?? item.kode_blok ?? item.kode ?? item.id ?? "",
+    );
+    const label = normalizeText(item.nama_blok ?? item.nama ?? value);
+    return { label, value };
+  }
+
+  function normalizeApiArray<T>(response: unknown): T[] {
+    if (Array.isArray(response)) return response as T[];
+    const data = (response as any)?.data;
+    if (Array.isArray(data)) return data as T[];
+    return [];
+  }
+
+  async function fetchAreaOptions() {
+    loadingArea.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const response = await $api(`${baseUrl}/v1/spatial/area?limit=100`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+
+      const items = normalizeApiArray<AreaItem>(response);
+      areaOptions.value = items
+        .map(mapAreaToOption)
+        .filter((item) => !!item.value);
+      return areaOptions.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(error, "Gagal mengambil data area.");
+      throw error;
+    } finally {
+      loadingArea.value = false;
+    }
+  }
+
+  async function fetchPtOptions(areaId?: string) {
+    loadingPt.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (areaId) query.set("area_id", areaId);
+
+      const response = await $api(
+        `${baseUrl}/v1/spatial/pt?${query.toString()}`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
       );
 
-      this.options.estate = this.options.estate.filter((opt) =>
-        has(allowedEstateCodes.value, opt.value),
+      const items = normalizeApiArray<PtItem>(response);
+      ptOptions.value = items.map(mapPtToOption).filter((item) => !!item.value);
+      return ptOptions.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(error, "Gagal mengambil data PT.");
+      throw error;
+    } finally {
+      loadingPt.value = false;
+    }
+  }
+
+  async function fetchEstateOptions(kodePt?: string) {
+    loadingEstate.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (kodePt) query.set("kode_pt", kodePt);
+
+      const response = await $api(
+        `${baseUrl}/v1/spatial/estate?${query.toString()}`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
       );
 
-      this.options.statusTanam = this.options.statusTanam.filter((opt) =>
-        has(allowedTransactions.value, opt.value),
+      const items = normalizeApiArray<EstateItem>(response);
+      estateOptions.value = items
+        .map(mapEstateToOption)
+        .filter((item) => !!item.value);
+      return estateOptions.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal mengambil data estate.",
+      );
+      throw error;
+    } finally {
+      loadingEstate.value = false;
+    }
+  }
+
+  async function fetchAfdelingOptions(kodeEst?: string) {
+    loadingAfdeling.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (kodeEst) query.set("kode_est", kodeEst);
+
+      const response = await $api(
+        `${baseUrl}/v1/spatial/afdeling?${query.toString()}`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
       );
 
-      if (this.filters.pt && !has(allowedPTCodes.value, this.filters.pt)) {
-        this.filters.pt = "";
-        this.filters.estate = "";
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
-
-      if (
-        this.filters.estate &&
-        !has(allowedEstateCodes.value, this.filters.estate)
-      ) {
-        this.filters.estate = "";
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
-
-      if (
-        this.filters.statusTanam &&
-        !has(allowedTransactions.value, this.filters.statusTanam)
-      ) {
-        this.filters.statusTanam = "";
-      }
-    },
-
-    applyAccessScopeToFilters() {
-      const {
-        isSuperAdmin,
-        allowedPTCodes,
-        allowedEstateCodes,
-        allowedTransactions,
-      } = useAccessControl();
-
-      if (isSuperAdmin.value) return;
-
-      const normalize = (value: string) => value.trim().toLowerCase();
-      const has = (list: string[], value: string) => {
-        if (!list.length) return true;
-        const v = normalize(value);
-        return list.some(
-          (item) => v.includes(normalize(item)) || normalize(item).includes(v),
-        );
-      };
-
-      if (this.filters.pt && !has(allowedPTCodes.value, this.filters.pt)) {
-        this.filters.pt = "";
-      }
-
-      if (
-        this.filters.estate &&
-        !has(allowedEstateCodes.value, this.filters.estate)
-      ) {
-        this.filters.estate = "";
-      }
-
-      if (
-        this.filters.statusTanam &&
-        !has(allowedTransactions.value, this.filters.statusTanam)
-      ) {
-        this.filters.statusTanam = "";
-      }
-    },
-
-    async fetchFilters() {
-      const query = toQuery(this.filters);
-      const apiBaseUrl = getApiBaseUrl();
-      const url = query
-        ? `${apiBaseUrl}/filters?${query}`
-        : `${apiBaseUrl}/filters`;
-
-      const response = await this.fetchWithCache<{
-        pt: string[];
-        estate: string[];
-        afdeling: string[];
-        blok: string[];
-        tahunTanam: string[];
-        statusTanam: string[];
-        jenisBibit: string[];
-      }>(url);
-
-      this.options = {
-        pt: response.pt.map((value) => ({ label: value, value })),
-        estate: response.estate.map((value) => ({ label: value, value })),
-        afdeling: response.afdeling.map((value) => ({ label: value, value })),
-        blok: response.blok.map((value) => ({ label: value, value })),
-        tahunTanam: response.tahunTanam.map((value) => ({
-          label: value,
-          value,
-        })),
-        statusTanam: response.statusTanam.map((value) => ({
-          label: value,
-          value,
-        })),
-        jenisBibit: response.jenisBibit.map((value) => ({
-          label: value,
-          value,
-        })),
-      };
-
-      this.applyAccessScopeToOptions();
-    },
-
-    async fetchFeatures() {
-      this.applyAccessScopeToFilters();
-      const query = toQuery(this.filters);
-      const apiBaseUrl = getApiBaseUrl();
-      const url = query
-        ? `${apiBaseUrl}/features?${query}`
-        : `${apiBaseUrl}/features`;
-
-      const response =
-        await this.fetchWithCache<GeoJSON.FeatureCollection>(url);
-      this.rawFeatures = (response.features ?? []) as GeoJSONFeature[];
-    },
-
-    async fetchSummary() {
-      this.applyAccessScopeToFilters();
-      const query = toQuery(this.filters);
-      const apiBaseUrl = getApiBaseUrl();
-      const url = query
-        ? `${apiBaseUrl}/summary?${query}`
-        : `${apiBaseUrl}/summary`;
-
-      const response = await this.fetchWithCache<Summary>(url);
-      this.summaryData = response;
-    },
-
-    async fetchWithCache<T>(url: string): Promise<T> {
-      const cache = useState<Record<string, CacheBucket<T>>>(
-        "map-api-cache",
-        () => ({}),
+      const items = normalizeApiArray<AfdelingItem>(response);
+      afdelingOptions.value = items
+        .map(mapAfdelingToOption)
+        .filter((item) => !!item.value);
+      return afdelingOptions.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal mengambil data afdeling.",
       );
-      const now = Date.now();
-      const cached = cache.value[url];
+      throw error;
+    } finally {
+      loadingAfdeling.value = false;
+    }
+  }
 
-      if (cached && now - cached.timestamp < CACHE_TTL_MS) {
-        return cached.data;
-      }
+  async function fetchBlokOptions(kodeAfd?: string) {
+    loadingBlok.value = true;
+    clearError();
 
-      const response = await $fetch<T>(url);
-      cache.value[url] = {
-        data: response,
-        timestamp: now,
-      };
-      return response;
-    },
+    try {
+      const baseUrl = getApiBaseUrl();
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (kodeAfd) query.set("kode_afd", kodeAfd);
 
-    async refreshData() {
-      const hasPreviousData = this.isLoaded;
-      if (!hasPreviousData) {
-        this.isLoading = true;
-      }
+      const response = await $api(
+        `${baseUrl}/v1/spatial/blok?${query.toString()}`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
+      );
 
-      try {
-        await Promise.all([
-          this.fetchFilters(),
-          this.fetchFeatures(),
-          this.fetchSummary(),
-        ]);
-        this.isLoaded = true;
-        this.lastLoadedAt = Date.now();
-      } finally {
-        this.isLoading = false;
-      }
-    },
+      const items = normalizeApiArray<BlokItem>(response);
+      blokOptions.value = items
+        .map(mapBlokToOption)
+        .filter((item) => !!item.value);
+      return blokOptions.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(error, "Gagal mengambil data blok.");
+      throw error;
+    } finally {
+      loadingBlok.value = false;
+    }
+  }
 
-    async loadGeoJSONData() {
-      if (this.isLoaded) return;
-      await this.refreshData();
-    },
+  async function setSelectedArea(value: string) {
+    selectedArea.value = value || "";
+    selectedPt.value = "";
+    selectedEstate.value = "";
+    selectedAfdeling.value = "";
+    selectedBlok.value = "";
 
-    async setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
-      this.filters[key] = value;
+    ptOptions.value = [];
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blokOptions.value = [];
 
-      if (key === "pt") {
-        this.filters.estate = "";
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
+    await fetchPtOptions(selectedArea.value || undefined);
+  }
 
-      if (key === "estate") {
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
+  async function setSelectedPt(value: string) {
+    selectedPt.value = value || "";
+    selectedEstate.value = "";
+    selectedAfdeling.value = "";
+    selectedBlok.value = "";
 
-      if (key === "afdeling") this.filters.blok = "";
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blokOptions.value = [];
 
-      await this.refreshData();
-    },
+    await fetchEstateOptions(selectedPt.value || undefined);
+  }
 
-    async applyFilters(nextFilters: Filters) {
-      this.filters = {
-        pt: nextFilters.pt || "",
-        estate: nextFilters.estate || "",
-        afdeling: nextFilters.afdeling || "",
-        blok: nextFilters.blok || "",
-        tahunTanam: nextFilters.tahunTanam || "",
-        statusTanam: nextFilters.statusTanam || "",
-        jenisBibit: nextFilters.jenisBibit || "",
-      };
+  async function setSelectedEstate(value: string) {
+    selectedEstate.value = value || "";
+    selectedAfdeling.value = "";
+    selectedBlok.value = "";
 
-      if (!this.filters.pt) {
-        this.filters.estate = "";
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
+    afdelingOptions.value = [];
+    blokOptions.value = [];
 
-      if (!this.filters.estate) {
-        this.filters.afdeling = "";
-        this.filters.blok = "";
-      }
+    await fetchAfdelingOptions(selectedEstate.value || undefined);
+  }
 
-      if (!this.filters.afdeling) this.filters.blok = "";
+  async function setSelectedAfdeling(value: string) {
+    selectedAfdeling.value = value || "";
+    selectedBlok.value = "";
 
-      await this.refreshData();
-    },
+    blokOptions.value = [];
 
-    async resetFilters() {
-      this.filters = {
-        pt: "",
-        estate: "",
-        afdeling: "",
-        blok: "",
-        tahunTanam: "",
-        statusTanam: "",
-        jenisBibit: "",
-      };
+    await fetchBlokOptions(selectedAfdeling.value || undefined);
+  }
 
-      await this.refreshData();
-    },
-  },
+  function setSelectedBlok(value: string) {
+    selectedBlok.value = value || "";
+  }
+
+  async function initSpatialOptions() {
+    await fetchAreaOptions();
+    ptOptions.value = [];
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blokOptions.value = [];
+  }
+
+  async function loadGeoJSONData() {
+    await initSpatialOptions();
+  }
+
+  async function applyFilters(nextFilters: MapFilters) {
+    selectedArea.value = nextFilters.area || "";
+    selectedPt.value = "";
+    selectedEstate.value = "";
+    selectedAfdeling.value = "";
+    selectedBlok.value = "";
+
+    ptOptions.value = [];
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blokOptions.value = [];
+
+    if (!selectedArea.value) return;
+
+    await fetchPtOptions(selectedArea.value);
+
+    if (!nextFilters.pt) return;
+    selectedPt.value = nextFilters.pt;
+
+    await fetchEstateOptions(selectedPt.value);
+
+    if (!nextFilters.estate) return;
+    selectedEstate.value = nextFilters.estate;
+
+    await fetchAfdelingOptions(selectedEstate.value);
+
+    if (!nextFilters.afdeling) return;
+    selectedAfdeling.value = nextFilters.afdeling;
+
+    await fetchBlokOptions(selectedAfdeling.value);
+
+    if (!nextFilters.blok) return;
+    selectedBlok.value = nextFilters.blok;
+  }
+
+  async function resetFilters() {
+    selectedArea.value = "";
+    selectedPt.value = "";
+    selectedEstate.value = "";
+    selectedAfdeling.value = "";
+    selectedBlok.value = "";
+
+    ptOptions.value = [];
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blokOptions.value = [];
+
+    await fetchAreaOptions();
+  }
+
+  const filters = computed<MapFilters>(() => ({
+    area: selectedArea.value,
+    pt: selectedPt.value,
+    estate: selectedEstate.value,
+    afdeling: selectedAfdeling.value,
+    blok: selectedBlok.value,
+  }));
+
+  const filterOptions = computed(() => ({
+    area: areaOptions.value,
+    pt: ptOptions.value,
+    estate: estateOptions.value,
+    afdeling: afdelingOptions.value,
+    blok: blokOptions.value,
+    tahunTanam: [] as OptionItem[],
+    statusTanam: [] as OptionItem[],
+    jenisBibit: [] as OptionItem[],
+  }));
+
+  const summary = computed<MapSummary>(() => ({
+    totalBlok: blokOptions.value.length,
+    totalLuasTanam: 0,
+    totalPokok: 0,
+    totalJalan: 0,
+    totalDrainase: 0,
+    totalJembatan: 0,
+  }));
+
+  const isLoading = computed(
+    () =>
+      loadingArea.value ||
+      loadingPt.value ||
+      loadingEstate.value ||
+      loadingAfdeling.value ||
+      loadingBlok.value,
+  );
+
+  return {
+    areaOptions,
+    ptOptions,
+    estateOptions,
+    afdelingOptions,
+    blokOptions,
+    selectedArea,
+    selectedPt,
+    selectedEstate,
+    selectedAfdeling,
+    selectedBlok,
+    loadingArea,
+    loadingPt,
+    loadingEstate,
+    loadingAfdeling,
+    loadingBlok,
+    errorMessage,
+    hasArea,
+    hasPt,
+    hasEstate,
+    hasAfdeling,
+    hasBlok,
+    clearError,
+    fetchAreaOptions,
+    fetchPtOptions,
+    fetchEstateOptions,
+    fetchAfdelingOptions,
+    fetchBlokOptions,
+    setSelectedArea,
+    setSelectedPt,
+    setSelectedEstate,
+    setSelectedAfdeling,
+    setSelectedBlok,
+    initSpatialOptions,
+    resetFilters,
+    filters,
+    filterOptions,
+    summary,
+    isLoading,
+    loadGeoJSONData,
+    applyFilters,
+  };
 });
