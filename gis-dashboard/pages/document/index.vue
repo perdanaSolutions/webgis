@@ -282,6 +282,22 @@ async function gotoDashboard() {
             </div>
           </div>
 
+          <div
+            class="bg-gradient-to-br from-red-50 to-red-100/50 rounded-2xl border border-red-200 p-5 flex items-center justify-between shadow-sm">
+            <div>
+              <p class="text-sm font-medium text-red-800/80 uppercase tracking-wider">Data Replace di Periode Ini
+              </p>
+            </div>
+            <div class="rounded-xl text-red shadow-sm">
+              {{ documentUploadStore.summaryAnalyze.data_akan_ditimpa_di_periode_ini }} <span
+                class="text-sm font-normal">Fitur</span>
+              <!-- <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
+                stroke="currentColor" class="w-6 h-6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg> -->
+            </div>
+          </div>
+
           <div class="bg-white rounded-2xl border border-[#EEE6DE] p-5 shadow-sm">
             <p class="text-sm font-semibold text-[#6F645B] mb-4 uppercase tracking-wider">Struktur Data Spasial</p>
 
