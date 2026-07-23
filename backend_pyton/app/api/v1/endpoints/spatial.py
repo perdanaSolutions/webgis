@@ -1,21 +1,106 @@
-import json
-from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException, Response
-from sqlalchemy.orm import Session
-from sqlalchemy import text, func
-from typing import Optional
-import math
+"""
+Router endpoint spasial: Area, PT, Estate, Afdeling, Blok, GeoJSON (Blok & TPH),
+upload (TPH & Geometri Blok), dan cleanup periode.
 
-from datetime import datetime
-from app.services import spatial_upload as service
+CATATAN REFACTOR:
+1. Logika "kalau bulan/tahun tidak diisi, pakai periode paling terbaru dari DB"
+   sebelumnya diulang identik di 5 endpoint (area, pt, estate, afdeling, blok).
+   Sekarang diekstrak ke helper `_apply_period_filter`.
+2. Logika pagination (hitung total, offset, total_page, bentuk response dict)
+   diulang di 5 endpoint yang sama -> diekstrak ke helper `_paginate`.
+3. ENDPOINT BARU: `GET /tph/geojson` -- setara dengan `GET /geojson` (blok)
+   tapi untuk titik TPH (geo_tph), mengembalikan FeatureCollection GeoJSON.
+   Endpoint ini butuh model `GeoTph` yang BELUM ada di app/models/spatial.py
+   (tabel geo_tph sebelumnya hanya disentuh lewat raw SQL di service upload).
+   Tambahkan model berikut ke app/models/spatial.py (sesuaikan tipe kolom
+   dengan skema aslimu, khususnya nama kolom Geometry-nya):
+
+       class GeoTph(Base):
+           __tablename__ = "geo_tph"
+           id = Column(Integer, primary_key=True)
+           blok_id = Column(String, ForeignKey("blok.blok_id"))
+           geom_point = Column(Geometry("POINT", srid=4326))
+           kategori = Column(String, nullable=True)
+           bulan = Column(Integer)
+           tahun = Column(Integer)
+
+4. FIX INKONSISTENSI KEAMANAN: endpoint `POST /tph/upload-execute` sebelumnya
+   tidak punya dependency `current_user`, jadi tidak terproteksi login,
+   berbeda dari endpoint upload lain. Sekarang ditambahkan.
+5. FIX INKONSISTENSI PERIODE: endpoint `GET /geojson` (blok) sebelumnya TIDAK
+   fallback ke "periode terbaru" ketika bulan/tahun kosong (endpoint list
+   lain semuanya fallback). Sekarang dibuat konsisten lewat `_apply_period_filter`.
+   Endpoint `GET /tph/geojson` yang baru juga mengikuti perilaku yang sama.
+6. Blok kode yang di-comment (endpoint upload lama yang sudah digantikan
+   versi aktifnya) dihapus supaya file lebih bersih. Kalau masih perlu jadi
+   referensi, sebaiknya disimpan di git history, bukan di file aktif.
+
+Nama route, parameter, dan bentuk response TIDAK diubah (kecuali penambahan
+proteksi login di poin 4 dan fallback periode di poin 5), supaya kompatibel
+dengan frontend yang sudah ada.
+"""
+
+import json
+import math
+from typing import Callable, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from sqlalchemy import and_, desc, func, or_, text
+from sqlalchemy.orm import Session
 
 from app.api import deps
-from app.schemas.spatial import PTResponse, EstateResponse, BlokResponse, PaginatedResponse, GeoJSONResponse
-from app.models.spatial import Area, Perusahaan, Estate, Afdeling, Blok, GeoBlok
-from sqlalchemy import or_, and_
-from sqlalchemy import desc
-
+from app.models.spatial import Afdeling, Area, Blok, Estate, GeoBlok, GeoTph, Perusahaan
+from app.schemas.spatial import BlokResponse, EstateResponse, GeoJSONResponse, PaginatedResponse, PTResponse
+from app.services import spatial_upload as service
 
 router = APIRouter()
+
+
+# =====================================================================
+# HELPERS BERSAMA (menggantikan logika yang sebelumnya copy-paste)
+# =====================================================================
+
+def _apply_period_filter(db: Session, query, model, bulan: Optional[int], tahun: Optional[int]):
+    """
+    Terapkan filter bulan/tahun pada query. Jika keduanya kosong, otomatis
+    pakai periode (bulan, tahun) paling terbaru yang ada di tabel `model`.
+    """
+    if bulan is not None or tahun is not None:
+        if bulan is not None:
+            query = query.filter(model.bulan == bulan)
+        if tahun is not None:
+            query = query.filter(model.tahun == tahun)
+        return query
+
+    latest_period = (
+        db.query(model.tahun, model.bulan)
+        .order_by(desc(model.tahun), desc(model.bulan))
+        .first()
+    )
+    if latest_period:
+        latest_tahun, latest_bulan = latest_period
+        query = query.filter(model.tahun == latest_tahun, model.bulan == latest_bulan)
+    return query
+
+
+def _paginate(query, order_col, page: int, limit: int, formatter: Callable) -> dict:
+    """Jalankan query dengan pagination lalu bentuk response standar PaginatedResponse."""
+    offset = (page - 1) * limit
+    total_query = query.count()
+    data_orm = query.order_by(order_col).limit(limit).offset(offset).all()
+
+    return {
+        "total_data": total_query,
+        "page": page,
+        "limit": limit,
+        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
+        "data": [formatter(row) for row in data_orm],
+    }
+
+
+# =====================================================================
+# ENDPOINT AREA
+# =====================================================================
 
 @router.get("/area", response_model=PaginatedResponse)
 def get_area_list(
@@ -25,140 +110,94 @@ def get_area_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    offset = (page - 1) * limit
     query = db.query(Area)
-    
-    # Filter Pencarian Global
+
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
             or_(
                 Area.nama.ilike(search_filter),
                 Area.kode_area.ilike(search_filter),
-                Area.area_id.ilike(search_filter)
+                Area.area_id.ilike(search_filter),
             )
         )
-    
-    # 2. Logika Periode (Manual Input vs Auto Latest)
-    if bulan is not None or tahun is not None:
-        # Jika user mengisi salah satu / keduanya secara eksplisit
-        if bulan is not None:
-            query = query.filter(Area.bulan == bulan)
-        if tahun is not None:
-            query = query.filter(Area.tahun == tahun)
-    else:
-        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
-        latest_period = db.query(Area.tahun, Area.bulan)\
-            .order_by(desc(Area.tahun), desc(Area.bulan))\
-            .first()
-            
-        if latest_period:
-            latest_tahun, latest_bulan = latest_period
-            query = query.filter(Area.tahun == latest_tahun, Area.bulan == latest_bulan)
-        
-    total_query = query.count()
-    data_orm = query.order_by(Area.nama).limit(limit).offset(offset).all()
 
-    formatted_data = []
-    for row in data_orm:
-        formatted_data.append({
+    query = _apply_period_filter(db, query, Area, bulan, tahun)
+
+    return _paginate(
+        query,
+        Area.nama,
+        page,
+        limit,
+        lambda row: {
             "id": row.id,
             "area_id": row.area_id,
             "nama": row.nama,
             "kode_area": row.kode_area,
             "bulan": row.bulan,
-            "tahun": row.tahun
-        })
+            "tahun": row.tahun,
+        },
+    )
 
-    return {
-        "total_data": total_query,
-        "page": page,
-        "limit": limit,
-        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
-        "data": formatted_data
-    }
 
-# ==========================================
-# 1. ENDPOINT PT (Dengan Server-Side Search)
-# ==========================================
+# =====================================================================
+# ENDPOINT PT (Dengan Server-Side Search)
+# =====================================================================
+
 @router.get("/pt", response_model=PaginatedResponse)
 def get_pt_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode PT"),
     kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode PT"),
-    area_id: Optional[str] = Query(None, description="Filter berdasarkan ID Area (contoh: AR_BERAU)"), # <-- TAMBAHAN FILTER
+    area_id: Optional[str] = Query(None, description="Filter berdasarkan ID Area (contoh: AR_BERAU)"),
     bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
     tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    offset = (page - 1) * limit
     query = db.query(Perusahaan)
-    
-    # Filter berdasarkan kode PT
+
     if kode_pt:
         query = query.filter(Perusahaan.kode_pt == kode_pt)
-        
-    # Filter berdasarkan area_id (Tambahan Baru)
+
     if area_id:
         query = query.filter(Perusahaan.area_id == area_id)
-    
+
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
             or_(
                 Perusahaan.nama_pt.ilike(search_filter),
-                Perusahaan.kode_pt.ilike(search_filter)
+                Perusahaan.kode_pt.ilike(search_filter),
             )
         )
-    
-    # Filter bulan dan tahun
-    if bulan is not None or tahun is not None:
-        # Jika user mengisi salah satu / keduanya secara eksplisit
-        if bulan is not None:
-            query = query.filter(Perusahaan.bulan == bulan)
-        if tahun is not None:
-            query = query.filter(Perusahaan.tahun == tahun)
-    else:
-        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
-        latest_period = db.query(Perusahaan.tahun, Perusahaan.bulan)\
-            .order_by(desc(Perusahaan.tahun), desc(Perusahaan.bulan))\
-            .first()
-            
-        if latest_period:
-            latest_tahun, latest_bulan = latest_period
-            query = query.filter(Perusahaan.tahun == latest_tahun, Perusahaan.bulan == latest_bulan)
-        
-    total_query = query.count()
-    data_orm = query.order_by(Perusahaan.nama_pt).limit(limit).offset(offset).all()
 
-    formatted_data = []
-    for row in data_orm:
-        formatted_data.append({
-            "id": row.pt_id,        
+    query = _apply_period_filter(db, query, Perusahaan, bulan, tahun)
+
+    return _paginate(
+        query,
+        Perusahaan.nama_pt,
+        page,
+        limit,
+        lambda row: {
+            "id": row.pt_id,
             "nama_pt": row.nama_pt,
             "kode_pt": row.kode_pt,
-            "area_id": row.area_id,  # <-- Menampilkan area_id terikat
-            # Menampilkan nama master area secara dinamis memanfaatkan relasi ORM
-            "nama_area": row.area.nama if row.area else None, 
-            "bulan": row.bulan if hasattr(row, 'bulan') else None,
-            "tahun": row.tahun if hasattr(row, 'tahun') else None
-        })
+            "area_id": row.area_id,
+            "nama_area": row.area.nama if row.area else None,
+            "bulan": getattr(row, "bulan", None),
+            "tahun": getattr(row, "tahun", None),
+        },
+    )
 
-    return {
-        "total_data": total_query,
-        "page": page,
-        "limit": limit,
-        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
-        "data": formatted_data
-    }
 
-# ==================================================
-# 2. ENDPOINT ESTATES (Menggantikan Area & Lama)
-# ==================================================
+# =====================================================================
+# ENDPOINT ESTATE
+# =====================================================================
+
 @router.get("/estate", response_model=PaginatedResponse)
 def get_estate_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode Estate"),
@@ -169,71 +208,48 @@ def get_estate_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    offset = (page - 1) * limit
     query = db.query(Estate)
-    
-    # Filter berdasarkan kode PT (join dengan tabel Perusahaan)
+
     if kode_pt:
         query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
         query = query.filter(Perusahaan.kode_pt == kode_pt)
-    
-    # Filter berdasarkan kode Estate
+
     if kode_est:
         query = query.filter(Estate.kode_est == kode_est)
-    
-    # Filter bulan dan tahun
-    if bulan is not None or tahun is not None:
-        # Jika user mengisi salah satu / keduanya secara eksplisit
-        if bulan is not None:
-            query = query.filter(Estate.bulan == bulan)
-        if tahun is not None:
-            query = query.filter(Estate.tahun == tahun)
-    else:
-        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
-        latest_period = db.query(Estate.tahun, Estate.bulan)\
-            .order_by(desc(Estate.tahun), desc(Estate.bulan))\
-            .first()
-            
-        if latest_period:
-            latest_tahun, latest_bulan = latest_period
-            query = query.filter(Estate.tahun == latest_tahun, Estate.bulan == latest_bulan)
-        
+
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
             or_(
                 Estate.nama_estate.ilike(search_filter),
-                Estate.kode_est.ilike(search_filter)
+                Estate.kode_est.ilike(search_filter),
             )
         )
-        
-    total_query = query.count()
-    data_orm = query.order_by(Estate.nama_estate).limit(limit).offset(offset).all()
 
-    formatted_data = []
-    for row in data_orm:
-        formatted_data.append({
+    query = _apply_period_filter(db, query, Estate, bulan, tahun)
+
+    return _paginate(
+        query,
+        Estate.nama_estate,
+        page,
+        limit,
+        lambda row: {
             "id": row.est_id,
             "pt_id": row.pt_id,
             "nama_estate": row.nama_estate,
             "kode_est": row.kode_est,
             "bulan": row.bulan,
-            "tahun": row.tahun
-        })
+            "tahun": row.tahun,
+        },
+    )
 
-    return {
-        "total_data": total_query,
-        "page": page,
-        "limit": limit,
-        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
-        "data": formatted_data
-    }
 
-# ==================================================
-# 3. ENDPOINT AFDELING 
-# ==================================================
+# =====================================================================
+# ENDPOINT AFDELING
+# =====================================================================
+
 @router.get("/afdeling", response_model=PaginatedResponse)
 def get_afdeling_list(
     search: Optional[str] = Query(None, description="Cari kode Afdeling"),
@@ -245,71 +261,49 @@ def get_afdeling_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    offset = (page - 1) * limit
     query = db.query(Afdeling)
-    
-    # Filter berdasarkan kode PT (join dengan Estate dan Perusahaan)
+
+    joined_estate = False
     if kode_pt:
         query = query.join(Estate, Afdeling.est_id == Estate.est_id)
         query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
         query = query.filter(Perusahaan.kode_pt == kode_pt)
-    
-    # Filter berdasarkan kode Estate (join dengan Estate)
+        joined_estate = True
+
     if kode_est:
-        if not kode_pt:  # Jika belum di-join
+        if not joined_estate:
             query = query.join(Estate, Afdeling.est_id == Estate.est_id)
         query = query.filter(Estate.kode_est == kode_est)
-    
-    # Filter berdasarkan kode Afdeling
+
     if kode_afd:
         query = query.filter(Afdeling.kode_afd == kode_afd)
-    
-    # Filter bulan dan tahun
-    if bulan is not None or tahun is not None:
-        # Jika user mengisi salah satu / keduanya secara eksplisit
-        if bulan is not None:
-            query = query.filter(Afdeling.bulan == bulan)
-        if tahun is not None:
-            query = query.filter(Afdeling.tahun == tahun)
-    else:
-        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
-        latest_period = db.query(Afdeling.tahun, Afdeling.bulan)\
-            .order_by(desc(Afdeling.tahun), desc(Afdeling.bulan))\
-            .first()
-            
-        if latest_period:
-            latest_tahun, latest_bulan = latest_period
-            query = query.filter(Afdeling.tahun == latest_tahun, Afdeling.bulan == latest_bulan)
-        
+
     if search:
         query = query.filter(Afdeling.kode_afd.ilike(f"%{search}%"))
-        
-    total_query = query.count()
-    data_orm = query.order_by(Afdeling.kode_afd).limit(limit).offset(offset).all()
 
-    formatted_data = []
-    for row in data_orm:
-        formatted_data.append({
+    query = _apply_period_filter(db, query, Afdeling, bulan, tahun)
+
+    return _paginate(
+        query,
+        Afdeling.kode_afd,
+        page,
+        limit,
+        lambda row: {
             "id": row.afd_id,
             "est_id": row.est_id,
             "kode_afd": row.kode_afd,
             "bulan": row.bulan,
-            "tahun": row.tahun
-        })
+            "tahun": row.tahun,
+        },
+    )
 
-    return {
-        "total_data": total_query,
-        "page": page,
-        "limit": limit,
-        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
-        "data": formatted_data
-    }
 
-# ============================================================
-# 4. ENDPOINT LIST DATA BLOK (Server-Side Pagination & Filter)
-# ============================================================
+# =====================================================================
+# ENDPOINT LIST DATA BLOK (Server-Side Pagination & Filter)
+# =====================================================================
+
 @router.get("/blok", response_model=PaginatedResponse)
 def get_blok_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode Blok"),
@@ -322,16 +316,13 @@ def get_blok_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    offset = (page - 1) * limit
     query = db.query(Blok)
-    
-    # Flag untuk tracking apakah sudah join
+
     joined_afdeling = False
     joined_estate = False
-    
-    # Filter berdasarkan kode PT (join dengan Afdeling, Estate, Perusahaan)
+
     if kode_pt:
         query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
         query = query.join(Estate, Afdeling.est_id == Estate.est_id)
@@ -339,8 +330,7 @@ def get_blok_list(
         query = query.filter(Perusahaan.kode_pt == kode_pt)
         joined_afdeling = True
         joined_estate = True
-    
-    # Filter berdasarkan kode Estate (join dengan Afdeling dan Estate)
+
     if kode_est:
         if not joined_afdeling:
             query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
@@ -349,50 +339,33 @@ def get_blok_list(
             query = query.join(Estate, Afdeling.est_id == Estate.est_id)
             joined_estate = True
         query = query.filter(Estate.kode_est == kode_est)
-    
-    # Filter berdasarkan kode Afdeling (join dengan Afdeling)
+
     if kode_afd:
         if not joined_afdeling:
             query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
             joined_afdeling = True
         query = query.filter(Afdeling.kode_afd == kode_afd)
-    
-    # Filter berdasarkan kode Blok
+
     if kode_blok:
         query = query.filter(Blok.kode_blok == kode_blok)
-    
-    # Filter bulan dan tahun
-    if bulan is not None or tahun is not None:
-        # Jika user mengisi salah satu / keduanya secara eksplisit
-        if bulan is not None:
-            query = query.filter(Blok.bulan == bulan)
-        if tahun is not None:
-            query = query.filter(Blok.tahun == tahun)
-    else:
-        # Jika bulan DAN tahun dikosongi, cari periode paling terbaru dari database
-        latest_period = db.query(Blok.tahun, Blok.bulan)\
-            .order_by(desc(Blok.tahun), desc(Blok.bulan))\
-            .first()
-            
-        if latest_period:
-            latest_tahun, latest_bulan = latest_period
-            query = query.filter(Blok.tahun == latest_tahun, Blok.bulan == latest_bulan)
-        
+
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
             or_(
                 Blok.nama_blok.ilike(search_filter),
-                Blok.kode_blok.ilike(search_filter)
+                Blok.kode_blok.ilike(search_filter),
             )
         )
-        
-    total_query = query.count()
-    data_orm = query.order_by(Blok.blok_id).limit(limit).offset(offset).all()
 
-    formatted_data = []
-    for row in data_orm:
-        formatted_data.append({
+    query = _apply_period_filter(db, query, Blok, bulan, tahun)
+
+    return _paginate(
+        query,
+        Blok.blok_id,
+        page,
+        limit,
+        lambda row: {
             "id": row.blok_id,
             "afd_id": row.afd_id,
             "nama_blok": row.nama_blok,
@@ -404,20 +377,15 @@ def get_blok_list(
             "tahun_tanam": row.tahun_tanam,
             "status_tanam": row.status_tanam,
             "bulan": row.bulan,
-            "tahun": row.tahun
-        })
+            "tahun": row.tahun,
+        },
+    )
 
-    return {
-        "total_data": total_query,
-        "page": page,
-        "limit": limit,
-        "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
-        "data": formatted_data
-    }
 
-# ============================================================
-# 5. ENDPOINT GEOJSON BLOK PETA (Dengan Sinkronisasi Tabel Spasial)
-# ============================================================
+# =====================================================================
+# ENDPOINT GEOJSON BLOK PETA (Polygon)
+# =====================================================================
+
 @router.get("/geojson")
 def get_blocks_geojson(
     kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
@@ -427,20 +395,16 @@ def get_blocks_geojson(
     bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
     tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    # Query gabungan Blok dengan GeoBlok menggunakan ORM + PostGIS function
     query = db.query(
-        Blok, 
-        func.ST_AsGeoJSON(GeoBlok.geom_polygon).label("geojson_geom")
+        Blok,
+        func.ST_AsGeoJSON(GeoBlok.geom_polygon).label("geojson_geom"),
     ).join(GeoBlok, Blok.blok_id == GeoBlok.blok_id)
-    
-    # Flag untuk tracking join
+
     joined_afdeling = False
     joined_estate = False
-    joined_perusahaan = False
-    
-    # Filter berdasarkan kode PT
+
     if kode_pt:
         query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
         query = query.join(Estate, Afdeling.est_id == Estate.est_id)
@@ -448,9 +412,7 @@ def get_blocks_geojson(
         query = query.filter(Perusahaan.kode_pt == kode_pt)
         joined_afdeling = True
         joined_estate = True
-        joined_perusahaan = True
-    
-    # Filter berdasarkan kode Estate
+
     if kode_est:
         if not joined_afdeling:
             query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
@@ -459,32 +421,25 @@ def get_blocks_geojson(
             query = query.join(Estate, Afdeling.est_id == Estate.est_id)
             joined_estate = True
         query = query.filter(Estate.kode_est == kode_est)
-    
-    # Filter berdasarkan kode Afdeling
+
     if kode_afd:
         if not joined_afdeling:
             query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
             joined_afdeling = True
         query = query.filter(Afdeling.kode_afd == kode_afd)
-    
-    # Filter berdasarkan kode Blok
+
     if kode_blok:
         query = query.filter(Blok.kode_blok == kode_blok)
-    
-    # Filter bulan dan tahun
-    if bulan:
-        query = query.filter(Blok.bulan == bulan)
-    if tahun:
-        query = query.filter(Blok.tahun == tahun)
-        
+
+    query = _apply_period_filter(db, query, Blok, bulan, tahun)
+
     results = query.all()
-    
-    # Merakit struktur standard FeatureCollection GeoJSON
+
     features = []
     for blok_data, geom_json_str in results:
         if not geom_json_str:
             continue
-            
+
         features.append({
             "type": "Feature",
             "properties": {
@@ -496,182 +451,188 @@ def get_blocks_geojson(
                 "jenis_bibit": blok_data.jenis_bibit,
                 "status_tanam": blok_data.status_tanam,
                 "bulan": blok_data.bulan,
-                "tahun": blok_data.tahun
+                "tahun": blok_data.tahun,
             },
-            "geometry": json.loads(geom_json_str)
+            "geometry": json.loads(geom_json_str),
         })
-        
-    geojson_response = {
-        "type": "FeatureCollection",
-        "features": features
-    }
-    
+
+    geojson_response = {"type": "FeatureCollection", "features": features}
     return Response(content=json.dumps(geojson_response), media_type="application/json")
-
-# # endpoin upload blok
-# @router.post("/blocks/upload")
-# async def upload_blocks_geojson(
-#     bulan: int = Query(..., ge=1, le=12, description="Bulan periode data (1-12)"),
-#     tahun: int = Query(..., ge=2000, le=2100, description="Tahun periode data (YYYY)"),
-#     file: UploadFile = File(..., description="File GeoJSON Blok Spasial"),
-#     db: Session = Depends(deps.get_db),
-#     current_user = Depends(deps.PermissionChecker("blok:write")) # Akses untuk level write/upload
-# ):
-#     # 1. Catat inisialisasi awal ke dalam sys_upload_log
-#     log_query = text("""
-#         INSERT INTO sys_upload_log (source_type, target_table, source_name, status, meta_data)
-#         VALUES ('GEOJSON_UPLOAD', 'blok', :source_name, 'IN_PROGRESS', :meta_data)
-#         RETURNING upload_batch_id;
-#     """)
-    
-#     meta_data_json = json.dumps({"bulan": bulan, "tahun": tahun})
-#     upload_batch_id = db.execute(log_query, {"source_name": file.filename, "meta_data": meta_data_json}).scalar()
-#     db.commit()
-
-#     try:
-#         # Read konten berkas spasial
-#         contents = await file.read()
-        
-#         # Eksekusi parser service spatial
-#         total_records = process_geojson_upload(db=db, geojson_content=contents, bulan=bulan, tahun=tahun)
-        
-#         # 2. Update log status sukses
-#         update_success_query = text("""
-#             UPDATE sys_upload_log 
-#             SET status = 'SUCCESS', record_count = :record_count, finished_at = :finished_at
-#             WHERE upload_batch_id = :batch_id;
-#         """)
-#         db.execute(update_success_query, {
-#             "record_count": total_records, 
-#             "finished_at": datetime.now(), 
-#             "batch_id": upload_batch_id
-#         })
-#         db.commit()
-
-#         return {
-#             "status": "success",
-#             "message": f"Berhasil mengunggah file {file.filename}.",
-#             "detail": f"{total_records} data blok spasial berhasil disimpan/diperbarui.",
-#             "upload_batch_id": str(upload_batch_id)
-#         }
-
-#     except Exception as e:
-#         # 1. ISI ROLLBACK DISINI UNTUK MERESET TRANSAKSI YANG ERROR
-#         db.rollback() 
-        
-#         # 2. Update log status gagal
-#         update_fail_query = text("""
-#             UPDATE sys_upload_log 
-#             SET status = 'FAILED', error_message = :error_message, finished_at = :finished_at
-#             WHERE upload_batch_id = :batch_id;
-#         """)
-#         db.execute(update_fail_query, {
-#             "error_message": str(e), 
-#             "finished_at": datetime.now(), 
-#             "batch_id": upload_batch_id
-#         })
-#         db.commit()
-        
-#         raise HTTPException(status_code=500, detail=f"Gagal memproses berkas spasial: {str(e)}")
 
 
 # =====================================================================
-# FLOW UPLOAD 2: GEOMETRI BLOK (POLYGON) - DENGAN PROTEKSI LOGIN
+# ENDPOINT GEOJSON TPH TITIK (Point) -- BARU
+# =====================================================================
+
+@router.get("/tph/geojson", summary="Tampilkan Titik TPH sebagai GeoJSON FeatureCollection")
+def get_tph_geojson(
+    kode_pt: Optional[str] = Query(None, description="Filter berdasarkan kode Perusahaan"),
+    kode_est: Optional[str] = Query(None, description="Filter berdasarkan kode Estate"),
+    kode_afd: Optional[str] = Query(None, description="Filter berdasarkan kode Afdeling"),
+    kode_blok: Optional[str] = Query(None, description="Filter berdasarkan kode Blok"),
+    kategori: Optional[str] = Query(None, description="Filter berdasarkan kategori TPH"),
+    bulan: Optional[int] = Query(None, description="Filter berdasarkan bulan (1-12)"),
+    tahun: Optional[int] = Query(None, description="Filter berdasarkan tahun"),
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    """
+    Setara dengan `/geojson` (blok/polygon) tapi untuk titik TPH (geo_tph).
+    Di-join ke Blok/Afdeling/Estate/Perusahaan supaya bisa difilter dengan
+    kode hierarki yang sama seperti endpoint lain, dan supaya properti hasil
+    GeoJSON menyertakan info blok induknya.
+    """
+    query = db.query(
+        GeoTph,
+        Blok,
+        func.ST_AsGeoJSON(GeoTph.geom_point).label("geojson_geom"),
+    ).join(Blok, GeoTph.blok_id == Blok.blok_id)
+
+    joined_afdeling = False
+    joined_estate = False
+
+    if kode_pt:
+        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+        joined_afdeling = True
+        joined_estate = True
+
+    if kode_est:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        if not joined_estate:
+            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+            joined_estate = True
+        query = query.filter(Estate.kode_est == kode_est)
+
+    if kode_afd:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        query = query.filter(Afdeling.kode_afd == kode_afd)
+
+    if kode_blok:
+        query = query.filter(Blok.kode_blok == kode_blok)
+
+    if kategori:
+        query = query.filter(GeoTph.kategori == kategori)
+
+    # Periode mengikuti data titik TPH itu sendiri (GeoTph.bulan/tahun),
+    # karena satu blok bisa saja punya titik TPH untuk beberapa periode.
+    query = _apply_period_filter(db, query, GeoTph, bulan, tahun)
+
+    results = query.all()
+
+    features = []
+    for tph_data, blok_data, geom_json_str in results:
+        if not geom_json_str:
+            continue
+
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "tph_id": tph_data.id,
+                "blok_id": blok_data.blok_id,
+                "nama_blok": blok_data.nama_blok,
+                "kode_blok": blok_data.kode_blok,
+                "afd_id": blok_data.afd_id,
+                "kategori": tph_data.kategori,
+                "bulan": tph_data.bulan,
+                "tahun": tph_data.tahun,
+            },
+            "geometry": json.loads(geom_json_str),
+        })
+
+    geojson_response = {"type": "FeatureCollection", "features": features}
+    return Response(content=json.dumps(geojson_response), media_type="application/json")
+
+
+# =====================================================================
+# FLOW UPLOAD: GEOMETRI BLOK (POLYGON) -- DENGAN PROTEKSI LOGIN
 # =====================================================================
 
 @router.post("/blok-geometry/upload-analyze", summary="POLYGON TAHAP 1: Analisis Kesesuaian Peta")
 async def upload_geometry_analyze(
-    bulan: int = Query(..., ge=1, le=12), 
+    bulan: int = Query(..., ge=1, le=12),
     tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
+    file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
     contents = await file.read()
     return service.analyze_geojson_geometry_blok(db, contents, bulan, tahun)
 
-# @router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
-# async def upload_geometry_execute(
-#     bulan: int,
-#     tahun: int,
-#     file: UploadFile = File(...),
-#     db: Session = Depends(deps.get_db)
-# ):
-#     # ... (proses baca file geojson seperti biasa) ...
-#     contents = await file.read()
-    
-#     # Panggil service yang kini mengembalikan dictionary statistik
-#     stats = service.execute_bulk_geometry_blok(db, contents, bulan, tahun)
-    
-#     return {
-#         "status": "success",
-#         "message": f"Proses unggah spasial blok periode {bulan}-{tahun} selesai.",
-#         "detail": stats
-#     }
 
-@router.post("/blok-geometry/upload-execute")
+@router.post("/blok-geometry/upload-execute", summary="POLYGON TAHAP 2: Bulk Save Geometri Map")
 async def upload_blok_geometry(
     bulan: int,
     tahun: int,
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
     contents = await file.read()
     result = service.execute_bulk_geometry_blok(
         db=db,
         geojson_content=contents,
-        filename=file.filename, # <-- Kirim nama berkas
+        filename=file.filename,
         bulan=bulan,
         tahun=tahun,
-        user_id=current_user.id # <-- Kirim ID User pembawa token
+        user_id=current_user.id,
     )
     return {"status": "success", "data": result}
+
+
 # =====================================================================
-# FLOW UPLOAD 1: MASTER DATA TPH (POINT) - DENGAN PROTEKSI LOGIN
+# FLOW UPLOAD: MASTER DATA TPH (POINT) -- DENGAN PROTEKSI LOGIN
 # =====================================================================
 
 @router.post("/tph/upload-analyze", summary="TPH TAHAP 1: Analisis Atribut Master")
 async def upload_tph_analyze(
-    bulan: int = Query(..., ge=1, le=12), 
+    bulan: int = Query(..., ge=1, le=12),
     tahun: int = Query(..., ge=2000),
-    file: UploadFile = File(...), 
+    file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
     contents = await file.read()
     return service.analyze_geojson_tph(db, contents, bulan, tahun)
+
 
 @router.post("/tph/upload-execute", summary="TPH TAHAP 2: Bulk Save Master Atribut")
 async def upload_tph_execute(
     bulan: int,
     tahun: int,
     file: UploadFile = File(...),
-    db: Session = Depends(deps.get_db)
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),  # <-- FIX: sebelumnya endpoint ini tidak terproteksi login
 ):
     contents = await file.read()
-    
-    # Menampung hasil berupa dictionary statistik
     stats = service.execute_bulk_tph(db, contents, bulan, tahun)
-    
+
     return {
         "status": "success",
         "message": f"Proses unggah data spasial TPH periode {bulan}-{tahun} selesai.",
-        "detail": stats
+        "detail": stats,
     }
 
-# ==========================================
+
+# =====================================================================
 # AKSI HAPUS DATA PERIODE (CLEANUP DATA)
-# ==========================================
+# =====================================================================
+
 @router.delete("/cleanup-period", summary="Hapus Semua Data Spasial & Atribut Berdasarkan Periode")
 def delete_period_data(
     bulan: int = Query(..., ge=1, le=12, description="Bulan data yang ingin dibersihkan"),
     tahun: int = Query(..., ge=2000, description="Tahun data yang ingin dibersihkan"),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
     """
-    Gunakan ini jika terjadi kesalahan upload periode atau ingin mereset data 
+    Gunakan ini jika terjadi kesalahan upload periode atau ingin mereset data
     pada bulan dan tahun tertentu dari database.
     """
     return service.delete_spatial_data_by_period(db, bulan, tahun)

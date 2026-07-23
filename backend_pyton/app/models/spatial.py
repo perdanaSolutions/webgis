@@ -93,3 +93,13 @@ class GeoBlok(Base):
     tahun = Column(Integer, nullable=True)
 
     blok = relationship("Blok", back_populates="geo_blok")
+
+class GeoTph(Base):
+    __tablename__ = "geo_tph"
+    id = Column(Integer, primary_key=True)
+    blok_id = Column(String, ForeignKey("blok.blok_id"))
+    geom_point = Column(Geometry("POINT", srid=4326))
+    id_tph = Column(String, nullable=True)
+    kategori = Column(String, nullable=True)
+    bulan = Column(Integer)
+    tahun = Column(Integer)
