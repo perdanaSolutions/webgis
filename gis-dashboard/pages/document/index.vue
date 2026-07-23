@@ -30,6 +30,7 @@ const previewHeaders = computed(() => {
 const currentPage = ref(1);
 const itemsPerPage = 5;
 const searchQuery = ref("");
+const isOpenModalValidasi = ref(false);
 
 const filteredPreviewRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -119,7 +120,12 @@ function onSelectCategory(value: string) {
 }
 
 async function onSubmitUpload() {
-  await documentUploadStore.submitUpload();
+  if (parseInt(documentUploadStore.summaryAnalyze.data_akan_ditimpa_di_periode_ini) > 0) {
+    isOpenModalValidasi.value = true;
+  } else {
+    await documentUploadStore.submitUpload();
+  }
+
 }
 
 function onCancelPreview() {
@@ -459,4 +465,43 @@ async function gotoDashboard() {
       </section>
     </div>
   </main>
+
+  <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <!-- Modal Card -->
+    <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 transition-opacity duration-200">
+        <!-- Dialog Card -->
+        <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl transition-all">
+          <!-- Header Modal -->
+          <div class="flex items-center space-x-3 text-amber-600">
+            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+              <!-- Icon Peringatan/Tanya -->
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900">
+              Konfirmasi Analisis
+            </h3>
+          </div>
+
+          <!-- Isi Pesan Pertanyaan -->
+          <div class="mt-3 pl-13">
+            <p class="text-sm text-gray-600">
+              Apakah Anda yakin untuk submit analisis ini? Data yang sudah dikirim tidak dapat diubah kembali.
+            </p>
+          </div>
+
+          <div class="mt-4 w-full flex justify-end space-x-3">
+            <button @click="isOpenModalValidasi = false"
+              class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 transition">Cancel</button>
+            <button @click="documentUploadStore.submitUpload()"
+              class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition shadow-sm">Submit</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </template>
