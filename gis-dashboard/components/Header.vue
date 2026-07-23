@@ -182,7 +182,7 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isMenuOpen"
-            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-[#EEE6DE] bg-white p-2 shadow-xl z-50 animate-fade-in">
+            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-[#EEE6DE] bg-white p-2 shadow-xl z-[1500] animate-fade-in">
             <button v-for="(item, index) in menuItems" :key="index" @click="item.action(); closeMenu();"
               class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#FFF8F2] group">
               <div
