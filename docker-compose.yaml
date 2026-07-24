@@ -1,19 +1,4 @@
 services:
-  postgres:
-    image: postgis/postgis:16-3.4
-    container_name: gis-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - gis-network
-
   backend_pyton:
     build:
       context: ./backend_pyton
@@ -75,6 +60,8 @@ services:
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   gis-network:
