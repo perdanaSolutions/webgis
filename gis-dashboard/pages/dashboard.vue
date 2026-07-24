@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import { dashboardStore } from '~/stores/dashboardStore'
@@ -7,6 +7,8 @@ import { dashboardStore } from '~/stores/dashboardStore'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
+
+const informasiUser = computed(() => authStore.user)
 
 defineOptions({
   name: 'DashboardPage',
@@ -111,10 +113,15 @@ onMounted(async () => {
       </section>
 
       <section class="mt-7">
-        <div class="mb-4 flex items-center justify-between">
+        <div class="mb-4 flex items-center justify-between gap-2">
           <h3 class="text-[20px] font-bold">
             {{ dashboardService.dashboardConfig.moduleTitle }}
           </h3>
+
+          <NuxtLink v-if="informasiUser?.role === 'superadmin'" to="/menus"
+            class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
+            Management Menu
+          </NuxtLink>
         </div>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

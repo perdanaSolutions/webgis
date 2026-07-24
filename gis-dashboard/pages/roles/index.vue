@@ -722,14 +722,14 @@ onMounted(async () => {
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
             <label class="mb-1 block text-[#6F645B]">Nama Role</label>
-            <input v-model="form.nama" required type="text"
+            <input v-model="form.nama" @input="form.nama = $event.target.value.toUpperCase()" required type="text"
               class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
-            <input v-model="form.deskripsi" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <input v-model="form.deskripsi" @input="form.deskripsi = $event.target.value.toUpperCase()" required
+              type="text" class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] p-4 max-h-[70vh] overflow-y-auto">
