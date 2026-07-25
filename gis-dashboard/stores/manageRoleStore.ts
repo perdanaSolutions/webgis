@@ -278,9 +278,9 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   }
 
   async function createRole(payload: any) {
+    // console.log(`data payload : ${JSON.stringify(payload)}`);
     loadingCreate.value = true;
     clearError();
-    // console.log(`data payload : ${JSON.stringify(payload)}`);
     try {
       const baseUrl = getApiBaseUrl();
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/`, {
@@ -587,7 +587,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
     if (bodyPayload.length === 0) return;
 
-    console.log(`hasil body payload : ${JSON.stringify(bodyPayload)}`);
+    // console.log(`hasil body payload : ${JSON.stringify(bodyPayload)}`);
 
     await $api(`${baseUrl}/v1/akses-data/data/role/${roleId}`, {
       method: "POST",
@@ -703,12 +703,26 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     );
   }
 
+  const hasArrayChanged = (arr1: string[], arr2: string[]): boolean => {
+    if (arr1.length !== arr2.length) return true;
+
+    const set1 = new Set(arr1);
+    const set2 = new Set(arr2);
+
+    if (set1.size !== set2.size) return true;
+
+    for (const item of set1) {
+      if (!set2.has(item)) return true;
+    }
+
+    return false;
+  };
+
   async function updateRole(roleId: string, payload: any) {
     loadingUpdate.value = true;
     clearError();
     try {
       const baseUrl = getApiBaseUrl();
-
       const response = await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
         method: "PUT",
         headers: getAuthHeaders(),
@@ -717,135 +731,35 @@ export const useManageRoleStore = defineStore("manageRole", () => {
           deskripsi: payload.deskripsi,
         },
       });
+      // 5. Eksekusi DELETE + CREATE secara efisien (Gunakan Promise.all agar paralel)
+      if (roleId) {
+        // A. Update Akses Menu jika ada perubahan
+        if (payload.menu_ids.length > 0) {
+          await createAksesMenu(roleId, payload.menu_ids);
+        }
 
-      const existing = await getExistingAksesByRole(roleId);
+        if (payload.area_ids.length > 0) {
+          await createAksesData(
+            roleId,
+            payload.perusahaan_ids ?? [],
+            payload.estate_ids ?? [],
+            payload.area_ids ?? [],
+            payload.afdeling_ids ?? [],
+            payload,
+          );
+        }
 
-      const selectedMenuIds = uniqueStringArray(payload?.menu_ids ?? []);
-      const existingMenuIds = uniqueStringArray(
-        (existing.menu ?? []).map((item: any) => item?.menu_id),
-      );
-
-      const existingDataKeys = uniqueStringArray(
-        (existing.data ?? []).map(
-          (item: any) =>
-            `${String(item?.kode_pt ?? "")}|${String(item?.kode_est ?? "")}`,
-        ),
-      );
-
-      const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
-      const selectedPerusahaan = perusahaanList.find(
-        (item) =>
-          String(item?.id) === String(payload?.perusahaan_ids?.[0] ?? ""),
-      ) as any;
-
-      const selectedKodePt = String(
-        selectedPerusahaan?.kode_pt ??
-          selectedPerusahaan?.kode ??
-          selectedPerusahaan?.id ??
-          "",
-      );
-
-      const selectedEstateCodes = uniqueStringArray(payload?.estate_ids ?? []);
-      const selectedDataKeys = uniqueStringArray(
-        selectedEstateCodes.map(
-          (kodeEst) => `${selectedKodePt}|${String(kodeEst)}`,
-        ),
-      );
-
-      const selectedTransaksiNames = uniqueStringArray(
-        payload?.transaksi_ids ?? [],
-      );
-      const existingTransaksiNames = uniqueStringArray(
-        (existing.transaksi ?? []).map(
-          (item: any) => item?.nama_table_transaksi,
-        ),
-      );
-
-      const menuToDelete = (existing.menu ?? []).filter(
-        (item: any) => !selectedMenuIds.includes(String(item?.menu_id ?? "")),
-      );
-      const menuToCreate = selectedMenuIds.filter(
-        (menuId) => !existingMenuIds.includes(menuId),
-      );
-
-      const dataToDelete = (existing.data ?? []).filter((item: any) => {
-        const key = `${String(item?.kode_pt ?? "")}|${String(item?.kode_est ?? "")}`;
-        return !selectedDataKeys.includes(key);
-      });
-      const dataToCreate = selectedDataKeys.filter(
-        (key) => !existingDataKeys.includes(key),
-      );
-
-      const transaksiToDelete = (existing.transaksi ?? []).filter(
-        (item: any) =>
-          !selectedTransaksiNames.includes(
-            String(item?.nama_table_transaksi ?? ""),
-          ),
-      );
-      const transaksiToCreate = selectedTransaksiNames.filter(
-        (name) => !existingTransaksiNames.includes(name),
-      );
-
-      await deleteAksesMenuByLogIds(
-        menuToDelete.map((item: any) => item?.id).filter((id: any) => !!id),
-      );
-      await deleteAksesDataByLogIds(
-        dataToDelete.map((item: any) => item?.id).filter((id: any) => !!id),
-      );
-      await deleteAksesTransaksiByLogIds(
-        transaksiToDelete
-          .map((item: any) => item?.id)
-          .filter((id: any) => !!id),
-      );
-
-      if (menuToCreate.length > 0) {
-        await createAksesMenu(roleId, menuToCreate);
+        // C. Update Akses Transaksi jika ada perubahan
+        if (payload.transaksi_ids.length > 0) {
+          await createAksesTransaksi(roleId, payload.transaksi_ids);
+        }
       }
-
-      if (dataToCreate.length > 0) {
-        const groupedByPt = dataToCreate.reduce(
-          (acc: Record<string, string[]>, key) => {
-            const [kodePt, kodeEst] = String(key).split("|");
-            if (!kodePt || !kodeEst) return acc;
-            if (!acc[kodePt]) acc[kodePt] = [];
-            acc[kodePt].push(kodeEst);
-            return acc;
-          },
-          {},
-        );
-
-        await Promise.all(
-          Object.entries(groupedByPt).map(async ([kodePt, estateCodes]) => {
-            const perusahaan = perusahaanList.find((item: any) => {
-              const itemKodePt = String(
-                item?.kode_pt ?? item?.kode ?? item?.id ?? "",
-              );
-              return itemKodePt === String(kodePt);
-            });
-
-            if (!perusahaan?.id) return;
-
-            await createAksesData(
-              roleId,
-              [String(perusahaan.id)],
-              uniqueStringArray(estateCodes),
-              uniqueStringArray(payload?.area_ids ?? []),
-              uniqueStringArray(payload?.afdeling_ids ?? []),
-            );
-          }),
-        );
-      }
-
-      if (transaksiToCreate.length > 0) {
-        await createAksesTransaksi(roleId, transaksiToCreate);
-      }
-
+      loadingUpdate.value = false;
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(error, "Gagal memperbarui role.");
-      throw error;
-    } finally {
       loadingUpdate.value = false;
+      throw error;
     }
   }
 

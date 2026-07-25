@@ -2,6 +2,9 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import Header from "~/components/Header.vue";
 import { useManageRoleStore } from "~/stores/manageRoleStore";
+import {
+  transformDataToForm,
+} from "~/stores/roleStoreExtractData";
 import { dashboardStore } from '~/stores/dashboardStore'
 
 defineOptions({
@@ -22,6 +25,7 @@ const searchQueryEstate = ref("");
 const searchQueryAfdeling = ref("");
 
 const activePermissionTab = ref("menu");
+const loadingHierarchy = ref(false);
 
 const form = reactive({
   nama: "",
@@ -159,207 +163,34 @@ function resetForm() {
 }
 
 async function fillForm(role) {
-  form.nama = role.nama ?? "";
-  form.deskripsi = role.deskripsi ?? "";
-  form.menu_ids = [];
-  form.area_ids = [];
-  form.perusahaan_ids = [];
-  form.estate_ids = [];
-  form.afdeling_ids = [];
-  form.transaksi_ids = [];
-  perusahaanByAreaMap.value = {};
-  estateByPerusahaanMap.value = {};
-  afdelingByEstateMap.value = {};
-  activePermissionTab.value = "menu";
-
-  if (!(manageRoleStore.allDataPerusahaan ?? []).length) {
-    await manageRoleStore.initDataPerusahaan();
-  }
 
   const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
+  // console.log(`data existing akses : ${JSON.stringify(existingAkses)}`);
+
+  const result = transformDataToForm(existingAkses?.data ?? [], {
+    nama: "",
+    deskripsi: ""
+  });
+
+  // 4. Update reactive state 'form' tanpa memutuskan reaktivitas Vue
+  Object.assign(form, result);
+
+  // console.log(`hasil convert extract data : ${JSON.stringify(result)}`);
+  // console.log(`hasil copy ke form : ${JSON.stringify(form)}`);
+
+  form.nama = role.nama ?? "";
+  form.deskripsi = role.deskripsi ?? "";
+  activePermissionTab.value = "menu";
 
   form.menu_ids = (existingAkses?.menu ?? [])
     .map((item) => String(item?.menu_id ?? ""))
     .filter((id) => !!id);
 
-  const dataAkses = existingAkses?.data ?? [];
-  if (dataAkses.length > 0) {
-    const existingAreaCodes = new Set();
-    const existingPerusahaanCodesByArea = new Map();
-    const existingEstateCodesByPerusahaan = new Map();
-    const existingAfdelingCodesByEstate = new Map();
-
-    for (const areaNode of dataAkses) {
-      const areaCode = String(
-        areaNode?.kode_area ?? areaNode?.id_area ?? areaNode?.area_id ?? "",
-      ).trim();
-      if (!areaCode) continue;
-      existingAreaCodes.add(areaCode);
-
-      const perusahaanList = Array.isArray(areaNode?.perusahaan)
-        ? areaNode.perusahaan
-        : [];
-
-      for (const ptNode of perusahaanList) {
-        const perusahaanCode = String(
-          ptNode?.kode_pt ?? ptNode?.id_perusahaan ?? ptNode?.id ?? "",
-        ).trim();
-        if (!perusahaanCode) continue;
-
-        if (!existingPerusahaanCodesByArea.has(areaCode)) {
-          existingPerusahaanCodesByArea.set(areaCode, new Set());
-        }
-        existingPerusahaanCodesByArea.get(areaCode).add(perusahaanCode);
-
-        const estateList = Array.isArray(ptNode?.estate) ? ptNode.estate : [];
-        for (const estNode of estateList) {
-          const estateCode = String(
-            estNode?.kode_est ?? estNode?.id_estate ?? estNode?.id ?? "",
-          ).trim();
-          if (!estateCode) continue;
-
-          if (!existingEstateCodesByPerusahaan.has(perusahaanCode)) {
-            existingEstateCodesByPerusahaan.set(perusahaanCode, new Set());
-          }
-          existingEstateCodesByPerusahaan.get(perusahaanCode).add(estateCode);
-
-          const afdelingList = Array.isArray(estNode?.afdeling)
-            ? estNode.afdeling
-            : [];
-          for (const afdNode of afdelingList) {
-            const afdelingCode = String(
-              afdNode?.kode_afd ??
-              afdNode?.kode_afdeling ??
-              afdNode?.id_afdeling ??
-              afdNode?.id ??
-              "",
-            ).trim();
-            if (!afdelingCode) continue;
-
-            if (!existingAfdelingCodesByEstate.has(estateCode)) {
-              existingAfdelingCodesByEstate.set(estateCode, new Set());
-            }
-            existingAfdelingCodesByEstate.get(estateCode).add(afdelingCode);
-          }
-        }
-      }
-    }
-
-    const allAreas = manageRoleStore.allDataArea ?? [];
-    const selectedAreas = allAreas.filter((area) =>
-      existingAreaCodes.has(String(getAreaId(area))),
-    );
-
-    form.area_ids = selectedAreas
-      .map((area) => String(area?.id ?? ""))
-      .filter(Boolean);
-
-    form.selected_area_items = selectedAreas.map((area) => ({
-      id: String(area?.id ?? ""),
-      area_id: String(getAreaId(area)),
-      nama_area: String(area?.nama_area ?? area?.nama ?? ""),
-    }));
-
-    for (const area of selectedAreas) {
-      const areaCode = String(getAreaId(area));
-      if (!areaCode) continue;
-
-      if (!perusahaanByAreaMap.value[areaCode]) {
-        const perusahaanByArea = await manageRoleStore.initDataPerusahaanByArea(areaCode);
-        perusahaanByAreaMap.value[areaCode] = perusahaanByArea ?? [];
-      }
-    }
-
-    const selectedPerusahaanItems = [];
-    for (const area of selectedAreas) {
-      const areaCode = String(getAreaId(area));
-      const targetPerusahaanCodes = existingPerusahaanCodesByArea.get(areaCode) ?? new Set();
-      const perusahaanInArea = perusahaanByAreaMap.value[areaCode] ?? [];
-
-      for (const perusahaan of perusahaanInArea) {
-        const perusahaanCode = String(getPerusahaanCode(perusahaan));
-        if (!targetPerusahaanCodes.has(perusahaanCode)) continue;
-
-        selectedPerusahaanItems.push(perusahaan);
-
-        if (!estateByPerusahaanMap.value[perusahaanCode]) {
-          const estates = await manageRoleStore.initDataEstate(perusahaanCode);
-          estateByPerusahaanMap.value[perusahaanCode] = estates ?? [];
-        }
-      }
-    }
-
-    form.perusahaan_ids = selectedPerusahaanItems
-      .map((item) => String(item?.id ?? ""))
-      .filter(Boolean);
-
-    form.selected_perusahaan_items = selectedPerusahaanItems.map((item) => ({
-      id: String(item?.id ?? ""),
-      kode_pt: String(getPerusahaanCode(item)),
-      kode_area: String(item?.kode_area ?? item?.area_id ?? item?.area?.area_id ?? ""),
-      nama_pt: String(item?.nama_pt ?? item?.nama_perusahaan ?? item?.nama ?? ""),
-    }));
-
-    const selectedEstateItems = [];
-    for (const perusahaan of selectedPerusahaanItems) {
-      const perusahaanCode = String(getPerusahaanCode(perusahaan));
-      const estateTargets = existingEstateCodesByPerusahaan.get(perusahaanCode) ?? new Set();
-      const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
-
-      for (const estate of estateList) {
-        const estateCode = String(getEstateCode(estate));
-        if (!estateTargets.has(estateCode)) continue;
-
-        selectedEstateItems.push(estate);
-
-        if (!afdelingByEstateMap.value[estateCode]) {
-          const afdelings = await manageRoleStore.initDataAfdelingByEstate(estateCode);
-          afdelingByEstateMap.value[estateCode] = afdelings ?? [];
-        }
-      }
-    }
-
-    form.estate_ids = selectedEstateItems
-      .map((estate) => String(getEstateCode(estate)))
-      .filter(Boolean);
-
-    form.selected_estate_items = selectedEstateItems.map((estate) => ({
-      id: String(estate?.id ?? ""),
-      kode_est: String(getEstateCode(estate)),
-      kode_pt: String(estate?.kode_pt ?? estate?.pt_kode ?? ""),
-      nama_estate: String(estate?.nama_estate ?? estate?.nama ?? ""),
-    }));
-
-    const selectedAfdelingItems = [];
-    for (const estate of selectedEstateItems) {
-      const estateCode = String(getEstateCode(estate));
-      const afdelingTargets = existingAfdelingCodesByEstate.get(estateCode) ?? new Set();
-      const afdelingList = afdelingByEstateMap.value[estateCode] ?? [];
-
-      for (const afdeling of afdelingList) {
-        const afdelingCode = String(getAfdelingCode(afdeling));
-        if (!afdelingTargets.has(afdelingCode)) continue;
-        selectedAfdelingItems.push({ ...afdeling, _estateCode: estateCode });
-      }
-    }
-
-    form.afdeling_ids = selectedAfdelingItems
-      .map((item) => String(getAfdelingCode(item)))
-      .filter(Boolean);
-
-    form.selected_afdeling_items = selectedAfdelingItems.map((item) => ({
-      id: String(item?.id ?? ""),
-      kode_afd: String(getAfdelingCode(item)),
-      kode_est: String(item?.kode_est ?? item?._estateCode ?? ""),
-      nama_afdeling: String(item?.nama_afdeling ?? item?.nama ?? getAfdelingCode(item)),
-    }));
-  }
-
   form.transaksi_ids = (existingAkses?.transaksi ?? [])
     .map((item) => String(item?.nama_table_transaksi ?? ""))
     .filter((id) => !!id);
 
-  pruneDownstreamSelections();
+  await autoSelectHierarchyFromAreas(form.area_ids);
 }
 
 function openCreateModal() {
@@ -436,6 +267,146 @@ const getAfdelingCode = (afdeling) =>
 const getTransaksiCode = (transaksi) =>
   String(transaksi?.id ?? transaksi?.nama_table_transaksi ?? transaksi ?? "");
 
+const syncSelectedItemsFromIds = () => {
+  const areaMapById = new Map(
+    (manageRoleStore.allDataArea ?? []).map((area) => [String(area?.id ?? ""), area]),
+  );
+
+  form.selected_area_items = form.area_ids
+    .map((id) => areaMapById.get(String(id)))
+    .filter(Boolean)
+    .map((area) => ({
+      id: String(area?.id ?? ""),
+      area_id: String(getAreaId(area)),
+      nama_area: String(area?.nama_area ?? area?.nama ?? ""),
+    }));
+
+  const perusahaanMapById = new Map();
+  Object.values(perusahaanByAreaMap.value).forEach((perusahaanList) => {
+    (perusahaanList ?? []).forEach((item) => {
+      perusahaanMapById.set(String(item?.id ?? ""), item);
+    });
+  });
+
+  form.selected_perusahaan_items = form.perusahaan_ids
+    .map((id) => perusahaanMapById.get(String(id)))
+    .filter(Boolean)
+    .map((item) => ({
+      id: String(item?.id ?? ""),
+      kode_pt: String(getPerusahaanCode(item)),
+      kode_area: String(item?.kode_area ?? item?.area_id ?? item?.area?.area_id ?? ""),
+      nama_pt: String(item?.nama_pt ?? item?.nama_perusahaan ?? item?.nama ?? ""),
+    }));
+
+  const estateMapByCode = new Map();
+  Object.values(estateByPerusahaanMap.value).forEach((estateList) => {
+    (estateList ?? []).forEach((item) => {
+      estateMapByCode.set(String(getEstateCode(item)), item);
+    });
+  });
+
+  form.selected_estate_items = form.estate_ids
+    .map((code) => estateMapByCode.get(String(code)))
+    .filter(Boolean)
+    .map((item) => ({
+      id: String(item?.id ?? ""),
+      kode_est: String(getEstateCode(item)),
+      kode_pt: String(item?.kode_pt ?? item?.pt_kode ?? ""),
+      nama_estate: String(item?.nama_estate ?? item?.nama ?? ""),
+    }));
+
+  const afdelingMapByCode = new Map();
+  Object.entries(afdelingByEstateMap.value).forEach(([estateCode, afdelingList]) => {
+    (afdelingList ?? []).forEach((item) => {
+      const kodeAfd = String(getAfdelingCode(item));
+      afdelingMapByCode.set(kodeAfd, { ...item, _estateCode: estateCode });
+    });
+  });
+
+  form.selected_afdeling_items = form.afdeling_ids
+    .map((code) => afdelingMapByCode.get(String(code)))
+    .filter(Boolean)
+    .map((item) => ({
+      id: String(item?.id ?? ""),
+      kode_afd: String(getAfdelingCode(item)),
+      kode_est: String(item?.kode_est ?? item?._estateCode ?? ""),
+      nama_afdeling: String(item?.nama_afdeling ?? item?.nama ?? getAfdelingCode(item)),
+    }));
+};
+
+const autoSelectHierarchyFromAreas = async (areaIds = []) => {
+  loadingHierarchy.value = true;
+  try {
+    const selectedAreaSet = new Set((areaIds ?? []).map((id) => String(id)));
+    const selectedAreasLocal = (manageRoleStore.allDataArea ?? []).filter((area) =>
+      selectedAreaSet.has(String(area?.id ?? "")),
+    );
+
+    for (const area of selectedAreasLocal) {
+      const areaCode = String(getAreaId(area));
+      if (!areaCode) continue;
+
+      if (!perusahaanByAreaMap.value[areaCode]) {
+        const data = await manageRoleStore.initDataPerusahaanByArea(areaCode);
+        perusahaanByAreaMap.value[areaCode] = data ?? [];
+      }
+    }
+
+    const perusahaanIds = [];
+    const perusahaanCodes = [];
+    for (const area of selectedAreasLocal) {
+      const areaCode = String(getAreaId(area));
+      const perusahaanList = perusahaanByAreaMap.value[areaCode] ?? [];
+
+      for (const perusahaan of perusahaanList) {
+        const perusahaanId = String(perusahaan?.id ?? "");
+        const perusahaanCode = String(getPerusahaanCode(perusahaan));
+        if (perusahaanId) perusahaanIds.push(perusahaanId);
+        if (perusahaanCode) perusahaanCodes.push(perusahaanCode);
+
+        if (perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode]) {
+          const estates = await manageRoleStore.initDataEstate(perusahaanCode);
+          estateByPerusahaanMap.value[perusahaanCode] = estates ?? [];
+        }
+      }
+    }
+
+    form.perusahaan_ids = Array.from(new Set(perusahaanIds));
+
+    const estateCodes = [];
+    for (const perusahaanCode of Array.from(new Set(perusahaanCodes))) {
+      const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
+      for (const estate of estateList) {
+        const estateCode = String(getEstateCode(estate));
+        if (!estateCode) continue;
+        estateCodes.push(estateCode);
+
+        if (!afdelingByEstateMap.value[estateCode]) {
+          const afdelings = await manageRoleStore.initDataAfdelingByEstate(estateCode);
+          afdelingByEstateMap.value[estateCode] = afdelings ?? [];
+        }
+      }
+    }
+
+    form.estate_ids = Array.from(new Set(estateCodes));
+
+    const afdelingCodes = [];
+    form.estate_ids.forEach((estateCode) => {
+      const afdelingList = afdelingByEstateMap.value[String(estateCode)] ?? [];
+      afdelingList.forEach((afdeling) => {
+        const kodeAfd = String(getAfdelingCode(afdeling));
+        if (kodeAfd) afdelingCodes.push(kodeAfd);
+      });
+    });
+
+    form.afdeling_ids = Array.from(new Set(afdelingCodes));
+    syncSelectedItemsFromIds();
+    pruneDownstreamSelections();
+  } finally {
+    loadingHierarchy.value = false;
+  }
+};
+
 const pruneDownstreamSelections = () => {
   const availablePerusahaanMap = new Map();
   groupedPerusahaanByArea.value.forEach((group) => {
@@ -509,20 +480,7 @@ const toggleArea = async (area) => {
     pruneDownstreamSelections();
   } else {
     form.area_ids.push(id);
-    form.selected_area_items = [
-      ...form.selected_area_items,
-      {
-        id: String(area?.id ?? ""),
-        area_id: String(area?.area_id ?? ""),
-        nama_area: String(area?.nama_area ?? area?.nama ?? ""),
-      },
-    ];
-
-    if (!perusahaanByAreaMap.value[areaId]) {
-      const data = await manageRoleStore.initDataPerusahaanByArea(areaId);
-      perusahaanByAreaMap.value[areaId] = data ?? [];
-    }
-    pruneDownstreamSelections();
+    await autoSelectHierarchyFromAreas(form.area_ids);
   }
 };
 
@@ -716,7 +674,7 @@ onMounted(async () => {
                 <th class="px-4 py-3 font-bold">Nama</th>
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
                 <th class="px-4 py-3 font-bold">Menu</th>
-                <th class="px-4 py-3 font-bold">Perusahaan & Estate</th>
+                <th class="px-4 py-3 font-bold">Akses Data</th>
                 <th class="px-4 py-3 font-bold">Transaksi</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
@@ -764,14 +722,14 @@ onMounted(async () => {
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
             <label class="mb-1 block text-[#6F645B]">Nama Role</label>
-            <input v-model="form.nama" required type="text"
+            <input v-model="form.nama" @input="form.nama = $event.target.value.toUpperCase()" required type="text"
               class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
-            <input v-model="form.deskripsi" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <input v-model="form.deskripsi" @input="form.deskripsi = $event.target.value.toUpperCase()" required
+              type="text" class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] p-4 max-h-[70vh] overflow-y-auto">
@@ -835,6 +793,10 @@ onMounted(async () => {
                     <span>{{ area.nama ?? '' }}</span>
                   </label>
                 </div>
+              </div>
+
+              <div v-if="loadingHierarchy" class="mb-4 rounded-xl border border-[#EEE6DE] p-4 text-[#8A817A]">
+                Memuat data hierarchy (perusahaan, estate, afdeling)...
               </div>
 
               <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
@@ -917,7 +879,7 @@ onMounted(async () => {
                           class="h-4 w-4"
                           @change="toggleAfdeling(getAfdelingCode(afdeling), afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
-                        }}</span>
+                          }}</span>
                       </label>
                     </div>
                   </div>

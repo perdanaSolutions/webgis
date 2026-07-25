@@ -1,0 +1,16 @@
+http://84.247.146.180 {
+    # 1. Routing untuk Frontend Nuxt.js (Default / Root)
+    handle /* {
+        reverse_proxy gis-dashboard:3000
+    }
+
+    # 2. Routing untuk API Express (Prefix: /api)
+    handle_path /api/* {
+        reverse_proxy api:4000
+    }
+
+    # 3. Routing untuk Backend Python FastAPI (Prefix: /py-api)
+    handle_path /py-api/* {
+        reverse_proxy backend_pyton:8000
+    }
+}

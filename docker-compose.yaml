@@ -56,8 +56,27 @@ services:
     networks:
       - gis-network
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: gis-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gis-dashboard
+      - api
+      - backend_pyton
+    networks:
+      - gis-network
+
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   gis-network:
