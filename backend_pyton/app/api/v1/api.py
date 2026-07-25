@@ -40,4 +40,4 @@ api_router.include_router(landuse.router, prefix="/spatial/landuse", tags=["Spat
 api_router.include_router(jalan.router, prefix="/spatial/jalan", tags=["Spatial Jalan"])
 
 # jembatan
-api_router.include_router(jembatan.router, prefix="/jembatan", tags=["Spatial Jembatan"])
+api_router.include_router(jembatan.router, prefix="/spatial/jembatan", tags=["Spatial Jembatan"])
