@@ -5,7 +5,7 @@ from app.api import deps
 # from app.dependencies import deps.get_db
 from app.services import spatial_sawit as service
 
-router = APIRouter(prefix="/spatial/sawit", tags=["Spatial Sawit"])
+router = APIRouter(tags=["Spatial Sawit"])
 
 @router.post("/analyze")
 async def analyze_sawit_file(

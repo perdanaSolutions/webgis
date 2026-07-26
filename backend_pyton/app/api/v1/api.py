@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse, jalan, jembatan, akses_data, database_tables
+from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse, jalan, jembatan, akses_data, database_tables, geo_dinamic
 
 api_router = APIRouter()
 
@@ -20,8 +20,10 @@ api_router.include_router(database_tables.router, prefix="/database", tags=["Dat
 
 api_router.include_router(akses_data.router, prefix="/akses-data", tags=["Akses Data GIS"])
 
-# Router Permission Management (Baru)
-api_router.include_router(permission.router, prefix="/permissions", tags=["Permission Management"])
+# # Router Permission Management (Baru)
+# api_router.include_router(permission.router, prefix="/permissions", tags=["Permission Management"])
+
+api_router.include_router(geo_dinamic.router, prefix="/spatial", tags=["Upload Dinamis"])
 
 # Router Blok Spasial
 # api_router.include_router(blok.router, prefix="/blocks", tags=["Blocks & Filters"])
