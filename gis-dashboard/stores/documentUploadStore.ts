@@ -4,6 +4,7 @@ type UploadCategory = {
   value: string;
   label: string;
   description: string;
+  is_dynamic: boolean;
 };
 
 type GeoJsonFeature = GeoJSON.Feature<
@@ -29,41 +30,49 @@ const UPLOAD_CATEGORIES: UploadCategory[] = [
     label: "Blok",
     description:
       "Mencakup informasi spasial dari level Area hingga tingkat Blok.",
+    is_dynamic: false,
   },
   {
     value: "tph",
     label: "TPH (Tempat Pengumpulan Hasil)",
     description: "Data titik/lokasi tempat pengumpulan hasil panen.",
+    is_dynamic: false,
   },
   {
     value: "pokok_sawit",
     label: "Pokok Sawit",
     description: "Data sebaran titik atau area pokok tanaman sawit.",
+    is_dynamic: false,
   },
   {
     value: "landuse",
     label: "Landuse",
     description: "Data penggunaan lahan (land use).",
+    is_dynamic: false,
   },
   {
     value: "jalan",
     label: "Jalan",
     description: "Data jaringan jalan kebun dan akses pendukung.",
+    is_dynamic: false,
   },
   {
     value: "slope",
     label: "Slope (Kemiringan Lereng)",
     description: "Data kemiringan lereng untuk analisa topografi.",
+    is_dynamic: false,
   },
   {
     value: "drainase",
     label: "Drainase",
     description: "Data saluran drainase dan aliran air.",
+    is_dynamic: false,
   },
   {
     value: "jembatan",
     label: "Jembatan",
     description: "Data titik/segmen infrastruktur jembatan.",
+    is_dynamic: false,
   },
 ];
 

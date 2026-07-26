@@ -59,7 +59,7 @@ def create_role(
 
     # 2. Buat objek role baru
     new_role = Role(
-        nama=payload.nama.lower(),
+        nama=payload.nama,
         deskripsi=payload.deskripsi
     )
     db.add(new_role)
