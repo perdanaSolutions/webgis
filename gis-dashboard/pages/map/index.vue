@@ -2,9 +2,11 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
 
+import { useAuthStore } from "~/stores/authStore";
 import { useMapStore } from "~/stores/mapStore";
 
 const { $api } = useNuxtApp();
+const authStore = useAuthStore();
 
 defineOptions({
   name: "MapPage",
@@ -28,6 +30,13 @@ const HIERARCHICAL_FILTER_KEYS: FilterKey[] = [
   "afdeling",
   "blok",
 ];
+
+const FILTER_PARENT: Partial<Record<FilterKey, FilterKey>> = {
+  pt: "area",
+  estate: "pt",
+  afdeling: "estate",
+  blok: "afdeling",
+};
 
 const filterInputs = reactive<Record<FilterKey, string>>({
   area: "",
@@ -175,11 +184,54 @@ function withAllOption(
   key: FilterKey,
   options: Array<{ label: string; value: string }>,
 ) {
-  if (!HIERARCHICAL_FILTER_KEYS.includes(key) || options.length <= 1) {
+  if (!HIERARCHICAL_FILTER_KEYS.includes(key)) {
+    return options;
+  }
+
+  if (options.length === 0) {
+    return [ALL_FILTER_OPTION];
+  }
+
+  if (options.length <= 1) {
     return options;
   }
 
   return [ALL_FILTER_OPTION, ...options];
+}
+
+function isParentSpecific(key: FilterKey): boolean {
+  const parentKey = FILTER_PARENT[key];
+  if (!parentKey) return true;
+  return !!filterInputs[parentKey]?.trim();
+}
+
+function getHierarchicalOptions(
+  key: FilterKey,
+  options: Array<{ label: string; value: string }>,
+) {
+  if (!HIERARCHICAL_FILTER_KEYS.includes(key)) {
+    return options;
+  }
+
+  if (!isParentSpecific(key)) {
+    return [ALL_FILTER_OPTION];
+  }
+
+  return withAllOption(key, options);
+}
+
+function isFilterDisabled(key: FilterKey): boolean {
+  if (key === "area") return false;
+  if (!filterInputs.area) return true;
+  if (key === "pt" || key === "estate") return false;
+  if (key === "afdeling") return !filterInputs.estate;
+  if (key === "blok") return !filterInputs.afdeling;
+  return false;
+}
+
+function canSelectSpecificValue(key: FilterKey, value: string): boolean {
+  if (!value) return true;
+  return isParentSpecific(key);
 }
 
 const filterConfigs = computed<
@@ -204,37 +256,43 @@ const filterConfigs = computed<
     key: "pt",
     label: "Perusahaan (PT)",
     placeholder: "All",
-    options: withAllOption("pt", filterOptions.value.pt),
-    disabled: !filterInputs.area,
+    options: getHierarchicalOptions("pt", filterOptions.value.pt),
+    disabled: isFilterDisabled("pt"),
     clearable: false,
   },
   {
     key: "estate",
     label: "Estate",
     placeholder: "All",
-    options: withAllOption("estate", filterOptions.value.estate),
-    disabled: !filterInputs.area,
+    options: getHierarchicalOptions("estate", filterOptions.value.estate),
+    disabled: isFilterDisabled("estate"),
     clearable: false,
   },
   {
     key: "afdeling",
     label: "Afdeling",
     placeholder: "All",
-    options: withAllOption("afdeling", filterOptions.value.afdeling),
-    disabled: !filterInputs.area,
+    options: getHierarchicalOptions("afdeling", filterOptions.value.afdeling),
+    disabled: isFilterDisabled("afdeling"),
     clearable: false,
   },
   {
     key: "blok",
     label: "Blok",
     placeholder: "All",
-    options: withAllOption("blok", filterOptions.value.blok),
-    disabled: !filterInputs.area,
+    options: getHierarchicalOptions("blok", filterOptions.value.blok),
+    disabled: isFilterDisabled("blok"),
     clearable: false,
   },
 ]);
 
 onMounted(async () => {
+  if (!authStore.token) {
+    await navigateTo("/login");
+    return;
+  }
+
+  // Superadmin: semua area dapat diakses, area terpilih = urutan ASC pertama
   await mapStore.loadGeoJSONData();
   await initTemaDataOptions();
 });
@@ -312,6 +370,11 @@ async function onFilterInputChange(key: FilterKey, rawValue?: string | null) {
   applyAutocompleteNormalization(key);
   const nextValue = filterInputs[key] || "";
 
+  if (nextValue && !canSelectSpecificValue(key, nextValue)) {
+    filterInputs[key] = "";
+    return;
+  }
+
   if (nextValue === beforeValue) return;
 
   if (key === "area") {
@@ -343,11 +406,20 @@ function onAutoCompleteEnter(key: FilterKey, event: KeyboardEvent) {
 }
 
 async function applyAllFilters() {
-  (Object.keys(filterInputs) as FilterKey[]).forEach(
-    (key) => {
-      applyAutocompleteNormalization(key);
-    },
-  );
+  (Object.keys(filterInputs) as FilterKey[]).forEach((key) => {
+    applyAutocompleteNormalization(key);
+  });
+
+  if (!filterInputs.pt) {
+    filterInputs.estate = "";
+    filterInputs.afdeling = "";
+    filterInputs.blok = "";
+  } else if (!filterInputs.estate) {
+    filterInputs.afdeling = "";
+    filterInputs.blok = "";
+  } else if (!filterInputs.afdeling) {
+    filterInputs.blok = "";
+  }
 
   try {
     await mapStore.applyFilters({

@@ -183,6 +183,10 @@ export const useMapStore = defineStore("map", () => {
     return [];
   }
 
+  function isSuperAdmin(): boolean {
+    return authStore.user?.role === "superadmin";
+  }
+
   function getUserAksesData(): AksesDataItem[] {
     const aksesData = authStore.user?.akses_data;
     if (!Array.isArray(aksesData)) return [];
@@ -353,6 +357,27 @@ export const useMapStore = defineStore("map", () => {
     selectedRef.value = "";
   }
 
+  function enforceFilterHierarchy(filters: MapFilters): MapFilters {
+    const area = filters.area || "";
+    let pt = filters.pt || "";
+    let estate = filters.estate || "";
+    let afdeling = filters.afdeling || "";
+    let blok = filters.blok || "";
+
+    if (!pt) {
+      estate = "";
+      afdeling = "";
+      blok = "";
+    } else if (!estate) {
+      afdeling = "";
+      blok = "";
+    } else if (!afdeling) {
+      blok = "";
+    }
+
+    return { area, pt, estate, afdeling, blok };
+  }
+
   async function loadEstateLevel() {
     selectedEstate.value = "";
     selectedAfdeling.value = "";
@@ -361,9 +386,9 @@ export const useMapStore = defineStore("map", () => {
     afdelingOptions.value = [];
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedPt.value) return;
 
-    await fetchEstateOptions(selectedPt.value || undefined);
+    await fetchEstateOptions(selectedPt.value);
     applySingleOrAllDefault(estateOptions.value, selectedEstate);
     await loadAfdelingLevel();
   }
@@ -374,9 +399,9 @@ export const useMapStore = defineStore("map", () => {
     afdelingOptions.value = [];
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedEstate.value) return;
 
-    await fetchAfdelingOptions(selectedEstate.value || undefined);
+    await fetchAfdelingOptions(selectedEstate.value);
     applySingleOrAllDefault(afdelingOptions.value, selectedAfdeling);
     await loadBlokLevel();
   }
@@ -385,9 +410,9 @@ export const useMapStore = defineStore("map", () => {
     selectedBlok.value = "";
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedAfdeling.value) return;
 
-    await fetchBlokOptions(selectedAfdeling.value || undefined);
+    await fetchBlokOptions(selectedAfdeling.value);
     applySingleOrAllDefault(blokOptions.value, selectedBlok);
   }
 
@@ -449,16 +474,18 @@ export const useMapStore = defineStore("map", () => {
       const allowedAreas = getAllowedAreaCodes();
       areaCodeAliases.value = new Map();
 
-      const filteredItems = items.filter((item) => {
-        if (allowedAreas.size === 0) return false;
-        const areaId = normalizeText(item.area_id);
-        const kodeArea = normalizeText(item.kode_area);
-        return (
-          allowedAreas.has(areaId) ||
-          allowedAreas.has(kodeArea) ||
-          allowedAreas.has(normalizeText(item.id))
-        );
-      });
+      const filteredItems = isSuperAdmin()
+        ? items
+        : items.filter((item) => {
+            if (allowedAreas.size === 0) return false;
+            const areaId = normalizeText(item.area_id);
+            const kodeArea = normalizeText(item.kode_area);
+            return (
+              allowedAreas.has(areaId) ||
+              allowedAreas.has(kodeArea) ||
+              allowedAreas.has(normalizeText(item.id))
+            );
+          });
 
       filteredItems.forEach(registerAreaCodeAliases);
 
@@ -507,8 +534,10 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       ptOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(getPtIdentifiers(item), allowedPtCodes),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(getPtIdentifiers(item), allowedPtCodes),
           )
           .map(mapPtToOption)
           .filter((item) => !!item.value),
@@ -555,11 +584,13 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       estateOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(
-              getEstateIdentifiers(item),
-              allowedEstateCodes,
-            ),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(
+                getEstateIdentifiers(item),
+                allowedEstateCodes,
+              ),
           )
           .map(mapEstateToOption)
           .filter((item) => !!item.value),
@@ -614,11 +645,13 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       afdelingOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(
-              getAfdelingIdentifiers(item),
-              allowedAfdelingCodes,
-            ),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(
+                getAfdelingIdentifiers(item),
+                allowedAfdelingCodes,
+              ),
           )
           .map(mapAfdelingToOption)
           .filter((item) => !!item.value),
@@ -675,9 +708,10 @@ export const useMapStore = defineStore("map", () => {
           codesMatch(afdelingCodeAliases.value, kodeAfd, code),
         );
 
-      blokOptions.value = isAfdelingAllowed
-        ? sortOptionsByLabelAsc(mappedOptions)
-        : [];
+      blokOptions.value =
+        isSuperAdmin() || isAfdelingAllowed
+          ? sortOptionsByLabelAsc(mappedOptions)
+          : [];
       return blokOptions.value;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(error, "Gagal mengambil data blok.");
@@ -694,20 +728,45 @@ export const useMapStore = defineStore("map", () => {
 
   async function setSelectedPt(value: string) {
     selectedPt.value = value || "";
+    if (!selectedPt.value) {
+      selectedEstate.value = "";
+      selectedAfdeling.value = "";
+      selectedBlok.value = "";
+      estateOptions.value = [];
+      afdelingOptions.value = [];
+      blokOptions.value = [];
+      return;
+    }
     await loadEstateLevel();
   }
 
   async function setSelectedEstate(value: string) {
     selectedEstate.value = value || "";
+    if (!selectedEstate.value) {
+      selectedAfdeling.value = "";
+      selectedBlok.value = "";
+      afdelingOptions.value = [];
+      blokOptions.value = [];
+      return;
+    }
     await loadAfdelingLevel();
   }
 
   async function setSelectedAfdeling(value: string) {
     selectedAfdeling.value = value || "";
+    if (!selectedAfdeling.value) {
+      selectedBlok.value = "";
+      blokOptions.value = [];
+      return;
+    }
     await loadBlokLevel();
   }
 
   function setSelectedBlok(value: string) {
+    if (value && !selectedAfdeling.value) {
+      selectedBlok.value = "";
+      return;
+    }
     selectedBlok.value = value || "";
   }
 
@@ -818,19 +877,27 @@ export const useMapStore = defineStore("map", () => {
     clearError();
 
     try {
-      selectedArea.value = nextFilters.area || "";
-      selectedPt.value = nextFilters.pt || "";
-      selectedEstate.value = nextFilters.estate || "";
-      selectedAfdeling.value = nextFilters.afdeling || "";
-      selectedBlok.value = nextFilters.blok || "";
+      const normalizedFilters = enforceFilterHierarchy({
+        area: nextFilters.area || "",
+        pt: nextFilters.pt || "",
+        estate: nextFilters.estate || "",
+        afdeling: nextFilters.afdeling || "",
+        blok: nextFilters.blok || "",
+      });
+
+      selectedArea.value = normalizedFilters.area || "";
+      selectedPt.value = normalizedFilters.pt;
+      selectedEstate.value = normalizedFilters.estate;
+      selectedAfdeling.value = normalizedFilters.afdeling;
+      selectedBlok.value = normalizedFilters.blok;
 
       const baseUrl = getApiBaseUrl();
       const query = new URLSearchParams();
 
-      query.set("kode_pt", nextFilters.pt || "");
-      query.set("kode_est", nextFilters.estate || "");
-      query.set("kode_afd", nextFilters.afdeling || "");
-      query.set("kode_blok", nextFilters.blok || "");
+      query.set("kode_pt", normalizedFilters.pt || "");
+      query.set("kode_est", normalizedFilters.estate || "");
+      query.set("kode_afd", normalizedFilters.afdeling || "");
+      query.set("kode_blok", normalizedFilters.blok || "");
       query.set("tahun", selectedTahun || "");
 
       const response = await $api(
