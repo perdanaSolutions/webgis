@@ -1,11 +1,41 @@
 import { defineStore } from "pinia";
+import { getErrorMessage } from "~/utils/getErrorMessage";
+
+type GeoCatalogEndpoints = {
+  upload_analyze: string;
+  upload_execute: string;
+  geojson?: string;
+  list?: string;
+  cleanup_period?: string;
+};
+
+type GeoCatalogItem = {
+  kode: string;
+  nama: string;
+  deskripsi: string | null;
+  geometry_type: string;
+  relasi_blok: boolean;
+  handler_type: "LEGACY" | "GENERIC";
+  endpoints: GeoCatalogEndpoints;
+};
 
 type UploadCategory = {
   value: string;
   label: string;
   description: string;
   is_dynamic: boolean;
+  endpoints: GeoCatalogEndpoints;
 };
+
+function mapCatalogToCategory(item: GeoCatalogItem): UploadCategory {
+  return {
+    value: item.kode,
+    label: item.nama,
+    description: item.deskripsi ?? "",
+    is_dynamic: item.handler_type === "GENERIC",
+    endpoints: item.endpoints,
+  };
+}
 
 type GeoJsonFeature = GeoJSON.Feature<
   GeoJSON.Geometry,
@@ -24,58 +54,6 @@ function getAuthHeaders() {
   };
 }
 
-const UPLOAD_CATEGORIES: UploadCategory[] = [
-  {
-    value: "blok",
-    label: "Blok",
-    description:
-      "Mencakup informasi spasial dari level Area hingga tingkat Blok.",
-    is_dynamic: false,
-  },
-  {
-    value: "tph",
-    label: "TPH (Tempat Pengumpulan Hasil)",
-    description: "Data titik/lokasi tempat pengumpulan hasil panen.",
-    is_dynamic: false,
-  },
-  {
-    value: "pokok_sawit",
-    label: "Pokok Sawit",
-    description: "Data sebaran titik atau area pokok tanaman sawit.",
-    is_dynamic: false,
-  },
-  {
-    value: "landuse",
-    label: "Landuse",
-    description: "Data penggunaan lahan (land use).",
-    is_dynamic: false,
-  },
-  {
-    value: "jalan",
-    label: "Jalan",
-    description: "Data jaringan jalan kebun dan akses pendukung.",
-    is_dynamic: false,
-  },
-  {
-    value: "slope",
-    label: "Slope (Kemiringan Lereng)",
-    description: "Data kemiringan lereng untuk analisa topografi.",
-    is_dynamic: false,
-  },
-  {
-    value: "drainase",
-    label: "Drainase",
-    description: "Data saluran drainase dan aliran air.",
-    is_dynamic: false,
-  },
-  {
-    value: "jembatan",
-    label: "Jembatan",
-    description: "Data titik/segmen infrastruktur jembatan.",
-    is_dynamic: false,
-  },
-];
-
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
   return config.public.apiBaseUrlPython || "/api";
@@ -83,7 +61,8 @@ function getApiBaseUrl() {
 
 export const useDocumentUploadStore = defineStore("document-upload", {
   state: () => ({
-    categories: UPLOAD_CATEGORIES as UploadCategory[],
+    categories: [] as UploadCategory[],
+    isLoadingCategories: false,
     selectedCategory: "" as string,
     month: "" as string,
     year: "" as string,
@@ -192,6 +171,36 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.resetSelection();
     },
 
+    async initDataKategori() {
+      const { $api } = useNuxtApp();
+      this.isLoadingCategories = true;
+      this.errorMessage = "";
+      try {
+        const baseUrl = getApiBaseUrl();
+        const response = await $api<GeoCatalogItem[]>(
+          `${baseUrl}/v1/spatial/geo/catalog`,
+          {
+            method: "GET",
+            headers: getAuthHeaders(),
+          },
+        );
+
+        this.categories = Array.isArray(response)
+          ? response.map(mapCatalogToCategory)
+          : [];
+
+        return this.categories;
+      } catch (error: unknown) {
+        this.errorMessage = getErrorMessage(
+          error,
+          "Terjadi kesalahan saat memuat kategori data. Silakan coba lagi.",
+        );
+        throw error;
+      } finally {
+        this.isLoadingCategories = false;
+      }
+    },
+
     async submitUpload() {
       if (Object.keys(this.summaryAnalyze).length === 0) {
         this.resetMessages();
@@ -218,61 +227,59 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       // console.log("Selected Category :", this.selectedCategory);
       // console.log("base url :", apiBaseUrl);
 
-      this.isUploading = true;
-      this.uploadProgress = 15;
+      var dataFindOneCategory = this.categories.find(
+        (category) => category.value === this.selectedCategory,
+      );
 
-      try {
-        const apiBaseUrl = getApiBaseUrl();
-        const formData = new FormData();
+      // console.log(
+      //   `Data Find One Category : ${JSON.stringify(dataFindOneCategory)}`,
+      // );
+      if (dataFindOneCategory) {
+        // Data DITEMUKAN
+        this.isUploading = true;
+        this.uploadProgress = 15;
 
-        const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
-        const actionType = isAnalyze ? "analyze" : "execute";
+        try {
+          const apiBaseUrl = getApiBaseUrl();
+          const formData = new FormData();
 
-        // 2. Mapping base URL untuk setiap kategori
-        const urlMapping: Record<string, string> = {
-          blok: `/v1/spatial/blok-geometry/upload-${actionType}`,
-          tph: `/v1/spatial/tph/upload-${actionType}`,
-          pokok_sawit: `/v1/spatial/sawit/spatial/sawit/${isAnalyze ? "analyze" : "upload"}`,
-          landuse: `/v1/spatial/landuse/${isAnalyze ? "analyze" : "upload"}`,
-          jalan: `/v1/spatial/jalan/${isAnalyze ? "analyze" : "upload"}`,
-          slope: `/v1/spatial/slope/${isAnalyze ? "analyze" : "upload"}`,
-          drainase: `/v1/spatial/drainase/${isAnalyze ? "analyze" : "upload"}`,
-          jembatan: `/v1/spatial/jembatan/${isAnalyze ? "analyze" : "upload"}`,
-        };
+          const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
+          const action = isAnalyze
+            ? (dataFindOneCategory.endpoints.upload_analyze ?? "/")
+            : (dataFindOneCategory.endpoints.upload_execute ?? "/");
+          const urlUploadByCategory = `/v1/spatial${action}`;
 
-        // 3. Ambil URL berdasarkan kategori yang dipilih (berikan fallback string kosong jika tidak cocok)
-        const urlUploadByCategory = urlMapping[this.selectedCategory] || "";
+          formData.append("file", this.selectedFile);
+          // formData.append("feature_count", String(this.featureCount));
 
-        formData.append("file", this.selectedFile);
-        // formData.append("feature_count", String(this.featureCount));
+          this.uploadProgress = 45;
 
-        this.uploadProgress = 45;
+          var response = await $api(
+            `${apiBaseUrl}${urlUploadByCategory}?bulan=${this.month}&tahun=${this.year}`,
+            {
+              method: "POST",
+              body: formData,
+            },
+          );
 
-        var response = await $api(
-          `${apiBaseUrl}${urlUploadByCategory}?bulan=${this.month}&tahun=${this.year}`,
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
-
-        this.uploadProgress = 100;
-        if (Object.keys(this.summaryAnalyze).length > 0) {
-          this.successMessage = "Upload GeoJSON berhasil diproses.";
-          this.summaryAnalyze = {};
-          this.selectedFile = null;
-          this.parsedGeoJson = null;
-          this.selectedCategory = "";
-          this.month = "";
-          this.year = "";
-        } else {
-          this.summaryAnalyze = response as any;
+          this.uploadProgress = 100;
+          if (Object.keys(this.summaryAnalyze).length > 0) {
+            this.successMessage = "Upload GeoJSON berhasil diproses.";
+            this.summaryAnalyze = {};
+            this.selectedFile = null;
+            this.parsedGeoJson = null;
+            this.selectedCategory = "";
+            this.month = "";
+            this.year = "";
+          } else {
+            this.summaryAnalyze = response as any;
+          }
+        } catch (error) {
+          this.errorMessage =
+            error instanceof Error ? error.message : "Upload GeoJSON gagal.";
+        } finally {
+          this.isUploading = false;
         }
-      } catch (error) {
-        this.errorMessage =
-          error instanceof Error ? error.message : "Upload GeoJSON gagal.";
-      } finally {
-        this.isUploading = false;
       }
     },
   },

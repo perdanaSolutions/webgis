@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
@@ -48,6 +48,10 @@ const filteredPreviewRows = computed(() => {
       propertiesValues.includes(query)
     );
   });
+});
+
+onMounted(async () => {
+  await documentUploadStore.initDataKategori();
 });
 
 const totalPreviewRows = computed(() => filteredPreviewRows.value.length);
@@ -189,7 +193,8 @@ const parsedDataObject = computed(() => {
             <div class="mb-4">
               <label class="mb-1 block text-[#6F645B] font-medium">Kategori Data GeoJSON (Spasial)</label>
               <v-select :model-value="documentUploadStore.selectedCategory" :items="documentUploadStore.categories"
-                item-title="label" item-value="value" placeholder="Pilih kategori" variant="plain" density="comfortable"
+                :loading="documentUploadStore.isLoadingCategories" item-title="label" item-value="value"
+                placeholder="Pilih kategori" variant="plain" density="comfortable"
                 class="w-full px-3 border border-[#EEE6DE] rounded-xl h-[50px]"
                 @update:model-value="onSelectCategory"></v-select>
               <p v-if="selectedCategoryDescription" class="mt-2 text-sm text-[#8A817A]">

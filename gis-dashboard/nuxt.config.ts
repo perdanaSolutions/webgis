@@ -29,6 +29,7 @@ export default defineNuxtConfig({
         "@vue/devtools-core",
         "@vue/devtools-kit",
         "vuetify",
+        "leaflet",
         "vuetify/components",
         "vuetify/directives",
         "vuetify/iconsets/mdi",
