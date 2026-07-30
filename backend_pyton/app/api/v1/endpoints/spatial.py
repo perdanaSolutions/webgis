@@ -496,7 +496,7 @@ def get_history_tables(current_user=Depends(deps.get_current_user)):
 # ENDPOINT AKUMULASI HISTORY (BULANAN / TAHUNAN DENGAN HIERARKI)
 # =====================================================================
 
-@router.get("/history", summary="Data Akumulasi Bulanan/Tahunan untuk 3 Tabel Transaksi Spasial")
+@router.get("/history", summary="Data Histori & Agregasi Berdasarkan Tabel Transaksi")
 def get_history_data(
     table: str = Query(
         "trx_produksi_tbs", 

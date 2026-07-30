@@ -94,48 +94,6 @@ HISTORY_TABLE_REGISTRY = {
 #         "data": [dict(r._mapping) for r in rows],
 #     }
 
-# Whitelist tabel beserta rumus akumulasi SQL masing-masing
-HISTORY_METRICS_CONFIG = {
-    "trx_produksi_tbs": {
-        "label": "Produksi TBS",
-        "select": """
-            SUM(COALESCE(t.tbs_aktual, 0)) AS tbs_aktual,
-            SUM(COALESCE(t.tbs_budget, 0)) AS tbs_budget,
-            SUM(COALESCE(t.tbs_sensus, 0)) AS tbs_sensus,
-            SUM(COALESCE(t.janjang_aktual, 0)) AS janjang_aktual,
-            SUM(COALESCE(t.janjang_budget, 0)) AS janjang_budget,
-            SUM(COALESCE(t.janjang_sensus, 0)) AS janjang_sensus,
-            AVG(COALESCE(t.bjr_aktual, 0)) AS bjr_aktual,
-            AVG(COALESCE(t.bjr_budget, 0)) AS bjr_budget,
-            AVG(COALESCE(t.bjr_sensus, 0)) AS bjr_sensus
-        """
-    },
-    "trx_areal_statement": {
-        "label": "Areal Statement",
-        "select": """
-            AVG(COALESCE(t.luas_tanam, 0)) AS luas_tanam,
-            AVG(COALESCE(t.luas_tanah, 0)) AS luas_tanah,
-            AVG(COALESCE(t.total_pokok, 0)) AS total_pokok,
-            AVG(COALESCE(t.sph, 0)) AS sph,
-            AVG(COALESCE(t.pct_tanah_datar, 0)) AS pct_tanah_datar,
-            AVG(COALESCE(t.pct_berbukit, 0)) AS pct_berbukit,
-            AVG(COALESCE(t.pct_gelombang, 0)) AS pct_gelombang,
-            AVG(COALESCE(t.pct_curam, 0)) AS pct_curam
-        """
-    },
-    "trx_rotasi_pusingan": {
-        "label": "Rotasi Pusingan",
-        "select": """
-            COUNT(t.id_rotasi_pusingan) AS total_rotasi,
-            MAX(t.rotasi_ke) AS rotasi_terakhir,
-            AVG(COALESCE(t.pusingan_hari, 0)) AS avg_pusingan_hari,
-            SUM(COALESCE(t.luas, 0)) AS total_luas_rotasi,
-            SUM(COALESCE(t.pokok, 0)) AS total_pokok_rotasi
-        """
-    }
-}
-
-
 def get_history_aggregated(
     db: Session,
     table: str = "trx_produksi_tbs",
@@ -147,25 +105,20 @@ def get_history_aggregated(
     blok_id: Optional[str] = None
 ) -> dict:
     """
-    Mengambil data history teragregasi untuk 3 tabel transaksi.
-    - tahun DIISI -> Akumulasi Bulanan (Bulan 1-12) pada tahun tersebut.
-    - tahun KOSONG -> Akumulasi Tahunan (Multi-Year).
+    Endpoint History Agregasi Dinamis:
+    - Jika table == 'trx_produksi_tbs' -> Mengembalikan format khusus UI (Slope + Luas, Ton, Ton/Ha, BJR, JJG/PKK, KG/PKK).
+    - Jika table == 'trx_areal_statement' / 'trx_rotasi_pusingan' -> Mengembalikan format agregasi standar sebelumnya.
     """
-    # Validation Whitelist Table
-    config = HISTORY_METRICS_CONFIG.get(table)
-    if not config:
+    valid_tables = ["trx_produksi_tbs", "trx_areal_statement", "trx_rotasi_pusingan"]
+    if table not in valid_tables:
         raise HTTPException(
             status_code=400,
-            detail=f"Tabel '{table}' tidak valid. Pilihan: {list(HISTORY_METRICS_CONFIG.keys())}"
+            detail=f"Tabel '{table}' tidak valid. Pilihan yang tersedia: {valid_tables}"
         )
 
-    # Menentukan Grouping berdasarkan periode
     is_monthly = tahun is not None
-    group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
-    select_time_clause = "t.tahun, t.bulan" if is_monthly else "t.tahun, NULL as bulan"
-    order_by_clause = "t.tahun ASC, t.bulan ASC" if is_monthly else "t.tahun ASC"
 
-    # Dynamic Joins & Where Clause
+    # Dynamic Joins & Where Clauses
     joins = [
         f"JOIN blok b ON t.blok_id = b.blok_id AND t.bulan = b.bulan AND t.tahun = b.tahun",
         "JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun",
@@ -198,35 +151,167 @@ def get_history_aggregated(
 
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     join_clause = " ".join(joins)
+    group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
+    select_time_clause = "t.tahun, t.bulan" if is_monthly else "t.tahun, NULL as bulan"
+    order_by_clause = "t.tahun ASC, t.bulan ASC" if is_monthly else "t.tahun ASC"
 
-    sql = f"""
-        SELECT 
-            {select_time_clause},
-            {config['select']}
-        FROM {table} t
-        {join_clause}
-        {where_clause}
-        GROUP BY {group_by_clause}
-        ORDER BY {order_by_clause}
-    """
-
-    rows = db.execute(text(sql), params).fetchall()
-
-    return {
-        "table": table,
-        "label": config["label"],
-        "mode_akumulasi": "BULANAN" if is_monthly else "TAHUNAN",
-        "filter_applied": {
-            "tahun": tahun,
-            "area_id": area_id,
-            "kode_pt": kode_pt,
-            "kode_est": kode_est,
-            "kode_afd": kode_afd,
-            "blok_id": blok_id
-        },
-        "total_periode": len(rows),
-        "data": [dict(r._mapping) for r in rows]
+    filter_info = {
+        "tahun": tahun,
+        "area_id": area_id,
+        "kode_pt": kode_pt,
+        "kode_est": kode_est,
+        "kode_afd": kode_afd,
+        "blok_id": blok_id
     }
+
+    # =========================================================================
+    # CABANG 1: TABEL PRODUKSI TBS (FORMAT KHUSUS TAMPILAN GAMBAR/UI)
+    # =========================================================================
+    if table == "trx_produksi_tbs":
+        # 1. Kueri Slope
+        ast_joins = [
+            "JOIN blok b ON ast.blok_id = b.blok_id AND ast.bulan = b.bulan AND ast.tahun = b.tahun",
+            "JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun",
+            "JOIN estate e ON af.est_id = e.est_id AND af.bulan = e.bulan AND af.tahun = e.tahun",
+            "JOIN perusahaan p ON e.pt_id = p.pt_id"
+        ]
+        ast_where_conditions = [c.replace("t.", "ast.") for c in where_conditions]
+        ast_where_clause = " WHERE " + " AND ".join(ast_where_conditions) if ast_where_conditions else ""
+
+        sql_slope = f"""
+            SELECT 
+                ROUND(SUM(COALESCE(ast.luas_tanam, 0) * COALESCE(ast.pct_tanah_datar, 0) / 100)::numeric, 2) AS slope_0_3,
+                ROUND(SUM(COALESCE(ast.luas_tanam, 0) * COALESCE(ast.pct_gelombang, 0) / 100)::numeric, 2) AS slope_3_8,
+                ROUND(SUM(COALESCE(ast.luas_tanam, 0) * COALESCE(ast.pct_berbukit, 0) / 100)::numeric, 2) AS slope_8_15,
+                ROUND(SUM(COALESCE(ast.luas_tanam, 0) * COALESCE(ast.pct_curam, 0) / 100)::numeric, 2) AS slope_15_25,
+                0.00 AS slope_gt_25
+            FROM trx_areal_statement ast
+            {" ".join(ast_joins)}
+            {ast_where_clause}
+        """
+        slope_row = db.execute(text(sql_slope), params).fetchone()
+        slope_data = dict(slope_row._mapping) if slope_row else {
+            "slope_0_3": 0, "slope_3_8": 0, "slope_8_15": 0, "slope_15_25": 0, "slope_gt_25": 0
+        }
+
+        # 2. Kueri Histori Produksi Lengkap
+        sql_history = f"""
+            SELECT 
+                {select_time_clause},
+                ROUND(AVG(COALESCE(ast.luas_tanam, 0))::numeric, 2) AS luas,
+                ROUND((SUM(COALESCE(t.tbs_aktual, 0)) / 1000.0)::numeric, 2) AS ton,
+                CASE 
+                    WHEN AVG(COALESCE(ast.luas_tanam, 0)) > 0 
+                    THEN ROUND(((SUM(COALESCE(t.tbs_aktual, 0)) / 1000.0) / AVG(ast.luas_tanam))::numeric, 2)
+                    ELSE 0 
+                END AS ton_ha,
+                ROUND(AVG(COALESCE(t.bjr_aktual, 0))::numeric, 2) AS bjr,
+                CASE 
+                    WHEN SUM(COALESCE(ast.total_pokok, 0)) > 0 
+                    THEN ROUND((SUM(COALESCE(t.janjang_aktual, 0)) / SUM(ast.total_pokok))::numeric, 2)
+                    ELSE NULL 
+                END AS jjg_ppk,
+                CASE 
+                    WHEN SUM(COALESCE(ast.total_pokok, 0)) > 0 
+                    THEN ROUND((SUM(COALESCE(t.tbs_aktual, 0)) / SUM(ast.total_pokok))::numeric, 0)
+                    ELSE NULL 
+                END AS kg_ppk
+            FROM trx_produksi_tbs t
+            {join_clause}
+            LEFT JOIN trx_areal_statement ast ON t.blok_id = ast.blok_id AND t.bulan = ast.bulan AND t.tahun = ast.tahun
+            {where_clause}
+            GROUP BY {group_by_clause}
+            ORDER BY {order_by_clause}
+        """
+        rows = db.execute(text(sql_history), params).fetchall()
+
+        return {
+            "table": table,
+            "label": "Produksi TBS (Histori & Slope)",
+            "mode_akumulasi": "BULANAN" if is_monthly else "TAHUNAN",
+            "filter_applied": filter_info,
+            "slope_kemiringan_lereng": {
+                "0-3%": f"{slope_data['slope_0_3']:,} ha".replace(",", "."),
+                "3-8%": f"{slope_data['slope_3_8']:,} ha".replace(",", "."),
+                "8-15%": f"{slope_data['slope_8_15']:,} ha".replace(",", "."),
+                "15-25%": f"{slope_data['slope_15_25']:,} ha".replace(",", "."),
+                ">25%": f"{slope_data['slope_gt_25']:,} ha".replace(",", ".")
+            },
+            "total_periode": len(rows),
+            "data_histori": [
+                {
+                    "periode": r.bulan if is_monthly else r.tahun,
+                    "tahun": r.tahun,
+                    "bulan": r.bulan,
+                    "luas": float(r.luas or 0),
+                    "ton": float(r.ton or 0),
+                    "ton_ha": float(r.ton_ha or 0),
+                    "bjr": float(r.bjr or 0),
+                    "jjg_ppk": float(r.jjg_ppk) if r.jjg_ppk is not None else None,
+                    "kg_ppk": int(r.kg_ppk) if r.kg_ppk is not None else None
+                }
+                for r in rows
+            ]
+        }
+
+    # =========================================================================
+    # CABANG 2: TABEL AREAL STATEMENT (FORMAT AGREGASI STANDAR)
+    # =========================================================================
+    elif table == "trx_areal_statement":
+        sql = f"""
+            SELECT 
+                {select_time_clause},
+                AVG(COALESCE(t.luas_tanam, 0)) AS luas_tanam,
+                AVG(COALESCE(t.luas_tanah, 0)) AS luas_tanah,
+                AVG(COALESCE(t.total_pokok, 0)) AS total_pokok,
+                AVG(COALESCE(t.sph, 0)) AS sph,
+                AVG(COALESCE(t.pct_tanah_datar, 0)) AS pct_tanah_datar,
+                AVG(COALESCE(t.pct_berbukit, 0)) AS pct_berbukit,
+                AVG(COALESCE(t.pct_gelombang, 0)) AS pct_gelombang,
+                AVG(COALESCE(t.pct_curam, 0)) AS pct_curam
+            FROM trx_areal_statement t
+            {join_clause}
+            {where_clause}
+            GROUP BY {group_by_clause}
+            ORDER BY {order_by_clause}
+        """
+        rows = db.execute(text(sql), params).fetchall()
+        return {
+            "table": table,
+            "label": "Areal Statement",
+            "mode_akumulasi": "BULANAN" if is_monthly else "TAHUNAN",
+            "filter_applied": filter_info,
+            "total_periode": len(rows),
+            "data": [dict(r._mapping) for r in rows]
+        }
+
+    # =========================================================================
+    # CABANG 3: TABEL ROTASI PUSINGAN (FORMAT AGREGASI STANDAR)
+    # =========================================================================
+    elif table == "trx_rotasi_pusingan":
+        sql = f"""
+            SELECT 
+                {select_time_clause},
+                COUNT(t.id_rotasi_pusingan) AS total_rotasi,
+                MAX(t.rotasi_ke) AS rotasi_terakhir,
+                AVG(COALESCE(t.pusingan_hari, 0)) AS avg_pusingan_hari,
+                SUM(COALESCE(t.luas, 0)) AS total_luas_rotasi,
+                SUM(COALESCE(t.pokok, 0)) AS total_pokok_rotasi
+            FROM trx_rotasi_pusingan t
+            {join_clause}
+            {where_clause}
+            GROUP BY {group_by_clause}
+            ORDER BY {order_by_clause}
+        """
+        rows = db.execute(text(sql), params).fetchall()
+        return {
+            "table": table,
+            "label": "Rotasi Pusingan",
+            "mode_akumulasi": "BULANAN" if is_monthly else "TAHUNAN",
+            "filter_applied": filter_info,
+            "total_periode": len(rows),
+            "data": [dict(r._mapping) for r in rows]
+        }
 
 
 def list_history_tables() -> list:
