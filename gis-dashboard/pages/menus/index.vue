@@ -8,6 +8,7 @@ import {
   type UpdateMenuPayload,
 } from "~/stores/manageMenuStore";
 import { useAuthStore } from "~/stores/authStore";
+import { menuIconPath } from "~/utils/menuThemeOptions";
 
 defineOptions({
   name: "MenusManagementPage",
@@ -29,7 +30,7 @@ const form = reactive<CreateMenuPayload>({
   icon_class: "text-blue-500",
   arrow_class: "text-blue-500",
   to: "",
-  icon: "",
+  icon: "report",
   order_position: 0,
 });
 
@@ -64,7 +65,7 @@ function resetForm() {
   form.icon_class = "text-blue-500";
   form.arrow_class = "text-blue-500";
   form.to = "";
-  form.icon = "";
+  form.icon = "report";
   form.order_position = 0;
 }
 
@@ -215,7 +216,18 @@ onMounted(async () => {
                 <td class="px-4 py-3">{{ item.title }}</td>
                 <td class="px-4 py-3">{{ item.description }}</td>
                 <td class="px-4 py-3">{{ item.to }}</td>
-                <td class="px-4 py-3">{{ item.icon }}</td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F8F3EE] text-[#4D392A]">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                          :d="menuIconPath(String(item.icon ?? 'report'))" />
+                      </svg>
+                    </span>
+                    <span class="text-sm text-[#6F645B]">{{ item.icon }}</span>
+                  </div>
+                </td>
                 <td class="px-4 py-3">{{ item.order_position }}</td>
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
@@ -244,13 +256,36 @@ onMounted(async () => {
     </div>
 
     <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-3xl rounded-2xl bg-white p-5">
+      <div class="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
           <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
         </div>
 
-        <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
+        <div class="mb-5 rounded-2xl border border-[#EEE6DE] bg-[#FBFAF8] p-4">
+          <p class="mb-3 text-sm font-semibold text-[#4D392A]">Preview Menu</p>
+          <div class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4">
+            <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl" :class="form.bg_class">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor" :class="form.icon_class">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" :d="menuIconPath(form.icon)" />
+              </svg>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-[16px] font-bold leading-tight">
+                {{ form.title || "Judul Menu" }}
+              </p>
+              <p class="mt-1 line-clamp-2 text-[14px] leading-snug text-[#8A817A]">
+                {{ form.description || "Deskripsi menu akan tampil di sini." }}
+              </p>
+            </div>
+
+            <span class="text-[16px] font-bold" :class="form.arrow_class">→</span>
+          </div>
+        </div>
+
+        <form class="grid grid-cols-1 gap-4 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
             <label class="mb-1 block text-[#6F645B]">Title</label>
             <input v-model="form.title" required type="text"
@@ -269,28 +304,24 @@ onMounted(async () => {
               class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
           </div>
 
-          <div>
-            <label class="mb-1 block text-[#6F645B]">bg_class</label>
-            <input v-model="form.bg_class" required type="text" placeholder="bg-blue-50"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+          <div class="md:col-span-2">
+            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Background (bg_class)</label>
+            <MenuBgClassPicker v-model="form.bg_class" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">icon_class</label>
-            <input v-model="form.icon_class" required type="text" placeholder="text-blue-500"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Icon (icon_class)</label>
+            <MenuTextClassPicker v-model="form.icon_class" preview-type="icon" :preview-icon="form.icon" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">arrow_class</label>
-            <input v-model="form.arrow_class" required type="text" placeholder="text-blue-500"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Panah (arrow_class)</label>
+            <MenuTextClassPicker v-model="form.arrow_class" preview-type="arrow" />
           </div>
 
-          <div>
-            <label class="mb-1 block text-[#6F645B]">icon</label>
-            <input v-model="form.icon" required type="text" placeholder="report"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+          <div class="md:col-span-2">
+            <label class="mb-2 block font-semibold text-[#4D392A]">Icon Menu</label>
+            <MenuIconPicker v-model="form.icon" />
           </div>
 
           <div>

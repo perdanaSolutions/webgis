@@ -7,6 +7,7 @@ import {
   type UpdateUserPayload,
   type UserItem,
 } from "~/stores/manageUserStore";
+import type { RoleItem } from "~/stores/manageRoleStore";
 
 defineOptions({
   name: "UsersManagementPage",
@@ -181,6 +182,23 @@ onMounted(async () => {
 
 async function gotoDashboard() {
   await navigateTo('/dashboard')
+}
+
+function filterRoleOption(
+  _value: string,
+  query: string,
+  item?: { raw: RoleItem },
+) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return true;
+
+  const role = item?.raw;
+  if (!role) return true;
+
+  return (
+    role.nama.toLowerCase().includes(keyword) ||
+    role.deskripsi.toLowerCase().includes(keyword)
+  );
 }
 
 </script>
@@ -359,10 +377,10 @@ async function gotoDashboard() {
 
           <div>
             <label class="mb-1 block text-[#6F645B]">Role</label>
-            <v-select :model-value="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
-              placeholder="Pilih role" variant="plain" density="comfortable"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
-              @update:model-value="form.role_id = $event"></v-select>
+            <v-autocomplete v-model="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
+              placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
+              class="w-full custom-underlined-input" hide-details clearable :loading="manageUserStore.loadingRoles"
+              :custom-filter="filterRoleOption" />
           </div>
 
           <div>
@@ -370,9 +388,8 @@ async function gotoDashboard() {
             <v-select :model-value="form.is_active" :items="[
               { label: 'Aktif', value: true },
               { label: 'Nonaktif', value: false }
-            ]" item-title="label" item-value="value" variant="plain" density="comfortable"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] bg-white px-3"
-              @update:model-value="form.is_active = $event"></v-select>
+            ]" item-title="label" item-value="value" variant="outlined" density="comfortable"
+              class="w-full custom-underlined-input" @update:model-value="form.is_active = $event"></v-select>
           </div>
 
           <div class="md:col-span-2">
@@ -420,3 +437,10 @@ async function gotoDashboard() {
     </div>
   </main>
 </template>
+
+<style scoped>
+.custom-underlined-input :deep(.v-field__outline) {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.267) !important;
+  opacity: 1 !important;
+}
+</style>

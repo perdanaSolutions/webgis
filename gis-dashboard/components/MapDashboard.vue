@@ -3,10 +3,15 @@ import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
 import 'leaflet/dist/leaflet.css'
 
 import { useMapStore } from '~/stores/mapStore'
+import {
+  buildBlokPopupHtml,
+  normalizeBlokPopupData,
+} from '~/utils/mapBlokPopup'
 
 type LeafletModule = typeof import('leaflet')
 type LeafletMap = import('leaflet').Map
 type LeafletGeoJson = import('leaflet').GeoJSON
+type LeafletLayer = import('leaflet').Layer
 type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, any>>
 type Feature = GeoJSON.Feature<GeoJSON.Geometry, Record<string, any>>
 type FeatureProperties = Record<string, string | number | null | undefined>
@@ -22,11 +27,6 @@ const isLayerUpdating = shallowRef(false)
 const defaultCenter: [number, number] = [-6.2088, 106.8456]
 const defaultZoom = 6
 
-/**
- * Helper status warna polygon.
- * Digunakan untuk style default layer sementara.
- * Nanti bisa disesuaikan lagi berdasarkan legend/aturan bisnis final.
- */
 function getStatusColor(status: string) {
   const normalizedStatus = status.toUpperCase()
 
@@ -42,65 +42,22 @@ function getStatusColor(status: string) {
   return '#455a64'
 }
 
-/**
- * Normalisasi properti feature agar konsisten dipakai di popup/style/filter.
- * Tujuan: antisipasi variasi nama field dari sumber geojson yang berbeda.
- */
-function normalizeFeatureProperties(feature: Feature) {
+function getStatusFromFeature(feature: Feature) {
   const properties = (feature.properties ?? {}) as FeatureProperties
-
-  const blok = String(properties.Blok ?? properties.Blok_1 ?? properties.Kode_Blok ?? '-')
-  const globalId = String(properties.GlobalID ?? properties.id ?? '-')
-  const pt = String(properties.PT ?? properties.PT_1 ?? '-')
-  const estate = String(properties.Estate ?? properties.Estate_1 ?? '-')
-  const afdeling = String(properties.Afdeling ?? properties.Afdeling_1 ?? '-')
-  const status = String(properties.Status ?? properties.Status_1 ?? '-')
-  const tahunTanam = String(properties.TT ?? properties.TT_1 ?? '-')
-  const jenisBibit = String(properties.JenisBibit ?? properties.Bibit ?? '-')
-  const luasTanam = Number(properties.LTanam_1 ?? properties.LTanam ?? 0)
-  const pokok = Number(properties.Pokok_1 ?? properties.Pokok ?? 0)
-  const jalan = Number(properties.Jalan ?? 0)
-  const drainase = Number(properties.DrnCanal ?? 0)
-    + Number(properties.DrnMD ?? 0)
-    + Number(properties.DrnCD ?? 0)
-    + Number(properties.DrnFD ?? 0)
-  const jembatan = Number(properties.Jembatan ?? 0)
-
-  return {
-    blok,
-    globalId,
-    pt,
-    estate,
-    afdeling,
-    status,
-    tahunTanam,
-    jenisBibit,
-    luasTanam,
-    pokok,
-    jalan,
-    drainase,
-    jembatan,
-  }
+  return String(
+    properties.status_tanam
+    ?? properties.Status
+    ?? properties.Status_1
+    ?? '',
+  )
 }
 
-/**
- * TEMPORARY FILTER PIPELINE
- * Tempat menaruh rule filter spasial ke depan ketika tombol Apply sudah mengirim filter final.
- * Saat ini belum membatasi data (return true), hanya disiapkan strukturnya.
- */
-function shouldIncludeFeature(_normalized: ReturnType<typeof normalizeFeatureProperties>) {
+function shouldIncludeFeature(_feature: Feature) {
   return true
 }
 
-/**
- * Menyiapkan sumber feature collection untuk dirender ke peta.
- * - Prioritas data hasil filter store (kalau sudah tersedia)
- * - Fallback ke empty collection agar peta tetap tampil stabil
- */
 function getRenderableFeatureCollection(): FeatureCollection {
-  const fromStore = (mapStore as typeof mapStore & {
-    filteredGeoJSON?: FeatureCollection
-  }).filteredGeoJSON
+  const fromStore = mapStore.filteredGeoJSON
 
   if (!fromStore || !Array.isArray(fromStore.features)) {
     return {
@@ -110,8 +67,7 @@ function getRenderableFeatureCollection(): FeatureCollection {
   }
 
   const filteredFeatures = fromStore.features.filter((feature) => {
-    const normalized = normalizeFeatureProperties(feature as Feature)
-    return shouldIncludeFeature(normalized)
+    return shouldIncludeFeature(feature as Feature)
   })
 
   return {
@@ -120,57 +76,102 @@ function getRenderableFeatureCollection(): FeatureCollection {
   }
 }
 
-/**
- * Builder popup HTML berdasarkan properties yang sudah dinormalisasi.
- */
-function featureToPopupHtml(feature: Feature) {
-  const normalized = normalizeFeatureProperties(feature)
+function buildPopupContent(
+  feature: Feature,
+  overrides?: { bulan?: string; tahun?: string },
+  loading = false,
+) {
+  const popupData = normalizeBlokPopupData(
+    (feature.properties ?? {}) as FeatureProperties,
+    mapStore.getPopupHierarchyLabels(),
+    overrides,
+  )
 
-  return `
-    <div style="min-width: 260px;">
-      <h3 style="margin:0 0 8px;font-size:16px;font-weight:700;">Blok ${normalized.blok}</h3>
-      <div style="font-size:13px;line-height:1.4;">
-        <div><strong>Global ID:</strong> ${normalized.globalId}</div>
-        <div><strong>PT:</strong> ${normalized.pt}</div>
-        <div><strong>Estate:</strong> ${normalized.estate}</div>
-        <div><strong>Afdeling:</strong> ${normalized.afdeling}</div>
-        <div><strong>Status Tanam:</strong> ${normalized.status}</div>
-        <div><strong>Tahun Tanam:</strong> ${normalized.tahunTanam}</div>
-        <div><strong>Jenis Bibit:</strong> ${normalized.jenisBibit}</div>
-        <hr style="margin:8px 0;">
-        <div><strong>Luas Tanam:</strong> ${normalized.luasTanam.toFixed(2)} ha</div>
-        <div><strong>Total Pokok:</strong> ${normalized.pokok.toLocaleString('id-ID')}</div>
-        <div><strong>Jalan:</strong> ${normalized.jalan.toFixed(2)}</div>
-        <div><strong>Drainase:</strong> ${normalized.drainase.toFixed(2)}</div>
-        <div><strong>Jembatan:</strong> ${normalized.jembatan.toLocaleString('id-ID')}</div>
-      </div>
-    </div>
-  `
+  return buildBlokPopupHtml(popupData, { loading })
 }
 
-/**
- * Resolver style polygon.
- * Dipisah agar mudah dimodifikasi saat logic style berbasis filter ditambahkan.
- */
+function getPopupElement(layer: LeafletLayer) {
+  const popup = (layer as any).getPopup?.()
+  return popup?.getElement?.() as HTMLElement | undefined
+}
+
+async function handlePopupApply(layer: LeafletLayer, feature: Feature) {
+  const popupElement = getPopupElement(layer)
+  if (!popupElement)
+    return
+
+  const bulanSelect = popupElement.querySelector('[data-popup-bulan]') as HTMLSelectElement | null
+  const tahunSelect = popupElement.querySelector('[data-popup-tahun]') as HTMLSelectElement | null
+  const applyButton = popupElement.querySelector('[data-popup-apply]') as HTMLButtonElement | null
+
+  if (!bulanSelect || !tahunSelect || !applyButton)
+    return
+
+  const bulan = bulanSelect.value
+  const tahun = tahunSelect.value
+  const properties = (feature.properties ?? {}) as FeatureProperties
+  const kodeBlok = String(properties.kode_blok ?? '')
+
+  applyButton.disabled = true
+  applyButton.textContent = 'Memuat...'
+
+  try {
+    const updatedFeature = await mapStore.fetchBlokPopupData({
+      kodePt: mapStore.selectedPt || undefined,
+      kodeEst: mapStore.selectedEstate || undefined,
+      kodeAfd: mapStore.selectedAfdeling || undefined,
+      kodeBlok,
+      bulan,
+      tahun,
+    })
+
+    const nextFeature = updatedFeature ?? feature
+    const nextHtml = buildPopupContent(nextFeature, { bulan, tahun })
+
+    ;(layer as any).setPopupContent?.(nextHtml)
+    attachPopupApplyHandler(layer, nextFeature as Feature)
+  } catch {
+    applyButton.disabled = false
+    applyButton.textContent = 'Apply'
+  }
+}
+
+function attachPopupApplyHandler(layer: LeafletLayer, feature: Feature) {
+  const popupElement = getPopupElement(layer)
+  if (!popupElement)
+    return
+
+  const applyButton = popupElement.querySelector('[data-popup-apply]') as HTMLButtonElement | null
+  if (!applyButton)
+    return
+
+  const clonedButton = applyButton.cloneNode(true) as HTMLButtonElement
+  applyButton.replaceWith(clonedButton)
+
+  clonedButton.addEventListener('click', () => {
+    void handlePopupApply(layer, feature)
+  })
+}
+
+function bindPopupInteractions(layer: LeafletLayer, feature: Feature) {
+  layer.off('popupopen')
+
+  layer.on('popupopen', () => {
+    attachPopupApplyHandler(layer, feature)
+  })
+}
+
 function resolveFeatureStyle(feature?: Feature) {
-  const normalized = feature
-    ? normalizeFeatureProperties(feature)
-    : {
-      status: '',
-    }
+  const status = feature ? getStatusFromFeature(feature) : ''
 
   return {
     color: '#1e293b',
     weight: 1,
-    fillColor: getStatusColor(normalized.status),
+    fillColor: getStatusColor(status),
     fillOpacity: 0.45,
   }
 }
 
-/**
- * Menggambar ulang layer geojson di peta.
- * Dipanggil saat map ready + data berubah.
- */
 function updateGeoJSONLayer(L: LeafletModule) {
   if (!map.value || !isMapReady.value || isLayerUpdating.value)
     return
@@ -188,7 +189,14 @@ function updateGeoJSONLayer(L: LeafletModule) {
     const layer = L.geoJSON(featureCollection, {
       style: (feature) => resolveFeatureStyle(feature as Feature),
       onEachFeature: (feature, leafletLayer) => {
-        leafletLayer.bindPopup(featureToPopupHtml(feature as Feature))
+        const popupHtml = buildPopupContent(feature as Feature)
+        leafletLayer.bindPopup(popupHtml, {
+          maxWidth: 340,
+          minWidth: 320,
+          autoPanPadding: [24, 24],
+          className: 'map-blok-popup-wrapper',
+        })
+        bindPopupInteractions(leafletLayer, feature as Feature)
       },
     })
 
@@ -199,8 +207,8 @@ function updateGeoJSONLayer(L: LeafletModule) {
 
     if (bounds.isValid()) {
       map.value.fitBounds(bounds, {
-        padding: [20, 20],
-        maxZoom: 15,
+        padding: [32, 32],
+        maxZoom: 16,
       })
     } else {
       map.value.setView(defaultCenter, defaultZoom)
@@ -210,9 +218,6 @@ function updateGeoJSONLayer(L: LeafletModule) {
   }
 }
 
-/**
- * Init map dasar (tile + view default).
- */
 async function initializeMap() {
   const L = await import('leaflet')
 
@@ -227,7 +232,6 @@ async function initializeMap() {
 
   isMapReady.value = true
 
-  // Memastikan Leaflet menghitung ukuran container dengan benar setelah render.
   setTimeout(() => {
     map.value?.invalidateSize()
   }, 0)
@@ -241,10 +245,6 @@ const featureCount = computed(() => {
 })
 
 onMounted(async () => {
-  // Untuk kebutuhan saat ini, load data tetap dipanggil agar ketika data siap, layer bisa langsung render.
-  // Nantinya bisa dipicu penuh oleh tombol Apply jika flow final sudah aktif.
-  void mapStore.loadGeoJSONData()
-
   await initializeMap()
 })
 
@@ -263,9 +263,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => (mapStore as typeof mapStore & {
-    filteredGeoJSON?: FeatureCollection
-  }).filteredGeoJSON,
+  () => mapStore.filteredGeoJSON,
   async () => {
     if (!isMapReady.value)
       return
@@ -281,8 +279,41 @@ watch(
   <div class="relative h-full w-full">
     <div ref="mapContainer" class="h-full w-full" />
 
+    <div
+      v-if="mapStore.loadingGeoJSON"
+      class="absolute inset-0 z-[1100] flex items-center justify-center bg-white/70 backdrop-blur-[1px]"
+    >
+      <div class="flex flex-col items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-lg">
+        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-[#2B7FFF] border-t-transparent" />
+        <p class="text-[13px] font-medium text-[#334155]">
+          Memuat data peta...
+        </p>
+      </div>
+    </div>
+
     <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-white/90 px-3 py-2 text-sm shadow-md">
       Menampilkan <strong>{{ featureCount }}</strong> blok
     </div>
   </div>
 </template>
+
+<style>
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content-wrapper {
+  border-radius: 10px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content {
+  margin: 0;
+  width: 320px !important;
+  max-width: 320px;
+  max-height: 72vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip {
+  background: #fff;
+}
+</style>

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import { dashboardStore } from '~/stores/dashboardStore'
-
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
@@ -20,7 +19,6 @@ onMounted(async () => {
   }
   dashboardService.initDataMenu()
 })
-
 </script>
 
 <template>
@@ -88,8 +86,10 @@ onMounted(async () => {
 
           <div class="space-y-3 rounded-xl bg-white p-4 text-[#2E1F18]">
             <div v-for="(item, index) in dashboardService.announcements" :key="`announcement-${item.title}`"
-              class="flex items-center gap-4 py-2"
-              :class="{ 'border-b border-[#EFE8E1]': index < dashboardService.announcements.length - 1 }">
+              class="flex items-center gap-4 py-2" :class="{
+                'border-b border-[#EFE8E1]':
+                  index < dashboardService.announcements.length - 1,
+              }">
               <div class="w-14 rounded-xl bg-[#F7F2EC] py-2 text-center">
                 <p class="text-[16px] font-bold leading-none">
                   {{ item.date }}
@@ -128,24 +128,23 @@ onMounted(async () => {
           <template v-if="dashboardService.loading">
             <div v-for="i in 8" :key="`skeleton-${i}`"
               class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4 animate-pulse">
-              <div class="h-14 w-14 shrink-0 rounded-2xl bg-slate-200"></div>
+              <div class="h-14 w-14 shrink-0 rounded-2xl bg-slate-200" />
 
               <div class="min-w-0 flex-1 space-y-2">
-                <div class="h-4 w-3/4 rounded bg-slate-200"></div>
-                <div class="h-3 w-full rounded bg-slate-200"></div>
+                <div class="h-4 w-3/4 rounded bg-slate-200" />
+                <div class="h-3 w-full rounded bg-slate-200" />
               </div>
 
-              <div class="h-4 w-4 rounded bg-slate-200"></div>
+              <div class="h-4 w-4 rounded bg-slate-200" />
             </div>
           </template>
 
           <template v-else>
             <NuxtLink v-for="item in dashboardService.moduleItems" :key="`module-${item.title}`" :to="item.to"
               class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4 transition hover:shadow-sm">
-
               <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl" :class="item.bgClass">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24"
-                  stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" :class="item.iconClass" fill="none"
+                  viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
                     :d="dashboardService.iconPath(item.icon)" />
                 </svg>

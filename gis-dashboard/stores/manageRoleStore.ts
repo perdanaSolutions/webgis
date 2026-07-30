@@ -461,17 +461,31 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     if (selectedAfdelingItems.length > 0) {
       selectedAfdelingItems.forEach((afd: any) => {
         const kodeAfd = normalize(afd?.kode_afd ?? afd?.id);
-        if (!kodeAfd) return;
-        selectedAfdelingMap.set(kodeAfd, {
+        const kodeEst = normalize(afd?.kode_est);
+        if (!kodeAfd || !kodeEst) return;
+        selectedAfdelingMap.set(`${kodeEst}::${kodeAfd}`, {
           id: normalize(afd?.id ?? kodeAfd),
           kode_afd: kodeAfd,
-          kode_est: normalize(afd?.kode_est),
+          kode_est: kodeEst,
           nama_afdeling: normalize(
             afd?.nama_afdeling ?? afd?.nama ?? afd?.kode_afd ?? kodeAfd,
           ),
         });
       });
     }
+
+    const selectedAfdelingKeys = new Set(
+      uniqueAfdelingCodes
+        .map((code) => {
+          const normalizedCode = normalize(code);
+          if (normalizedCode.includes("::")) return normalizedCode;
+
+          return Array.from(selectedAfdelingMap.keys()).filter((key) =>
+            key.endsWith(`::${normalizedCode}`),
+          );
+        })
+        .flat(),
+    );
 
     const areaNodes = selectedAreas.map((area: any) => {
       const areaId = normalize(area?.area_id ?? area?.id);
@@ -531,15 +545,24 @@ export const useManageRoleStore = defineStore("manageRole", () => {
             const kodeAfd = normalize(
               afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
             );
-            return !!kodeAfd && uniqueAfdelingCodes.includes(kodeAfd);
+            if (!kodeAfd) return false;
+
+            const selectionKey = `${kodeEst}::${kodeAfd}`;
+            if (selectedAfdelingMap.size > 0) {
+              return selectedAfdelingMap.has(selectionKey);
+            }
+
+            return selectedAfdelingKeys.has(selectionKey);
           })
-          .map((afd) => ({
+          .map((afd) => {
+            const kodeAfd = normalize(
+              afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
+            );
+            const selectionKey = `${kodeEst}::${kodeAfd}`;
+
+            return {
             id_afdeling: normalize(
-              selectedAfdelingMap.get(
-                normalize(
-                  afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
-                ),
-              )?.id ??
+              selectedAfdelingMap.get(selectionKey)?.id ??
                 afd?.id ??
                 afd?.kode_afd ??
                 afd?.kode ??
@@ -552,7 +575,8 @@ export const useManageRoleStore = defineStore("manageRole", () => {
                 afd?.kode ??
                 "",
             ),
-          }));
+          };
+          });
 
         if (afdelingNodes.length === 0) continue;
 

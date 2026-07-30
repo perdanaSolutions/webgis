@@ -169,13 +169,14 @@ export function transformDataToForm(
                 // Ekstrak kode_afd (contoh: "AFDI01" dari "PT_..._AFDI01")
                 const kodeAfd = afd.id_afdeling.split("_").pop() || "";
 
-                if (kodeAfd) {
-                  afdelingIdsSet.add(kodeAfd);
+                if (kodeAfd && kodeEst) {
+                  afdelingIdsSet.add(`${kodeEst}::${kodeAfd}`);
                 }
 
                 if (
                   !selectedAfdelingItems.some(
-                    (item) => item.id === afd.id_afdeling,
+                    (item) =>
+                      item.kode_afd === kodeAfd && item.kode_est === kodeEst,
                   )
                 ) {
                   selectedAfdelingItems.push({
