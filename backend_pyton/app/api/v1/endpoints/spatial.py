@@ -52,6 +52,7 @@ from app.api import deps
 from app.models.spatial import Afdeling, Area, Blok, Estate, GeoBlok, GeoTph, Perusahaan
 from app.schemas.spatial import BlokResponse, EstateResponse, GeoJSONResponse, PaginatedResponse, PTResponse
 from app.services import spatial_upload as service
+from app.services import blok_detail_service
 
 router = APIRouter()
 
@@ -435,29 +436,91 @@ def get_blocks_geojson(
 
     results = query.all()
 
+    # Ambil ringkasan 3 tabel trx untuk SEMUA blok yang tampil sekaligus
+    # (1-3 query total, bukan per-blok) -- lihat blok_detail_service untuk
+    # alasan kenapa cuma ringkasan (bukan semua kolom/riwayat lengkap) yang
+    # di-embed di sini; info lengkap ada di GET /blok/detail.
+    blok_ids = [blok_data.blok_id for blok_data, _ in results]
+    resolved_bulan = results[0][0].bulan if results else bulan
+    resolved_tahun = results[0][0].tahun if results else tahun
+    trx_summary = blok_detail_service.fetch_trx_summary_by_blok(db, blok_ids, resolved_bulan, resolved_tahun)
+
     features = []
     for blok_data, geom_json_str in results:
         if not geom_json_str:
             continue
 
+        properties = {
+            "blok_id": blok_data.blok_id,
+            "nama_blok": blok_data.nama_blok,
+            "kode_blok": blok_data.kode_blok,
+            "afd_id": blok_data.afd_id,
+            "tahun_tanam": blok_data.tahun_tanam,
+            "jenis_bibit": blok_data.jenis_bibit,
+            "status_tanam": blok_data.status_tanam,
+            "bulan": blok_data.bulan,
+            "tahun": blok_data.tahun,
+        }
+        properties.update(trx_summary.get(blok_data.blok_id, {}))
+
         features.append({
             "type": "Feature",
-            "properties": {
-                "blok_id": blok_data.blok_id,
-                "nama_blok": blok_data.nama_blok,
-                "kode_blok": blok_data.kode_blok,
-                "afd_id": blok_data.afd_id,
-                "tahun_tanam": blok_data.tahun_tanam,
-                "jenis_bibit": blok_data.jenis_bibit,
-                "status_tanam": blok_data.status_tanam,
-                "bulan": blok_data.bulan,
-                "tahun": blok_data.tahun,
-            },
+            "properties": properties,
             "geometry": json.loads(geom_json_str),
         })
 
     geojson_response = {"type": "FeatureCollection", "features": features}
     return Response(content=json.dumps(geojson_response), media_type="application/json")
+
+
+# =====================================================================
+# DETAIL BLOK UNTUK POPUP & HISTORY TRX (dipakai FE saat blok diklik di peta)
+# =====================================================================
+
+@router.get("/blok/detail", summary="Atribut Popup Peta Blok lengkap (Master, KPI Yield, BJR, Kg/pkk, SPH)")
+def get_blok_detail(
+    blok_id: str = Query(..., description="ID Blok yang diklik pada peta (misal: PT_TELEN_E006_AFDI02_G018)"),
+    bulan: Optional[int] = Query(None, ge=1, le=12, description="Kosongkan untuk ambil periode terbaru"),
+    tahun: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk ambil periode terbaru"),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user),
+):
+    return blok_detail_service.get_blok_detail(db, blok_id, bulan, tahun)
+
+
+@router.get("/history/tables", summary="Daftar tabel/tema yang tersedia untuk GET /history")
+def get_history_tables(current_user=Depends(deps.get_current_user)):
+    return blok_detail_service.list_history_tables()
+
+# =====================================================================
+# ENDPOINT AKUMULASI HISTORY (BULANAN / TAHUNAN DENGAN HIERARKI)
+# =====================================================================
+
+@router.get("/history", summary="Data Akumulasi Bulanan/Tahunan untuk 3 Tabel Transaksi Spasial")
+def get_history_data(
+    table: str = Query(
+        "trx_produksi_tbs", 
+        description="Pilihan tabel: 'trx_produksi_tbs', 'trx_areal_statement', atau 'trx_rotasi_pusingan'"
+    ),
+    tahun: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk akumulasi Tahunan (Multi-Year), isi untuk akumulasi Bulanan"),
+    area_id: Optional[str] = Query(None, description="Filter tingkat Area"),
+    kode_pt: Optional[str] = Query(None, description="Filter tingkat PT"),
+    kode_est: Optional[str] = Query(None, description="Filter tingkat Estate"),
+    kode_afd: Optional[str] = Query(None, description="Filter tingkat Afdeling"),
+    blok_id: Optional[str] = Query(None, description="Filter tingkat Blok Spesifik"),
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user),
+):
+    return blok_detail_service.get_history_aggregated(
+        db=db,
+        table=table,
+        tahun=tahun,
+        area_id=area_id,
+        kode_pt=kode_pt,
+        kode_est=kode_est,
+        kode_afd=kode_afd,
+        blok_id=blok_id
+    )
 
 
 # =====================================================================

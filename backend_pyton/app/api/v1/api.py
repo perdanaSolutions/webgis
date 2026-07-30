@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse, jalan, jembatan, akses_data, database_tables, geo_dinamic
+from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse, jalan, jembatan, akses_data, database_tables, geo_dinamic, areal_statement
 
 api_router = APIRouter()
 
@@ -43,3 +43,5 @@ api_router.include_router(jalan.router, prefix="/spatial/jalan", tags=["Spatial 
 
 # jembatan
 api_router.include_router(jembatan.router, prefix="/spatial/jembatan", tags=["Spatial Jembatan"])
+
+api_router.include_router(areal_statement.router, prefix="/areal-statement", tags=["Areal Statement"])
