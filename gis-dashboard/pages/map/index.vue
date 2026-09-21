@@ -292,9 +292,12 @@ onMounted(async () => {
     return;
   }
 
-  // Superadmin: semua area dapat diakses, area terpilih = urutan ASC pertama
   await mapStore.loadGeoJSONData();
   await initTemaDataOptions();
+
+  if (mapStore.filters.area) {
+    await applyAllFilters();
+  }
 });
 
 function getSelectedLabelByKey(key: FilterKey): string {
@@ -449,25 +452,25 @@ async function gotoDashboard() {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#F7F8FA] text-[14px] text-[#2B2B2B]">
+  <main class="min-h-screen bg-page-map text-14 text-dark">
     <Header brand-title="Block Profile" brand-subtitle="" />
 
-    <aside class="mx-4 mt-3 rounded-xl border border-[#E5EAF1] bg-white transition-all duration-300"
+    <aside class="mx-4 mt-3 rounded-xl border border-map-light bg-surface transition-all duration-300"
       :class="isFilterCollapsed ? 'overflow-hidden p-2' : 'p-3'">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex min-w-0 items-center gap-2">
           <button type="button"
-            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#D8DEE8] bg-white text-[13px] text-[#334155] hover:bg-[#F8FAFC]"
+            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-light bg-surface text-13 text-slate hover-bg-hover-slate"
             :title="isFilterCollapsed ? 'Expand Filter' : 'Collapse Filter'"
             :aria-label="isFilterCollapsed ? 'Expand Filter' : 'Collapse Filter'" @click="toggleFilterCollapse">
             <span v-if="isFilterCollapsed">▶</span>
             <span v-else>◀</span>
           </button>
           <div class="min-w-0">
-            <p class="truncate text-[14px] font-bold text-[#1F2937]">
+            <p class="truncate text-14 font-bold text-gray-title">
               Filter Data Spasial Blok
             </p>
-            <p v-if="!isFilterCollapsed" class="text-[12px] text-[#6B7280]">
+            <p v-if="!isFilterCollapsed" class="text-12 text-gray-muted">
               Area kebun dan informasi blok
             </p>
           </div>
@@ -477,12 +480,12 @@ async function gotoDashboard() {
       <template v-if="!isFilterCollapsed">
         <div class="mt-3 space-y-3">
           <section>
-            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+            <p class="mb-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
               Area
             </p>
             <div class="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <label v-for="field in filterConfigs" :key="field.key" class="min-w-0">
-                <span class="mb-1 block text-[13px] font-medium text-[#2F3A4A]">
+                <span class="mb-1 block text-13 font-medium text-gray-label">
                   {{ field.label }}
                 </span>
                 <v-autocomplete :model-value="getAutocompleteModel(field.key)" class="custom-underlined-input"
@@ -496,13 +499,13 @@ async function gotoDashboard() {
             </div>
           </section>
 
-          <section class="border-t border-[#EEF2F6] py-3">
-            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#6B7280]">
+          <section class="border-t border-section py-3">
+            <p class="mb-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
               Informasi
             </p>
             <div class="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
               <label class="min-w-0">
-                <span class="mb-1 block text-[13px] font-medium text-[#2F3A4A]">
+                <span class="mb-1 block text-13 font-medium text-gray-label">
                   Tema Data
                 </span>
                 <v-autocomplete v-model="selectedTemaData" class="custom-underlined-input" :items="temaDataOptions"
@@ -511,7 +514,7 @@ async function gotoDashboard() {
                   :loading="isTemaDataLoading" />
               </label>
               <label class="min-w-0">
-                <span class="mb-1 block text-[13px] font-medium text-[#2F3A4A]">
+                <span class="mb-1 block text-13 font-medium text-gray-label">
                   Tahun
                 </span>
                 <v-autocomplete v-model="selectedTahun" class="custom-underlined-input" :items="tahunOptions"
@@ -523,12 +526,12 @@ async function gotoDashboard() {
 
           <div v-if="!isFilterCollapsed" class="flex justify-end items-center gap-2">
             <button
-              class="inline-flex h-8 items-center justify-center rounded-md border border-[#D8DEE8] bg-white px-3 text-[13px] font-semibold text-[#334155] hover:bg-[#F8FAFC] disabled:cursor-not-allowed"
+              class="inline-flex h-8 items-center justify-center rounded-md border border-slate-light bg-surface px-3 text-13 font-semibold text-slate hover-bg-hover-slate disabled:cursor-not-allowed"
               type="button" :disabled="isLoading" @click="resetAllFilters">
               Reset
             </button>
             <button
-              class="inline-flex h-8 items-center justify-center rounded-md bg-[#2B7FFF] px-3 text-[13px] font-semibold text-white hover:bg-[#1E68DB] disabled:cursor-not-allowed disabled:bg-[#93B8F7]"
+              class="inline-flex h-8 items-center justify-center rounded-md bg-blue-primary px-3 text-13 font-semibold text-on-brand hover-bg-blue-primary-hover disabled:cursor-not-allowed disabled:bg-blue-disabled"
               type="button" :disabled="isLoading" @click="applyAllFilters">
               {{ isLoadingGeoJSON ? 'Memuat...' : 'Apply' }}
             </button>
@@ -540,7 +543,7 @@ async function gotoDashboard() {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 lg:gap-5 lg:p-5">
       <section class="space-y-3">
         <div
-          class="relative h-[65vh] sm:h-[70vh] lg:h-[72vh] min-h-[400px] sm:min-h-[520px] w-full overflow-hidden rounded-2xl border border-[#DCE3ED] bg-white shadow-sm transition-all duration-300">
+          class="relative h-[65vh] sm:h-[70vh] lg:h-[72vh] min-h-[400px] sm:min-h-[520px] w-full overflow-hidden rounded-2xl border border-map bg-surface shadow-sm transition-all duration-300">
           <!-- Wrapper untuk MapDashboard agar mengisi penuh area dan ramah perangkat sentuh -->
           <div class="absolute inset-0 h-full w-full">
             <MapDashboard class="h-full w-full object-cover" />
@@ -549,23 +552,23 @@ async function gotoDashboard() {
       </section>
 
       <aside class="space-y-3">
-        <div class="rounded-2xl border border-[#E5EAF1] bg-white p-4">
-          <h2 class="mb-3 text-[16px] font-bold text-[#1F2937]">
+        <div class="rounded-2xl border border-map-light bg-surface p-4">
+          <h2 class="mb-3 text-16 font-bold text-gray-title">
             Block Profile
           </h2>
           <div class="space-y-1.5">
             <div v-for="item in blockProfileRows" :key="item.label"
-              class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd:bg-[#F8FAFC]">
-              <p class="text-[14px] text-[#6B7280]">{{ item.label }}</p>
-              <p class="truncate text-[14px] font-semibold text-[#111827]">
+              class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
+              <p class="text-14 text-gray-muted">{{ item.label }}</p>
+              <p class="truncate text-14 font-semibold text-gray-darker">
                 {{ item.value }}
               </p>
             </div>
           </div>
         </div>
 
-        <div class="rounded-2xl border border-[#E5EAF1] bg-white p-4">
-          <h2 class="mb-3 text-[16px] font-bold text-[#1F2937]">
+        <div class="rounded-2xl border border-map-light bg-surface p-4">
+          <h2 class="mb-3 text-16 font-bold text-gray-title">
             Data Informasi
           </h2>
         </div>

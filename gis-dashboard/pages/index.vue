@@ -18,24 +18,24 @@ onMounted(async () => {
 
 <template>
   <main
-    class="fixed inset-0 z-50 flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-[#FCFBFA]">
+    class="fixed inset-0 z-50 flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-splash">
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div class="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-[#4D392A]/10 blur-3xl" />
-      <div class="absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-[#5B432F]/15 blur-3xl" />
+      <div class="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-10 blur-3xl" />
+      <div class="absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-brand-secondary-15 blur-3xl" />
       <div
-        class="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#4D392A]/10" />
+        class="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand-10" />
       <div
-        class="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#4D392A]/5" />
+        class="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand-5" />
     </div>
 
     <div class="relative flex flex-col items-center px-6 text-center">
       <div class="relative mb-10 flex h-28 w-28 items-center justify-center">
-        <span class="absolute inset-0 rounded-full border-2 border-[#4D392A]/15" />
+        <span class="absolute inset-0 rounded-full border-2 border-brand-10" />
         <span
-          class="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-[#4D392A] border-r-[#5B432F]/60" />
-        <span class="absolute inset-3 animate-pulse rounded-full bg-[#4D392A]/10" />
+          class="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-brand border-r-brand-secondary-60" />
+        <span class="absolute inset-3 animate-pulse rounded-full bg-brand-10" />
         <div
-          class="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-[#4D392A] text-white shadow-lg shadow-[#4D392A]/25">
+          class="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-brand text-on-brand shadow-lg shadow-brand-25">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 animate-pulse" fill="none" viewBox="0 0 24 24"
             stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round"
@@ -45,22 +45,22 @@ onMounted(async () => {
         </div>
       </div>
 
-      <h1 class="text-xl font-bold tracking-tight text-[#2C1F1A] sm:text-2xl">
+      <h1 class="text-size-xl font-bold tracking-tight text-content-dark sm:text-size-2xl">
         GIS PWA
       </h1>
-      <p class="mt-2 text-sm text-[#8E8E93]">
+      <p class="mt-2 text-size-sm text-muted-ios">
         Memverifikasi sesi Anda
       </p>
 
       <div class="mt-8 flex items-center gap-2">
-        <span class="h-2 w-2 animate-bounce rounded-full bg-[#4D392A] [animation-delay:0ms]" />
-        <span class="h-2 w-2 animate-bounce rounded-full bg-[#5B432F] [animation-delay:150ms]" />
-        <span class="h-2 w-2 animate-bounce rounded-full bg-[#4D392A] [animation-delay:300ms]" />
+        <span class="h-2 w-2 animate-bounce rounded-full bg-brand [animation-delay:0ms]" />
+        <span class="h-2 w-2 animate-bounce rounded-full bg-brand-secondary [animation-delay:150ms]" />
+        <span class="h-2 w-2 animate-bounce rounded-full bg-brand [animation-delay:300ms]" />
       </div>
 
-      <div class="mt-10 h-1 w-48 overflow-hidden rounded-full bg-[#E8E4E1]">
+      <div class="mt-10 h-1 w-48 overflow-hidden rounded-full bg-progress-track">
         <div
-          class="h-full w-1/2 animate-[loading-bar_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-[#4D392A] to-[#5B432F]" />
+          class="h-full w-1/2 animate-[loading-bar_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r gradient-brand" />
       </div>
     </div>
   </main>

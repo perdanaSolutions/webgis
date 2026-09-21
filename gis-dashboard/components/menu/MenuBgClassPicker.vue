@@ -30,8 +30,8 @@ const options = computed(() => {
         class="group flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-all duration-200"
         :class="
           model === option.value
-            ? `border-[#4D392A] bg-[#FFF8F2] ring-2 ${option.ring}`
-            : 'border-[#EEE6DE] bg-white hover:border-[#D8CFC6] hover:shadow-sm'
+            ? `picker-selected ring-2 ${option.ring}`
+            : 'picker-default hover:shadow-sm'
         "
         :title="option.label"
         @click="model = option.value"
@@ -42,7 +42,7 @@ const options = computed(() => {
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5 text-slate-400 opacity-70"
+            class="h-5 w-5 text-slate-icon opacity-70"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -55,11 +55,11 @@ const options = computed(() => {
             />
           </svg>
         </span>
-        <span class="text-[11px] font-medium text-[#6F645B]">{{ option.label }}</span>
+        <span class="text-11 font-medium text-label">{{ option.label }}</span>
       </button>
     </div>
-    <p class="mt-2 text-xs text-[#8A817A]">
-      Terpilih: <span class="font-semibold text-[#4D392A]">{{ model }}</span>
+    <p class="mt-2 text-size-xs text-muted">
+      Terpilih: <span class="font-semibold text-brand">{{ model }}</span>
     </p>
   </div>
 </template>

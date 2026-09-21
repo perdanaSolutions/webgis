@@ -153,13 +153,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
+  <main class="min-h-screen bg-page text-14 text-content">
     <Header brand-title="Management Menu" brand-subtitle="Kelola data menu dashboard" />
 
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center gap-3">
         <button type="button" aria-label="Back"
-          class="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8DEE8] bg-white text-[#566074] shadow-sm transition-all duration-200 hover:border-[#1A315B] hover:bg-slate-50 hover:text-[#1A315B]"
+          class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-light bg-surface text-icon shadow-sm transition-all duration-200 hover-border-navy hover-bg-slate-light hover-text-navy"
           @click="gotoUsers">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
             stroke="currentColor" class="h-4 w-4">
@@ -167,35 +167,35 @@ onMounted(async () => {
           </svg>
         </button>
 
-        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">
+        <p class="text-size-sm font-semibold tracking-wide text-subtitle">
           Management Menu
         </p>
       </div>
 
-      <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
+      <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 class="text-[20px] font-bold">Daftar Menu</h2>
-            <p class="text-[#8A817A]">Kelola menu modul dashboard.</p>
+            <h2 class="text-20 font-bold">Daftar Menu</h2>
+            <p class="text-muted">Kelola menu modul dashboard.</p>
           </div>
 
-          <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
+          <button class="rounded-full bg-brand px-5 py-2.5 font-semibold text-on-brand" @click="openCreateModal">
             + Tambah Menu
           </button>
         </div>
 
         <div class="mb-4">
           <input v-model="search" type="text" placeholder="Cari title / deskripsi / route..."
-            class="h-11 w-full rounded-xl border border-[#EEE6DE] px-4 outline-none placeholder:text-[#A6A29D]" />
+            class="h-11 w-full rounded-xl border border-default px-4 outline-none placeholder-text-placeholder" />
         </div>
 
-        <p v-if="manageMenuStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
+        <p v-if="manageMenuStore.errorMessage" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
           {{ manageMenuStore.errorMessage }}
         </p>
 
-        <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
-          <table class="min-w-full bg-white">
-            <thead class="bg-[#F8F3EE] text-left text-[#4D392A]">
+        <div class="overflow-x-auto rounded-xl border border-default">
+          <table class="min-w-full bg-surface">
+            <thead class="bg-surface-warm text-left text-brand">
               <tr>
                 <th class="px-4 py-3 font-bold">Title</th>
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
@@ -206,37 +206,37 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="manageMenuStore.loadingList" class="border-t border-[#F0E8E0]">
-                <td colspan="6" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="manageMenuStore.loadingList" class="border-t border-row">
+                <td colspan="6" class="px-4 py-8 text-center text-muted">
                   Memuat data menu...
                 </td>
               </tr>
 
-              <tr v-for="item in filteredMenus" :key="item.id" class="border-t border-[#F0E8E0]">
+              <tr v-for="item in filteredMenus" :key="item.id" class="border-t border-row">
                 <td class="px-4 py-3">{{ item.title }}</td>
                 <td class="px-4 py-3">{{ item.description }}</td>
                 <td class="px-4 py-3">{{ item.to }}</td>
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F8F3EE] text-[#4D392A]">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-warm text-brand">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
                           :d="menuIconPath(String(item.icon ?? 'report'))" />
                       </svg>
                     </span>
-                    <span class="text-sm text-[#6F645B]">{{ item.icon }}</span>
+                    <span class="text-size-sm text-label">{{ item.icon }}</span>
                   </div>
                 </td>
                 <td class="px-4 py-3">{{ item.order_position }}</td>
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
                     <button
-                      class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
+                      class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
                       Edit
                     </button>
-                    <button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 font-semibold text-red-600"
+                    <button class="rounded-lg border border-error bg-error-light px-3 py-1.5 font-semibold text-error"
                       @click="openDeleteModal(item)">
                       Hapus
                     </button>
@@ -244,8 +244,8 @@ onMounted(async () => {
                 </td>
               </tr>
 
-              <tr v-if="!manageMenuStore.loadingList && !manageMenuStore.hasMenus" class="border-t border-[#F0E8E0]">
-                <td colspan="6" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="!manageMenuStore.loadingList && !manageMenuStore.hasMenus" class="border-t border-row">
+                <td colspan="6" class="px-4 py-8 text-center text-muted">
                   Belum ada data menu.
                 </td>
               </tr>
@@ -255,16 +255,16 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-5">
+    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
-          <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
+          <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
+          <button class="text-muted" @click="closeFormModal">✕</button>
         </div>
 
-        <div class="mb-5 rounded-2xl border border-[#EEE6DE] bg-[#FBFAF8] p-4">
-          <p class="mb-3 text-sm font-semibold text-[#4D392A]">Preview Menu</p>
-          <div class="flex items-center gap-4 rounded-2xl border border-[#EEE6DE] bg-white p-4">
+        <div class="mb-5 rounded-2xl border border-default bg-page p-4">
+          <p class="mb-3 text-size-sm font-semibold text-brand">Preview Menu</p>
+          <div class="flex items-center gap-4 rounded-2xl border border-default bg-surface p-4">
             <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl" :class="form.bg_class">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24"
                 stroke="currentColor" :class="form.icon_class">
@@ -273,70 +273,70 @@ onMounted(async () => {
             </div>
 
             <div class="min-w-0 flex-1">
-              <p class="truncate text-[16px] font-bold leading-tight">
+              <p class="truncate text-16 font-bold leading-tight">
                 {{ form.title || "Judul Menu" }}
               </p>
-              <p class="mt-1 line-clamp-2 text-[14px] leading-snug text-[#8A817A]">
+              <p class="mt-1 line-clamp-2 text-14 leading-snug text-muted">
                 {{ form.description || "Deskripsi menu akan tampil di sini." }}
               </p>
             </div>
 
-            <span class="text-[16px] font-bold" :class="form.arrow_class">→</span>
+            <span class="text-16 font-bold" :class="form.arrow_class">→</span>
           </div>
         </div>
 
         <form class="grid grid-cols-1 gap-4 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
-            <label class="mb-1 block text-[#6F645B]">Title</label>
+            <label class="mb-1 block text-label">Title</label>
             <input v-model="form.title" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">Route (to)</label>
+            <label class="mb-1 block text-label">Route (to)</label>
             <input v-model="form.to" required type="text" placeholder="/dashboard"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-[#6F645B]">Description</label>
+            <label class="mb-1 block text-label">Description</label>
             <input v-model="form.description" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Background (bg_class)</label>
+            <label class="mb-2 block font-semibold text-brand">Warna Background (bg_class)</label>
             <MenuBgClassPicker v-model="form.bg_class" />
           </div>
 
           <div>
-            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Icon (icon_class)</label>
+            <label class="mb-2 block font-semibold text-brand">Warna Icon (icon_class)</label>
             <MenuTextClassPicker v-model="form.icon_class" preview-type="icon" :preview-icon="form.icon" />
           </div>
 
           <div>
-            <label class="mb-2 block font-semibold text-[#4D392A]">Warna Panah (arrow_class)</label>
+            <label class="mb-2 block font-semibold text-brand">Warna Panah (arrow_class)</label>
             <MenuTextClassPicker v-model="form.arrow_class" preview-type="arrow" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-2 block font-semibold text-[#4D392A]">Icon Menu</label>
+            <label class="mb-2 block font-semibold text-brand">Icon Menu</label>
             <MenuIconPicker v-model="form.icon" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">order_position</label>
+            <label class="mb-1 block text-label">order_position</label>
             <input v-model.number="form.order_position" required type="number" min="0"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
             <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>
-            <button type="submit" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+            <button type="submit" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="submitLoading">
               {{ submitLoading ? "Menyimpan..." : "Simpan" }}
             </button>
@@ -345,20 +345,20 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-5">
-        <h3 class="text-[18px] font-bold">Konfirmasi Hapus</h3>
-        <p class="mt-2 text-[#8A817A]">
+    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-md rounded-2xl bg-surface p-5">
+        <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
+        <p class="mt-2 text-muted">
           Apakah Anda yakin ingin menghapus menu ini?
         </p>
 
         <div class="mt-5 flex justify-end gap-2">
-          <button class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+          <button class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
             @click="closeDeleteModal">
             Batal
           </button>
           <button
-            class="rounded-xl border border-red-200 bg-red-50 px-4 py-2 font-semibold text-red-600 disabled:opacity-50"
+            class="rounded-xl border border-error bg-error-light px-4 py-2 font-semibold text-error disabled:opacity-50"
             :disabled="manageMenuStore.loadingDelete" @click="confirmDelete">
             {{ manageMenuStore.loadingDelete ? "Menghapus..." : "Hapus" }}
           </button>

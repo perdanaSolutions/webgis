@@ -1,0 +1,20 @@
+.text-10 { font-size: var(--text-size-10); }
+.text-11 { font-size: var(--text-size-11); }
+.text-12 { font-size: var(--text-size-12); }
+.text-13 { font-size: var(--text-size-13); }
+.text-14 { font-size: var(--text-size-14); }
+.text-15 { font-size: var(--text-size-15); }
+.text-16 { font-size: var(--text-size-16); }
+.text-18 { font-size: var(--text-size-18); }
+.text-20 { font-size: var(--text-size-20); }
+
+.text-size-xs { font-size: 0.75rem; line-height: 1rem; }
+.text-size-sm { font-size: 0.875rem; line-height: 1.25rem; }
+.text-size-lg { font-size: 1.125rem; line-height: 1.75rem; }
+.text-size-xl { font-size: 1.25rem; line-height: 1.75rem; }
+.text-size-2xl { font-size: 1.5rem; line-height: 2rem; }
+
+@media (min-width: 640px) {
+  .sm\:text-14 { font-size: var(--text-size-14); }
+  .sm\:text-20 { font-size: var(--text-size-20); }
+}

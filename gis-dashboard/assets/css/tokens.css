@@ -1,0 +1,109 @@
+:root {
+  /* Background */
+  --color-page: #fbfaf8;
+  --color-page-map: #f7f8fa;
+  --color-splash: #fcfbf9;
+  --color-surface: #ffffff;
+  --color-surface-warm: #f8f3ee;
+  --color-surface-neutral: #fafaf9;
+  --color-surface-neutral-hover: #f5f1ec;
+  --color-cream: #fff8f2;
+  --color-cream-light: #fffcf8;
+  --color-cream-white: #fffefc;
+  --color-cream-hover: #fdf3e7;
+  --color-cream-active: #f4e9dd;
+  --color-peach: #fff1e9;
+  --color-peach-hover: #fde7d7;
+  --color-sidebar-hover: #f7f2ec;
+  --color-hover-slate: #f8fafc;
+  --color-avatar: #d0b59a;
+  --color-progress-track: #e8e4e1;
+  --color-progress-bar: #f2eae2;
+  --color-brand: #4d392a;
+  --color-brand-secondary: #5b432f;
+  --color-brand-hover: #3f2e22;
+  --color-blue-primary: #2b7fff;
+  --color-blue-primary-hover: #1e68db;
+  --color-blue-disabled: #93b8f7;
+  --color-blue-dark: #2563eb;
+  --color-blue-darker: #1d4ed8;
+  --color-overlay: rgb(0 0 0 / 40%);
+  --color-overlay-dark: rgb(0 0 0 / 50%);
+  --color-error-light: #fef2f2;
+  --color-success-light: #f0fdf4;
+  --color-success-lighter: #dcfce7;
+  --color-warning-light: #fef3c7;
+  --color-slate-light: #f8fafc;
+  --color-slate-muted: #e2e8f0;
+  --color-gray-light: #f9fafb;
+
+  /* Text */
+  --color-text-content: #2e1f18;
+  --color-text-content-dark: #2c1f1a;
+  --color-text-content-brown: #2c2420;
+  --color-text-dark: #2b2b2b;
+  --color-text-muted: #8a817a;
+  --color-text-muted-light: #8e8a86;
+  --color-text-muted-ios: #8e8e93;
+  --color-text-label: #6f645b;
+  --color-text-brand: #4d392a;
+  --color-text-brand-secondary: #5b432f;
+  --color-text-subtitle: #333d4e;
+  --color-text-icon: #566074;
+  --color-text-navy: #1a315b;
+  --color-text-placeholder: #a6a29d;
+  --color-text-placeholder-light: #b0b0b6;
+  --color-text-slate: #334155;
+  --color-text-gray-title: #1f2937;
+  --color-text-gray-darker: #111827;
+  --color-text-gray-muted: #6b7280;
+  --color-text-gray-label: #2f3a4a;
+  --color-text-desc: #7d756e;
+  --color-text-chevron: #9a928b;
+  --color-text-on-brand: #ffffff;
+  --color-text-error: #dc2626;
+  --color-text-error-dark: #991b1b;
+  --color-text-success: #15803d;
+  --color-text-warning: #d97706;
+  --color-text-gray-body: #4b5563;
+  --color-text-gray-label-alt: #374151;
+  --color-text-gray-title-alt: #111827;
+  --color-text-gold: #d99b47;
+  --color-text-slate-muted: #475569;
+
+  /* Border */
+  --color-border-default: #eee6de;
+  --color-border-slate-light: #d8dee8;
+  --color-border-tan: #ddd1c7;
+  --color-border-tan-hover: #d8cfc6;
+  --color-border-header: #ece8e3;
+  --color-border-header-soft: #e8dfd5;
+  --color-border-menu: #f2ece6;
+  --color-border-row: #f0e8e0;
+  --color-border-map: #dce3ed;
+  --color-border-map-light: #e5eaf1;
+  --color-border-input: #d8d8dc;
+  --color-border-dashed-tan: #e7ddd3;
+  --color-border-announce: #efe8e1;
+  --color-border-navy: #1a315b;
+  --color-border-accent-brown: #8b5e3c;
+  --color-border-gold: #d99b47;
+  --color-border-green-accent: #4a7b3f;
+  --color-border-error: #fecaca;
+  --color-border-gray: #d1d5db;
+  --color-border-white-soft: rgb(255 255 255 / 40%);
+
+  /* Ring */
+  --color-ring-tan: #c9b5a5;
+
+  /* Font sizes */
+  --text-size-10: 10px;
+  --text-size-11: 11px;
+  --text-size-12: 12px;
+  --text-size-13: 13px;
+  --text-size-14: 14px;
+  --text-size-15: 15px;
+  --text-size-16: 16px;
+  --text-size-18: 18px;
+  --text-size-20: 20px;
+}

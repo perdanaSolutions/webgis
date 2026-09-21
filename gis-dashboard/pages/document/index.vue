@@ -164,25 +164,25 @@ const parsedDataObject = computed(() => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
+  <main class="min-h-screen bg-page text-14 text-content">
     <Header brand-title="Management Document" brand-subtitle="Upload & validasi data GeoJSON spasial" />
 
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center gap-3">
         <button type="button" aria-label="Back" @click="gotoDashboard"
-          class="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8DEE8] bg-white text-[#566074] shadow-sm transition-all duration-200 hover:border-[#1A315B] hover:bg-slate-50 hover:text-[#1A315B] hover:scale-105 active:scale-95">
+          class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-light bg-surface text-icon shadow-sm transition-all duration-200 hover-border-navy hover-bg-slate-light hover-text-navy hover:scale-105 active:scale-95">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
             stroke="currentColor" class="h-4 w-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
-        <p class="font-semibold tracking-wide text-[#333d4e]">Dashboard</p>
+        <p class="font-semibold tracking-wide text-subtitle">Dashboard</p>
       </div>
 
-      <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
+      <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-6">
-          <h2 class="text-[20px] font-bold">Upload File GeoJSON</h2>
-          <p class="text-[#8A817A]">
+          <h2 class="text-20 font-bold">Upload File GeoJSON</h2>
+          <p class="text-muted">
             Pilih kategori spasial, upload file GeoJSON, lalu review preview data
             sebelum submit.
           </p>
@@ -191,13 +191,13 @@ const parsedDataObject = computed(() => {
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div class="mb-4">
             <div class="mb-4">
-              <label class="mb-1 block text-[#6F645B] font-medium">Kategori Data GeoJSON (Spasial)</label>
+              <label class="mb-1 block text-label font-medium">Kategori Data GeoJSON (Spasial)</label>
               <v-select :model-value="documentUploadStore.selectedCategory" :items="documentUploadStore.categories"
                 :loading="documentUploadStore.isLoadingCategories" item-title="label" item-value="value"
                 placeholder="Pilih kategori" variant="plain" density="comfortable"
-                class="w-full px-3 border border-[#EEE6DE] rounded-xl h-[50px]"
+                class="w-full px-3 border border-default rounded-xl h-[50px]"
                 @update:model-value="onSelectCategory"></v-select>
-              <p v-if="selectedCategoryDescription" class="mt-2 text-sm text-[#8A817A]">
+              <p v-if="selectedCategoryDescription" class="mt-2 text-size-sm text-muted">
                 {{ selectedCategoryDescription }}
               </p>
             </div>
@@ -206,7 +206,7 @@ const parsedDataObject = computed(() => {
           <div class="">
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="mb-1 block text-[#6F645B] font-medium">Bulan</label>
+                <label class="mb-1 block text-label font-medium">Bulan</label>
                 <v-select v-model="documentUploadStore.month" :items="[
                   { title: 'Januari', value: '01' },
                   { title: 'Februari', value: '02' },
@@ -221,18 +221,18 @@ const parsedDataObject = computed(() => {
                   { title: 'November', value: '11' },
                   { title: 'Desember', value: '12' }
                 ]" placeholder="Pilih bulan" variant="plain" density="comfortable"
-                  class="w-full px-3 border border-[#EEE6DE] rounded-xl h-[50px]"></v-select>
+                  class="w-full px-3 border border-default rounded-xl h-[50px]"></v-select>
               </div>
 
               <div>
-                <label class="mb-1 block text-[#6F645B] font-medium">Tahun</label>
+                <label class="mb-1 block text-label font-medium">Tahun</label>
                 <v-select v-model="documentUploadStore.year" :items="documentUploadStore.getYearList()"
                   placeholder="Pilih tahun" variant="plain" density="comfortable"
-                  class="w-full px-3 border border-[#EEE6DE] rounded-xl h-[50px]"></v-select>
+                  class="w-full px-3 border border-default rounded-xl h-[50px]"></v-select>
               </div>
             </div>
-            <!-- <p class="mb-2 font-semibold text-[#4D392A]">Daftar kategori & ketentuan:</p>
-            <ul class="space-y-1 text-sm text-[#6F645B]">
+            <!-- <p class="mb-2 font-semibold text-brand">Daftar kategori & ketentuan:</p>
+            <ul class="space-y-1 text-size-sm text-label">
               <li v-for="category in documentUploadStore.categories" :key="category.value">
                 • {{ category.label }} — {{ category.description }}
               </li>
@@ -240,52 +240,52 @@ const parsedDataObject = computed(() => {
           </div>
         </div>
 
-        <div class="mt-5 rounded-2xl border border-dashed border-[#D8CFC6] bg-[#FFFCF8] p-6 text-center" @drop="onDrop"
+        <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center" @drop="onDrop"
           @dragover="onDragOver">
           <input ref="fileInputRef" type="file" accept=".geojson,.json,application/geo+json,application/json"
             class="hidden" @change="onFileChange" />
-          <p class="text-[15px] font-semibold text-[#4D392A]">
+          <p class="text-15 font-semibold text-brand">
             Drag & Drop file GeoJSON di sini
           </p>
-          <p class="mt-1 text-sm text-[#8A817A]">atau</p>
+          <p class="mt-1 text-size-sm text-muted">atau</p>
           <button type="button"
-            class="mt-3 rounded-xl bg-[#4D392A] px-5 py-2.5 font-semibold text-white disabled:opacity-50"
+            class="mt-3 rounded-xl bg-brand px-5 py-2.5 font-semibold text-on-brand disabled:opacity-50"
             :disabled="isBusy" @click="openFilePicker">
             Pilih File
           </button>
-          <p v-if="documentUploadStore.selectedFile" class="mt-3 text-sm text-[#6F645B]">
+          <p v-if="documentUploadStore.selectedFile" class="mt-3 text-size-sm text-label">
             File: <span class="font-semibold">{{ documentUploadStore.selectedFile.name }}</span>
           </p>
         </div>
 
-        <div v-if="isBusy" class="mt-5 rounded-xl border border-[#EEE6DE] bg-white p-4">
-          <div class="mb-2 flex items-center justify-between text-sm">
-            <span class="font-semibold text-[#4D392A]">
+        <div v-if="isBusy" class="mt-5 rounded-xl border border-default bg-surface p-4">
+          <div class="mb-2 flex items-center justify-between text-size-sm">
+            <span class="font-semibold text-brand">
               {{ documentUploadStore.isUploading ? "Proses upload..." : "Memvalidasi file..." }}
             </span>
-            <span class="text-[#8A817A]">{{ documentUploadStore.uploadProgress }}%</span>
+            <span class="text-muted">{{ documentUploadStore.uploadProgress }}%</span>
           </div>
-          <div class="h-2 overflow-hidden rounded-full bg-[#F2EAE2]">
+          <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
             <div
-              class="h-full rounded-full bg-gradient-to-r from-[#8B5E3C] to-[#4D392A] transition-all duration-500 ease-out"
+              class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
               :style="{ width: `${documentUploadStore.uploadProgress}%` }" />
           </div>
         </div>
 
-        <p v-if="documentUploadStore.errorMessage" class="mt-4 rounded-xl bg-red-50 px-4 py-3 text-red-600">
+        <p v-if="documentUploadStore.errorMessage" class="mt-4 rounded-xl bg-error-light px-4 py-3 text-error">
           {{ documentUploadStore.errorMessage }}
         </p>
 
-        <p v-if="documentUploadStore.successMessage" class="mt-4 rounded-xl bg-green-50 px-4 py-3 text-green-700">
+        <p v-if="documentUploadStore.successMessage" class="mt-4 rounded-xl bg-success-light px-4 py-3 text-success">
           {{ documentUploadStore.successMessage }}
         </p>
 
         <section v-if="documentUploadStore.hasPreview"
-          class="mt-6 rounded-2xl border border-[#EEE6DE] bg-[#FFFEFC] p-4">
+          class="mt-6 rounded-2xl border border-default bg-cream-white p-4">
           <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 class="text-[18px] font-bold text-[#4D392A]">Preview Data GeoJSON</h3>
-              <p class="text-sm text-[#8A817A]">
+              <h3 class="text-18 font-bold text-brand">Preview Data GeoJSON</h3>
+              <p class="text-size-sm text-muted">
                 Menampilkan {{ startItem }} - {{ endItem }} dari
                 {{ totalPreviewRows }} feature
                 <span v-if="searchQuery.trim()">
@@ -296,13 +296,13 @@ const parsedDataObject = computed(() => {
 
             <div class="w-full md:w-[320px]">
               <input v-model="searchQuery" type="text" placeholder="Cari di geometry / semua kolom..."
-                class="w-full rounded-xl border border-[#DDD1C7] bg-white px-3 py-2 text-sm text-[#4D392A] outline-none focus:border-[#8B5E3C]" />
+                class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown" />
             </div>
           </div>
 
-          <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
-            <table class="min-w-full bg-white text-sm">
-              <thead class="bg-[#F8F3EE] text-left text-[#4D392A]">
+          <div class="overflow-x-auto rounded-xl border border-default">
+            <table class="min-w-full bg-surface text-size-sm">
+              <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">No</th>
                   <th class="px-3 py-2 font-bold">Geometry</th>
@@ -312,7 +312,7 @@ const parsedDataObject = computed(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(feature, index) in paginatedPreviewRows" :key="index" class="border-t border-[#F0E8E0]">
+                <tr v-for="(feature, index) in paginatedPreviewRows" :key="index" class="border-t border-row">
                   <td class="px-3 py-2">{{ (currentPage - 1) * itemsPerPage + index + 1 }}</td>
                   <td class="px-3 py-2">{{ feature.geometry?.type ?? "-" }}</td>
                   <td v-for="header in previewHeaders" :key="`${index}-${header}`" class="px-3 py-2">
@@ -324,23 +324,23 @@ const parsedDataObject = computed(() => {
           </div>
 
           <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p class="text-sm text-[#8A817A]">
+            <p class="text-size-sm text-muted">
               Menampilkan {{ startItem }} - {{ endItem }} dari {{ totalPreviewRows }} data
             </p>
 
             <div class="flex items-center gap-2">
               <button type="button"
-                class="rounded-lg border border-[#DDD1C7] bg-white px-3 py-1.5 text-sm font-semibold text-[#4D392A] disabled:opacity-50"
+                class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
                 :disabled="currentPage === 1" @click="goToPrevPage">
                 Sebelumnya
               </button>
 
-              <span class="text-sm text-[#6F645B]">
+              <span class="text-size-sm text-label">
                 Halaman {{ currentPage }} / {{ totalPages }}
               </span>
 
               <button type="button"
-                class="rounded-lg border border-[#DDD1C7] bg-white px-3 py-1.5 text-sm font-semibold text-[#4D392A] disabled:opacity-50"
+                class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
                 :disabled="currentPage === totalPages" @click="goToNextPage">
                 Berikutnya
               </button>
@@ -349,11 +349,11 @@ const parsedDataObject = computed(() => {
 
           <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length === 0" class="mt-4 flex justify-end gap-2">
             <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
-            <button type="button" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+            <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="isBusy" @click="onSubmitUpload">
               {{ documentUploadStore.isUploading ? "Uploading..." : "Submit" }}
             </button>
@@ -362,19 +362,19 @@ const parsedDataObject = computed(() => {
 
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
-          <div class="bg-white rounded-2xl border border-[#EEE6DE] p-6 shadow-sm space-y-4">
+          <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm space-y-4">
             <!-- 3. Rincian Data (Di-unpack agar tidak berbentuk JSON mentah) -->
             <div class="pt-2">
-              <p class="text-xs font-bold tracking-wider text-[#8A817A] uppercase mb-2 px-1">Rincian Data</p>
+              <p class="text-size-xs font-bold tracking-wider text-muted uppercase mb-2 px-1">Rincian Data</p>
 
               <div class="space-y-3">
                 <template v-for="(value, key) in parsedDataObject" :key="key">
                   <div
-                    class="flex items-center justify-between p-3.5 bg-[#FAFAF9] hover:bg-[#F5F1EC]/60 border border-[#EEE6DE]/60 rounded-xl transition-all duration-200">
+                    class="flex items-center justify-between p-3.5 bg-surface-neutral hover-bg-surface-neutral-hover-60 border border-default-60 rounded-xl transition-all duration-200">
                     <!-- Key di Kiri -->
                     <div class="flex items-center gap-3 pr-4">
-                      <div class="w-1.5 h-1.5 rounded-full bg-[#8A817A]"></div>
-                      <span class="text-sm font-medium text-[#6F645B] capitalize">
+                      <div class="w-1.5 h-1.5 rounded-full bg-muted-dot"></div>
+                      <span class="text-size-sm font-medium text-label capitalize">
                         {{ String(key).replace(/_/g, ' ').toLowerCase() }}
                       </span>
                     </div>
@@ -382,7 +382,7 @@ const parsedDataObject = computed(() => {
                     <!-- Value di Kanan -->
                     <div class="text-right shrink-0">
                       <span
-                        class="text-sm font-bold text-[#2C2420] bg-white px-3 py-1.5 rounded-lg border border-[#EEE6DE]">
+                        class="text-size-sm font-bold text-content-brown bg-surface px-3 py-1.5 rounded-lg border border-default">
                         {{ typeof value === 'number' ? value.toLocaleString('id-ID') : value }}
                       </span>
                     </div>
@@ -395,18 +395,18 @@ const parsedDataObject = computed(() => {
 
           <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-4 flex justify-end gap-2">
             <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
-            <button type="button" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+            <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="isBusy" @click="onSubmitUpload">
               {{ documentUploadStore.isUploading ? "Uploading..." : "Submit Analisis" }}
             </button>
           </div>
 
           <div v-if="documentUploadStore.summaryAnalyze.data_tidak_valid > 0"
-            class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800 flex gap-2">
+            class="p-4 bg-error-light border border-error rounded-xl text-size-sm text-error-dark flex gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
               stroke="currentColor" class="w-5 h-5 flex-shrink-0">
               <path stroke-linecap="round" stroke-linejoin="round"
@@ -421,41 +421,41 @@ const parsedDataObject = computed(() => {
     </div>
   </main>
 
-  <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
     <!-- Modal Card -->
-    <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 transition-opacity duration-200">
+    <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
         <!-- Dialog Card -->
-        <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl transition-all">
+        <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl transition-all">
           <!-- Header Modal -->
-          <div class="flex items-center space-x-3 text-amber-600">
-            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+          <div class="flex items-center space-x-3 text-warning">
+            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-warning-light">
               <!-- Icon Peringatan/Tanya -->
               <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round"
                   d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
             </div>
-            <h3 class="text-lg font-semibold text-gray-900">
+            <h3 class="text-size-lg font-semibold text-gray-title-alt">
               Konfirmasi Analisis
             </h3>
           </div>
 
           <!-- Isi Pesan Pertanyaan -->
           <div class="mt-3 pl-13">
-            <p v-if="isThereReplaceData" class="text-sm text-gray-600">
+            <p v-if="isThereReplaceData" class="text-size-sm text-gray-body">
               Apakah Anda yakin untuk submit analisis ini? Data akan di replace menggunakan data terbaru.
             </p>
-            <p v-else class="text-sm text-gray-600">
+            <p v-else class="text-size-sm text-gray-body">
               Apakah Anda yakin untuk submit analisis ini?
             </p>
           </div>
 
           <div class="mt-4 w-full flex justify-end space-x-3">
             <button @click="isOpenModalValidasi = false"
-              class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 transition">Cancel</button>
+              class="rounded-lg border border-gray bg-surface px-4 py-2 text-size-sm font-medium text-gray-label-alt hover-bg-gray-light focus:outline-none focus:ring-2 focus-ring-gray focus:ring-offset-1 transition">Cancel</button>
             <button @click="actionSubmit"
-              class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition shadow-sm">Submit</button>
+              class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand hover-bg-blue-darker focus:outline-none focus:ring-2 focus-ring-blue focus:ring-offset-1 transition shadow-sm">Submit</button>
           </div>
         </div>
       </div>

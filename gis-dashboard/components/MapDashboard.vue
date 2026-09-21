@@ -281,17 +281,17 @@ watch(
 
     <div
       v-if="mapStore.loadingGeoJSON"
-      class="absolute inset-0 z-[1100] flex items-center justify-center bg-white/70 backdrop-blur-[1px]"
+      class="absolute inset-0 z-[1100] flex items-center justify-center bg-surface-70 backdrop-blur-[1px]"
     >
-      <div class="flex flex-col items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-lg">
-        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-[#2B7FFF] border-t-transparent" />
-        <p class="text-[13px] font-medium text-[#334155]">
+      <div class="flex flex-col items-center gap-3 rounded-xl bg-surface px-5 py-4 shadow-lg">
+        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-primary border-t-transparent" />
+        <p class="text-13 font-medium text-slate">
           Memuat data peta...
         </p>
       </div>
     </div>
 
-    <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-white/90 px-3 py-2 text-sm shadow-md">
+    <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-surface-90 px-3 py-2 text-size-sm shadow-md">
       Menampilkan <strong>{{ featureCount }}</strong> blok
     </div>
   </div>

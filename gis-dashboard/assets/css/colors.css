@@ -1,0 +1,187 @@
+/* Background colors */
+.bg-page { background-color: var(--color-page); }
+.bg-page-map { background-color: var(--color-page-map); }
+.bg-splash { background-color: var(--color-splash); }
+.bg-surface { background-color: var(--color-surface); }
+.bg-surface-warm { background-color: var(--color-surface-warm); }
+.bg-surface-neutral { background-color: var(--color-surface-neutral); }
+.bg-surface-neutral-hover { background-color: var(--color-surface-neutral-hover); }
+.bg-cream { background-color: var(--color-cream); }
+.bg-cream-light { background-color: var(--color-cream-light); }
+.bg-cream-white { background-color: var(--color-cream-white); }
+.bg-cream-hover { background-color: var(--color-cream-hover); }
+.bg-cream-active { background-color: var(--color-cream-active); }
+.bg-peach { background-color: var(--color-peach); }
+.bg-peach-hover { background-color: var(--color-peach-hover); }
+.bg-sidebar-hover { background-color: var(--color-sidebar-hover); }
+.bg-hover-slate { background-color: var(--color-hover-slate); }
+.bg-avatar { background-color: var(--color-avatar); }
+.bg-progress-track { background-color: var(--color-progress-track); }
+.bg-progress-bar { background-color: var(--color-progress-bar); }
+.bg-brand { background-color: var(--color-brand); }
+.bg-brand-secondary { background-color: var(--color-brand-secondary); }
+.bg-brand-hover { background-color: var(--color-brand-hover); }
+.bg-blue-primary { background-color: var(--color-blue-primary); }
+.bg-blue-primary-hover { background-color: var(--color-blue-primary-hover); }
+.bg-blue-disabled { background-color: var(--color-blue-disabled); }
+.bg-blue-dark { background-color: var(--color-blue-dark); }
+.bg-blue-darker { background-color: var(--color-blue-darker); }
+.bg-overlay { background-color: var(--color-overlay); }
+.bg-overlay-dark { background-color: var(--color-overlay-dark); }
+.bg-error-light { background-color: var(--color-error-light); }
+.bg-success-light { background-color: var(--color-success-light); }
+.bg-success-lighter { background-color: var(--color-success-lighter); }
+.bg-warning-light { background-color: var(--color-warning-light); }
+.bg-slate-light { background-color: var(--color-slate-light); }
+.bg-slate-muted { background-color: var(--color-slate-muted); }
+.bg-gray-light { background-color: var(--color-gray-light); }
+.bg-brand-10 { background-color: rgb(77 57 42 / 10%); }
+.bg-brand-secondary-15 { background-color: rgb(91 67 47 / 15%); }
+.bg-surface-70 { background-color: rgb(255 255 255 / 70%); }
+.bg-surface-90 { background-color: rgb(255 255 255 / 90%); }
+
+/* Text colors */
+.text-content { color: var(--color-text-content); }
+.text-content-dark { color: var(--color-text-content-dark); }
+.text-content-brown { color: var(--color-text-content-brown); }
+.text-dark { color: var(--color-text-dark); }
+.text-muted { color: var(--color-text-muted); }
+.text-muted-light { color: var(--color-text-muted-light); }
+.text-muted-ios { color: var(--color-text-muted-ios); }
+.text-label { color: var(--color-text-label); }
+.text-brand { color: var(--color-text-brand); }
+.text-brand-secondary { color: var(--color-text-brand-secondary); }
+.text-subtitle { color: var(--color-text-subtitle); }
+.text-icon { color: var(--color-text-icon); }
+.text-navy { color: var(--color-text-navy); }
+.text-placeholder { color: var(--color-text-placeholder); }
+.text-placeholder-light { color: var(--color-text-placeholder-light); }
+.text-slate { color: var(--color-text-slate); }
+.text-gray-title { color: var(--color-text-gray-title); }
+.text-gray-darker { color: var(--color-text-gray-darker); }
+.text-gray-muted { color: var(--color-text-gray-muted); }
+.text-gray-label { color: var(--color-text-gray-label); }
+.text-desc { color: var(--color-text-desc); }
+.text-chevron { color: var(--color-text-chevron); }
+.text-on-brand { color: var(--color-text-on-brand); }
+.text-error { color: var(--color-text-error); }
+.text-error-dark { color: var(--color-text-error-dark); }
+.text-success { color: var(--color-text-success); }
+.text-warning { color: var(--color-text-warning); }
+.text-gray-body { color: var(--color-text-gray-body); }
+.text-gray-label-alt { color: var(--color-text-gray-label-alt); }
+.text-gray-title-alt { color: var(--color-text-gray-title-alt); }
+.text-gold { color: var(--color-text-gold); }
+.text-slate-muted { color: var(--color-text-slate-muted); }
+
+/* Border colors */
+.border-default { border-color: var(--color-border-default); }
+.border-slate-light { border-color: var(--color-border-slate-light); }
+.border-tan { border-color: var(--color-border-tan); }
+.border-tan-hover { border-color: var(--color-border-tan-hover); }
+.border-header { border-color: var(--color-border-header); }
+.border-header-soft { border-color: var(--color-border-header-soft); }
+.border-menu { border-color: var(--color-border-menu); }
+.border-row { border-color: var(--color-border-row); }
+.border-map { border-color: var(--color-border-map); }
+.border-map-light { border-color: var(--color-border-map-light); }
+.border-input { border-color: var(--color-border-input); }
+.border-dashed-tan { border-color: var(--color-border-dashed-tan); }
+.border-announce { border-color: var(--color-border-announce); }
+.border-navy { border-color: var(--color-border-navy); }
+.border-accent-brown { border-color: var(--color-border-accent-brown); }
+.border-gold { border-color: var(--color-border-gold); }
+.border-green-accent { border-color: var(--color-border-green-accent); }
+.border-t-green-accent { border-top-color: var(--color-border-green-accent); }
+.bg-muted-dot { background-color: var(--color-text-muted); }
+.border-default-60 { border-color: rgb(238 230 222 / 60%); }
+.hover-bg-surface-neutral-hover-60:hover { background-color: rgb(245 241 236 / 60%); }
+.disabled\:bg-blue-disabled:disabled { background-color: var(--color-blue-disabled); }
+
+.border-section { border-color: #eef2f6; }
+.odd-bg-hover-slate:nth-child(odd) { background-color: var(--color-hover-slate); }
+.focus-ring-brand:focus { --tw-ring-color: var(--color-brand); }
+.border-t-brand { border-top-color: var(--color-brand); }
+.border-r-brand-secondary-60 { border-right-color: rgb(91 67 47 / 60%); }
+.bg-slate-icon { background-color: #94a3b8; }
+.text-slate-icon { color: #94a3b8; }
+.bg-menu-blue-light { background-color: #eff6ff; }
+.text-menu-blue { color: #3b82f6; }
+.border-error { border-color: var(--color-border-error); }
+.border-gray { border-color: var(--color-border-gray); }
+.border-white-soft { border-color: var(--color-border-white-soft); }
+.border-brand { border-color: var(--color-brand); }
+.border-brand-10 { border-color: rgb(77 57 42 / 10%); }
+.border-brand-5 { border-color: rgb(77 57 42 / 5%); }
+.border-blue-primary { border-color: var(--color-blue-primary); }
+
+/* Ring */
+.ring-tan { --tw-ring-color: var(--color-ring-tan); }
+
+/* Gradient */
+.gradient-brand {
+  background-image: linear-gradient(to right, var(--color-brand), var(--color-brand-secondary));
+}
+
+.gradient-brand-alt {
+  background-image: linear-gradient(to right, var(--color-border-accent-brown), var(--color-brand));
+}
+
+/* Hover states */
+.hover-bg-cream:hover { background-color: var(--color-cream); }
+.hover-bg-cream-active:hover { background-color: var(--color-cream-active); }
+.hover-bg-cream-hover:hover { background-color: var(--color-cream-hover); }
+.hover-bg-peach-hover:hover { background-color: var(--color-peach-hover); }
+.hover-bg-sidebar-hover:hover { background-color: var(--color-sidebar-hover); }
+.hover-bg-hover-slate:hover { background-color: var(--color-hover-slate); }
+.hover-bg-surface-neutral-hover:hover { background-color: var(--color-surface-neutral-hover); }
+.hover-bg-brand-hover:hover { background-color: var(--color-brand-hover); }
+.hover-bg-blue-primary-hover:hover { background-color: var(--color-blue-primary-hover); }
+.hover-bg-blue-darker:hover { background-color: var(--color-blue-darker); }
+.hover-bg-gray-light:hover { background-color: var(--color-gray-light); }
+.hover-bg-slate-light:hover { background-color: var(--color-slate-light); }
+
+.hover-text-brand:hover { color: var(--color-text-brand); }
+.hover-text-brand-secondary:hover { color: var(--color-text-brand-secondary); }
+.hover-text-navy:hover { color: var(--color-text-navy); }
+.hover-text-gold:hover { color: var(--color-text-gold); }
+
+.hover-border-navy:hover { border-color: var(--color-border-navy); }
+.hover-border-tan-hover:hover { border-color: var(--color-border-tan-hover); }
+
+/* Group hover */
+.group-hover-bg-gold { }
+.group:hover .group-hover-bg-gold { background-color: var(--color-border-gold); }
+.group-hover-text-on-brand { }
+.group:hover .group-hover-text-on-brand { color: var(--color-text-on-brand); }
+.group-hover-text-gold { }
+.group:hover .group-hover-text-gold { color: var(--color-text-gold); }
+
+/* Placeholder */
+.placeholder-text-placeholder::placeholder { color: var(--color-text-placeholder); }
+.placeholder-text-placeholder-light::placeholder { color: var(--color-text-placeholder-light); }
+
+/* Focus */
+.focus-border-brand-secondary:focus { border-color: var(--color-brand-secondary); }
+.focus-border-accent-brown:focus { border-color: var(--color-border-accent-brown); }
+.focus-ring-brand-secondary-20:focus { --tw-ring-color: rgb(91 67 47 / 20%); }
+.focus-ring-gray:focus { --tw-ring-color: #d1d5db; }
+.focus-ring-blue:focus { --tw-ring-color: #3b82f6; }
+
+/* Shadow */
+.shadow-brand-25 { --tw-shadow-color: rgb(77 57 42 / 25%); }
+
+/* Picker selected state */
+.picker-selected {
+  border-color: var(--color-brand);
+  background-color: var(--color-cream);
+}
+
+.picker-default {
+  border-color: var(--color-border-default);
+  background-color: var(--color-surface);
+}
+
+.picker-default:hover {
+  border-color: var(--color-border-tan-hover);
+}
