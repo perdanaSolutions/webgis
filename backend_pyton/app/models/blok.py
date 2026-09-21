@@ -31,5 +31,8 @@ class Blok(Base):
     luas_tanah = Column(Numeric(5, 2))  # Diubah dari 'ltanah'
     luas_tanam = Column(Numeric(5, 2))  # Diubah dari 'ltanam'
 
+    bulan = Column(String(100), nullable=False)
+    tahun = Column(String(100), nullable=False)
+
     # Kolom Geometri Spasial PostGIS
     geom = Column(Geometry("MULTIPOLYGON", srid=4326))  # Diubah dari 'geometry' menjadi 'geom'
