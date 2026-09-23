@@ -3,6 +3,7 @@ import zipfile
 import logging
 import pandas as pd
 import numpy as np
+from datetime import datetime, date
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -37,8 +38,8 @@ def convert_strict_to_standard_xlsx(file_bytes: bytes) -> bytes:
         return file_bytes
 
 
-@router.post("/import-excel", summary="Import Data Areal Statement dari Excel")
-async def import_areal_statement(
+@router.post("/import-rotasi-pusingan", summary="Import Data Rotasi & Pusingan dari Excel")
+async def import_rotasi_pusingan(
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db)
 ):
@@ -46,24 +47,24 @@ async def import_areal_statement(
         raise HTTPException(status_code=400, detail="Format file harus Excel (.xlsx/.xls)")
 
     try:
-        # 1. Baca file
+        # 1. Baca file bytes
         await file.seek(0)
         contents = await file.read()
         standardized_bytes = convert_strict_to_standard_xlsx(contents)
         buffer = io.BytesIO(standardized_bytes)
 
-        # 2. Baca dengan pandas
+        # 2. Baca dataframe
         df = pd.read_excel(buffer, engine='openpyxl')
         df = df.replace({np.nan: None})
 
-        # Helper konversi data tipe aman
+        # Helper konversi data
         def to_float(val, default=0.0):
             try:
                 return float(val) if val is not None else default
             except (ValueError, TypeError):
                 return default
 
-        def to_int(val, default=None):
+        def to_int(val, default=0):
             try:
                 if val is None or pd.isna(val):
                     return default
@@ -73,11 +74,20 @@ async def import_areal_statement(
 
         def clean_str(val):
             if val is None or pd.isna(val):
-                return None
+                return ""
             if isinstance(val, float) and val.is_integer():
                 val = int(val)
-            res = str(val).strip()
-            return res if res != "" else None
+            return str(val).strip().upper()
+
+        def to_date(val):
+            if val is None or pd.isna(val):
+                return None
+            if isinstance(val, (datetime, date)):
+                return val
+            try:
+                return pd.to_datetime(val).date()
+            except Exception:
+                return None
 
         # ---------------------------------------------------------------------
         # 3. Fetch Mapping dari Tabel `blok`
@@ -91,15 +101,14 @@ async def import_areal_statement(
 
         for row in query_result:
             k_blok = clean_str(row["kode_blok"])
-            if k_blok:
-                k_blok_upper = k_blok.upper()
-                b_val = to_int(row["bulan"])
-                t_val = to_int(row["tahun"])
-                target_blok_id = row["blok_id"]
+            b_val = to_int(row["bulan"], None)
+            t_val = to_int(row["tahun"], None)
+            target_blok_id = row["blok_id"]
 
-                fallback_map[k_blok_upper] = target_blok_id
+            if k_blok:
+                fallback_map[k_blok] = target_blok_id
                 if b_val is not None and t_val is not None:
-                    exact_map[(k_blok_upper, b_val, t_val)] = target_blok_id
+                    exact_map[(k_blok, b_val, t_val)] = target_blok_id
 
         # Counter statistik
         success_count = 0
@@ -110,81 +119,55 @@ async def import_areal_statement(
         sample_unmatched = []
 
         # ---------------------------------------------------------------------
-        # 4. Looping Insert ke trx_areal_statement
+        # 4. Looping Insert ke trx_rotasi_pusingan
         # ---------------------------------------------------------------------
         for index, row in df.iterrows():
-            kode_blok_excel = row.get("KodeBlok") or row.get("Kode Blok") or row.get("Blok") or row.get("kode_blok")
+            kode_blok_excel = row.get("Blok") or row.get("KodeBlok") or row.get("Kode Blok") or row.get("kode_blok")
             kode_blok_clean = clean_str(kode_blok_excel)
 
             if not kode_blok_clean:
                 invalid_prop_count += 1
                 continue
 
-            kode_blok_upper = kode_blok_clean.upper()
-            bulan = to_int(row.get("Month") or row.get("Bulan") or row.get("bulan"), 1)
-            tahun = to_int(row.get("Year") or row.get("Tahun") or row.get("tahun"), 2025)
+            bulan = to_int(row.get("Bulan") or row.get("Month") or row.get("bulan"), 1)
+            tahun = to_int(row.get("Periode") or row.get("Tahun") or row.get("Year") or row.get("tahun"), 2025)
+            tanggal = to_date(row.get("Tanggal") or row.get("tanggal"))
 
-            # 4a. PENCARIAN 2 TINGKAT: Exact -> Fallback
-            fetched_blok_id = exact_map.get((kode_blok_upper, bulan, tahun)) or fallback_map.get(kode_blok_upper)
+            # 4a. Matching Level 1 (Exact) -> Level 2 (Fallback)
+            fetched_blok_id = exact_map.get((kode_blok_clean, bulan, tahun)) or fallback_map.get(kode_blok_clean)
 
-            # 4b. Jika tidak ditemukan -> skip
+            # 4b. Skip jika tidak ditemukan di tabel `blok`
             if not fetched_blok_id:
                 missing_blok_count += 1
                 if len(sample_unmatched) < 3:
                     sample_unmatched.append(f"Excel: '{kode_blok_clean}' (Bulan: {bulan}, Tahun: {tahun})")
                 continue
 
-            # 4c. Insert semua kolom ke trx_areal_statement
+            # 4c. Insert ke trx_rotasi_pusingan menggunakan nested transaction
             nested_tx = db.begin_nested()
             try:
                 db.execute(
                     text("""
-                        INSERT INTO trx_areal_statement (
-                            blok_id, bulan, tahun,
-                            area_code, company_code, estate, unit_code,
-                            estate_short_name, devision_code, kode_blok, tipe_blok,
-                            status_tanam, bulan_tanam, tahun_tanam, jenis_bibit,
-                            jenis_topografi, jenis_tanah,
-                            luas_tanam, luas_tanah, total_pokok, sph,
-                            pct_tanah_datar, pct_berbukit, pct_gelombang, pct_curam
+                        INSERT INTO trx_rotasi_pusingan (
+                            blok_id, tanggal, tahun, bulan, 
+                            rotasi_ke, pusingan_hari, status_pusingan, 
+                            luas, pokok
                         ) VALUES (
-                            :bid, :b, :t,
-                            :area_code, :company_code, :estate, :unit_code,
-                            :estate_short_name, :devision_code, :kode_blok, :tipe_blok,
-                            :status_tanam, :bulan_tanam, :tahun_tanam, :jenis_bibit,
-                            :jenis_topografi, :jenis_tanah,
-                            :luas_tanam, :luas_tanah, :total_pokok, :sph,
-                            :pct_tanah_datar, :pct_berbukit, :pct_gelombang, :pct_curam
+                            :bid, :tgl, :t, :b, 
+                            :rotasi, :pusingan, :status_pusingan, 
+                            :luas, :pokok
                         )
                     """),
                     {
                         "bid": fetched_blok_id,
-                        "b": bulan,
+                        "tgl": tanggal,
                         "t": tahun,
-                        # Kolom Tambahan Baru dari Excel
-                        "area_code": clean_str(row.get("AreaCode")),
-                        "company_code": clean_str(row.get("CompanyCode")),
-                        "estate": clean_str(row.get("Estate")),
-                        "unit_code": clean_str(row.get("UnitCode")),
-                        "estate_short_name": clean_str(row.get("EstateShortName")),
-                        "devision_code": clean_str(row.get("DivisionCode")),
-                        "kode_blok": kode_blok_clean,
-                        "tipe_blok": clean_str(row.get("TipeBlok")),
-                        "status_tanam": clean_str(row.get("StatusTanam")),
-                        "bulan_tanam": clean_str(row.get("BulanTanam")),
-                        "tahun_tanam": to_int(row.get("TahunTanam")),
-                        "jenis_bibit": clean_str(row.get("JenisBibit")),
-                        "jenis_topografi": clean_str(row.get("JenisTopografi")),
-                        "jenis_tanah": clean_str(row.get("JenisTanah")),
-                        # Kolom Metrik
-                        "luas_tanam": to_float(row.get("LuasTanam") or row.get("Luas Tanam")),
-                        "luas_tanah": to_float(row.get("LuasTanah") or row.get("Luas Tanah")),
-                        "total_pokok": to_int(row.get("TotalPokok") or row.get("Total Pokok")),
-                        "sph": to_float(row.get("SPH")),
-                        "pct_tanah_datar": to_int(row.get("TanahDatar") or row.get("Pct Datar")),
-                        "pct_berbukit": to_int(row.get("Berbukit") or row.get("Pct Berbukit")),
-                        "pct_gelombang": to_int(row.get("Gelombang") or row.get("Pct Gelombang")),
-                        "pct_curam": to_int(row.get("Curam") or row.get("Pct Curam")),
+                        "b": bulan,
+                        "rotasi": to_float(row.get("Rotasi") or row.get("rotasi_ke")),
+                        "pusingan": to_int(row.get("Pusingan") or row.get("pusingan_hari")),
+                        "status_pusingan": row.get("Status Pusingan") or row.get("status_pusingan"),
+                        "luas": to_float(row.get("Luas") or row.get("luas")),
+                        "pokok": to_float(row.get("Pokok") or row.get("pokok"))
                     }
                 )
 
@@ -197,12 +180,12 @@ async def import_areal_statement(
                 last_error_msg = str(e)
                 continue
 
-        # Commit utama di akhir
+        # Commit utama
         db.commit()
 
         return {
             "status": "success",
-            "message": "Proses impor areal statement selesai.",
+            "message": "Proses impor data rotasi & pusingan selesai.",
             "details": {
                 "success_count": success_count,
                 "missing_blok_count": missing_blok_count,

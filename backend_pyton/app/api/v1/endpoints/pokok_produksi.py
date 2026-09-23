@@ -37,8 +37,8 @@ def convert_strict_to_standard_xlsx(file_bytes: bytes) -> bytes:
         return file_bytes
 
 
-@router.post("/import-excel", summary="Import Data Areal Statement dari Excel")
-async def import_areal_statement(
+@router.post("/import-produksi-tbs", summary="Import Data Produksi TBS dari Excel")
+async def import_produksi_tbs(
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db)
 ):
@@ -46,24 +46,24 @@ async def import_areal_statement(
         raise HTTPException(status_code=400, detail="Format file harus Excel (.xlsx/.xls)")
 
     try:
-        # 1. Baca file
+        # 1. Read file bytes & convert format if necessary
         await file.seek(0)
         contents = await file.read()
         standardized_bytes = convert_strict_to_standard_xlsx(contents)
         buffer = io.BytesIO(standardized_bytes)
 
-        # 2. Baca dengan pandas
+        # 2. Read with pandas
         df = pd.read_excel(buffer, engine='openpyxl')
         df = df.replace({np.nan: None})
 
-        # Helper konversi data tipe aman
+        # Helper functions
         def to_float(val, default=0.0):
             try:
                 return float(val) if val is not None else default
             except (ValueError, TypeError):
                 return default
 
-        def to_int(val, default=None):
+        def to_int(val, default=0):
             try:
                 if val is None or pd.isna(val):
                     return default
@@ -73,14 +73,13 @@ async def import_areal_statement(
 
         def clean_str(val):
             if val is None or pd.isna(val):
-                return None
+                return ""
             if isinstance(val, float) and val.is_integer():
                 val = int(val)
-            res = str(val).strip()
-            return res if res != "" else None
+            return str(val).strip().upper()
 
         # ---------------------------------------------------------------------
-        # 3. Fetch Mapping dari Tabel `blok`
+        # 3. Fetch Mapping from Table `blok`
         # ---------------------------------------------------------------------
         query_result = db.execute(
             text("SELECT kode_blok, bulan, tahun, blok_id FROM blok WHERE kode_blok IS NOT NULL")
@@ -91,17 +90,16 @@ async def import_areal_statement(
 
         for row in query_result:
             k_blok = clean_str(row["kode_blok"])
+            b_val = to_int(row["bulan"], None)
+            t_val = to_int(row["tahun"], None)
+            target_blok_id = row["blok_id"]
+
             if k_blok:
-                k_blok_upper = k_blok.upper()
-                b_val = to_int(row["bulan"])
-                t_val = to_int(row["tahun"])
-                target_blok_id = row["blok_id"]
-
-                fallback_map[k_blok_upper] = target_blok_id
+                fallback_map[k_blok] = target_blok_id
                 if b_val is not None and t_val is not None:
-                    exact_map[(k_blok_upper, b_val, t_val)] = target_blok_id
+                    exact_map[(k_blok, b_val, t_val)] = target_blok_id
 
-        # Counter statistik
+        # Counters
         success_count = 0
         missing_blok_count = 0
         invalid_prop_count = 0
@@ -110,7 +108,7 @@ async def import_areal_statement(
         sample_unmatched = []
 
         # ---------------------------------------------------------------------
-        # 4. Looping Insert ke trx_areal_statement
+        # 4. Looping Insert to trx_produksi_tbs
         # ---------------------------------------------------------------------
         for index, row in df.iterrows():
             kode_blok_excel = row.get("KodeBlok") or row.get("Kode Blok") or row.get("Blok") or row.get("kode_blok")
@@ -120,71 +118,49 @@ async def import_areal_statement(
                 invalid_prop_count += 1
                 continue
 
-            kode_blok_upper = kode_blok_clean.upper()
             bulan = to_int(row.get("Month") or row.get("Bulan") or row.get("bulan"), 1)
             tahun = to_int(row.get("Year") or row.get("Tahun") or row.get("tahun"), 2025)
 
-            # 4a. PENCARIAN 2 TINGKAT: Exact -> Fallback
-            fetched_blok_id = exact_map.get((kode_blok_upper, bulan, tahun)) or fallback_map.get(kode_blok_upper)
+            # 4a. Matching Level 1 (Exact) -> Level 2 (Fallback)
+            fetched_blok_id = exact_map.get((kode_blok_clean, bulan, tahun)) or fallback_map.get(kode_blok_clean)
 
-            # 4b. Jika tidak ditemukan -> skip
+            # 4b. Skip if not found in table `blok`
             if not fetched_blok_id:
                 missing_blok_count += 1
                 if len(sample_unmatched) < 3:
                     sample_unmatched.append(f"Excel: '{kode_blok_clean}' (Bulan: {bulan}, Tahun: {tahun})")
                 continue
 
-            # 4c. Insert semua kolom ke trx_areal_statement
+            # 4c. Insert into trx_produksi_tbs using nested transaction
             nested_tx = db.begin_nested()
             try:
                 db.execute(
                     text("""
-                        INSERT INTO trx_areal_statement (
-                            blok_id, bulan, tahun,
-                            area_code, company_code, estate, unit_code,
-                            estate_short_name, devision_code, kode_blok, tipe_blok,
-                            status_tanam, bulan_tanam, tahun_tanam, jenis_bibit,
-                            jenis_topografi, jenis_tanah,
-                            luas_tanam, luas_tanah, total_pokok, sph,
-                            pct_tanah_datar, pct_berbukit, pct_gelombang, pct_curam
+                        INSERT INTO trx_produksi_tbs (
+                            blok_id, tahun, bulan,
+                            tbs_aktual, tbs_budget, tbs_sensus,
+                            janjang_aktual, janjang_budget, janjang_sensus,
+                            bjr_aktual, bjr_budget, bjr_sensus
                         ) VALUES (
-                            :bid, :b, :t,
-                            :area_code, :company_code, :estate, :unit_code,
-                            :estate_short_name, :devision_code, :kode_blok, :tipe_blok,
-                            :status_tanam, :bulan_tanam, :tahun_tanam, :jenis_bibit,
-                            :jenis_topografi, :jenis_tanah,
-                            :luas_tanam, :luas_tanah, :total_pokok, :sph,
-                            :pct_tanah_datar, :pct_berbukit, :pct_gelombang, :pct_curam
+                            :bid, :t, :b,
+                            :tbs_aktual, :tbs_budget, :tbs_sensus,
+                            :janjang_aktual, :janjang_budget, :janjang_sensus,
+                            :bjr_aktual, :bjr_budget, :bjr_sensus
                         )
                     """),
                     {
                         "bid": fetched_blok_id,
-                        "b": bulan,
                         "t": tahun,
-                        # Kolom Tambahan Baru dari Excel
-                        "area_code": clean_str(row.get("AreaCode")),
-                        "company_code": clean_str(row.get("CompanyCode")),
-                        "estate": clean_str(row.get("Estate")),
-                        "unit_code": clean_str(row.get("UnitCode")),
-                        "estate_short_name": clean_str(row.get("EstateShortName")),
-                        "devision_code": clean_str(row.get("DivisionCode")),
-                        "kode_blok": kode_blok_clean,
-                        "tipe_blok": clean_str(row.get("TipeBlok")),
-                        "status_tanam": clean_str(row.get("StatusTanam")),
-                        "bulan_tanam": clean_str(row.get("BulanTanam")),
-                        "tahun_tanam": to_int(row.get("TahunTanam")),
-                        "jenis_bibit": clean_str(row.get("JenisBibit")),
-                        "jenis_topografi": clean_str(row.get("JenisTopografi")),
-                        "jenis_tanah": clean_str(row.get("JenisTanah")),
-                        # Kolom Metrik
-                        "luas_tanam": to_float(row.get("LuasTanam") or row.get("Luas Tanam")),
-                        "luas_tanah": to_float(row.get("LuasTanah") or row.get("Luas Tanah")),
-                        "total_pokok": to_int(row.get("TotalPokok") or row.get("Total Pokok")),
-                        "sph": to_float(row.get("SPH")),
-                        "pct_tanah_datar": to_int(row.get("TanahDatar") or row.get("Pct Datar")),
-                        "pct_berbukit": to_int(row.get("Berbukit") or row.get("Pct Berbukit")),
-                        "pct_gelombang": to_int(row.get("Gelombang") or row.get("Pct Gelombang")),
-                        "pct_curam": to_int(row.get("Curam") or row.get("Pct Curam")),
+                        "b": bulan,
+                        "tbs_aktual": to_float(row.get("TbsAktual") or row.get("tbs_aktual")),
+                        "tbs_budget": to_float(row.get("TbsBudget") or row.get("tbs_budget")),
+                        "tbs_sensus": to_float(row.get("TbsSensus") or row.get("tbs_sensus")),
+                        "janjang_aktual": to_int(row.get("JanjangAktual") or row.get("janjang_aktual")),
+                        "janjang_budget": to_int(row.get("JanjangBudget") or row.get("janjang_budget")),
+                        "janjang_sensus": to_int(row.get("JanjangSensus") or row.get("janjang_sensus")),
+                        "bjr_aktual": to_float(row.get("BjrAktual") or row.get("bjr_aktual")),
+                        "bjr_budget": to_float(row.get("BjrBudget") or row.get("bjr_budget")),
+                        "bjr_sensus": to_float(row.get("BjrSensus") or row.get("bjr_sensus")),
                     }
                 )
 
@@ -197,12 +173,12 @@ async def import_areal_statement(
                 last_error_msg = str(e)
                 continue
 
-        # Commit utama di akhir
+        # Final Commit
         db.commit()
 
         return {
             "status": "success",
-            "message": "Proses impor areal statement selesai.",
+            "message": "Proses impor data produksi TBS selesai.",
             "details": {
                 "success_count": success_count,
                 "missing_blok_count": missing_blok_count,
