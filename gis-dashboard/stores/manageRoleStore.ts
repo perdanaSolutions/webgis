@@ -3,6 +3,28 @@ import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 import type { PermissionItem } from "~/stores/managePermissionStore";
 
+function flattenMenusForAccess(
+  items: any[] | null | undefined,
+  parentTitle = "",
+): MenuAccessItem[] {
+  const result: MenuAccessItem[] = [];
+  for (const menu of items ?? []) {
+    result.push({
+      id: String(menu?.id ?? ""),
+      title: String(menu?.title ?? ""),
+      to: String(menu?.to ?? ""),
+      level: Number(menu?.level ?? 1),
+      parentTitle,
+    });
+    if (Array.isArray(menu?.children) && menu.children.length) {
+      result.push(
+        ...flattenMenusForAccess(menu.children, String(menu?.title ?? "")),
+      );
+    }
+  }
+  return result;
+}
+
 export type RoleItem = {
   id: string;
   nama: string;
@@ -27,6 +49,8 @@ export type MenuAccessItem = {
   id: string;
   title: string;
   to: string;
+  level: number;
+  parentTitle: string;
 };
 
 export type MasterDataAccessItem = {
@@ -92,9 +116,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         },
       });
 
-      allDataMenu.value = response as any;
+      allDataMenu.value = flattenMenusForAccess(
+        Array.isArray(response) ? response : [],
+      ) as any;
 
-      return response;
+      return allDataMenu.value;
     } catch (error: any) {
       throw error;
     }

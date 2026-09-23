@@ -1,6 +1,7 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
+import { flattenMenuTree } from "~/utils/menuTree";
 import { useAuthStore } from "./authStore";
 
 type QuickAccessItem = {
@@ -18,7 +19,7 @@ type AnnouncementItem = {
   description: string;
 };
 
-type ModuleItem = {
+export type ModuleItem = {
   id: string;
   title: string;
   description: string;
@@ -26,19 +27,10 @@ type ModuleItem = {
   iconClass: string;
   arrowClass: string;
   to: string;
-  icon:
-    | "report"
-    | "statistik"
-    | "block"
-    | "dokumen"
-    | "agenda"
-    | "pengguna"
-    | "notif"
-    | "modul"
-    | "pesan"
-    | "pengumuman"
-    | "keamanan"
-    | "bantuan";
+  icon: string;
+  level: number;
+  parentId: string | null;
+  children: ModuleItem[];
 };
 
 function getApiBaseUrl() {
@@ -126,6 +118,42 @@ export const dashboardStore = defineStore("dashboard", () => {
   const loading = ref(false);
   const errorMessage = ref("");
   const moduleItems = ref<ModuleItem[]>([]);
+  const flatModuleItems = computed(() => flattenMenuTree(moduleItems.value));
+
+  function normalizeModule(raw: any): ModuleItem {
+    const children = Array.isArray(raw?.children)
+      ? raw.children.map(normalizeModule)
+      : [];
+    return {
+      id: String(raw?.id ?? ""),
+      title: String(raw?.title ?? ""),
+      description: String(raw?.description ?? ""),
+      bgClass: String(raw?.bgClass ?? raw?.bg_class ?? "bg-blue-50"),
+      iconClass: String(raw?.iconClass ?? raw?.icon_class ?? "text-blue-500"),
+      arrowClass: String(raw?.arrowClass ?? raw?.arrow_class ?? "text-blue-500"),
+      to: String(raw?.to ?? ""),
+      icon: String(raw?.icon ?? "report"),
+      level: Number(raw?.level ?? 1),
+      parentId: raw?.parentId ?? raw?.parent_id ?? null,
+      children,
+    };
+  }
+
+  function filterMenuTree(
+    items: ModuleItem[],
+    allowedIds: Set<string> | null,
+  ): ModuleItem[] {
+    return items.flatMap((item) => {
+      const children = filterMenuTree(item.children ?? [], allowedIds);
+      const selfAllowed = !allowedIds || allowedIds.has(item.id);
+      if (!selfAllowed && !children.length) return [];
+      return [{
+        ...item,
+        to: selfAllowed ? item.to : "",
+        children,
+      }];
+    });
+  }
 
   async function initDataMenu() {
     loading.value = true;
@@ -133,38 +161,31 @@ export const dashboardStore = defineStore("dashboard", () => {
     try {
       const baseUrl = getApiBaseUrl();
 
-      const response = await $api<ModuleItem[]>(`${baseUrl}/v1/menus/`, {
+      const response = await $api<any[]>(`${baseUrl}/v1/menus/`, {
         method: "GET",
         headers: {
           accept: "application/json",
           "Content-Type": "application/json",
         },
       });
-      var informasiUser = authStore.user;
-      var filterDataMenu = [] as any;
+      const informasiUser = authStore.user;
+      const menuTree = Array.isArray(response)
+        ? response.map(normalizeModule)
+        : [];
 
-      // console.log(`informasi user : ${JSON.stringify(informasiUser)}`);
-      if (informasiUser?.role === "superadmin" && response) {
-        // console.log(`name role : ${informasiUser?.role}`);
-        filterDataMenu = response;
+      if (informasiUser?.role === "superadmin") {
+        moduleItems.value = menuTree;
+      } else if (
+        informasiUser &&
+        Array.isArray(informasiUser.akses_menu)
+      ) {
+        moduleItems.value = filterMenuTree(
+          menuTree,
+          new Set(informasiUser.akses_menu),
+        );
       } else {
-        if (
-          informasiUser &&
-          response &&
-          Array.isArray(informasiUser.akses_menu)
-        ) {
-          var aksesMenuIds = informasiUser.akses_menu;
-          filterDataMenu = response.filter(function (menu) {
-            // Pastikan menu memiliki properti id (sesuaikan nama propertinya, misal: menu.id atau menu.menu_id)
-            return aksesMenuIds.includes(menu.id);
-          });
-        } else {
-          // Jika user tidak punya akses_menu atau response kosong, default ke array kosong
-          filterDataMenu = [];
-        }
+        moduleItems.value = [];
       }
-      // Output terakhir diset ke moduleItems.value
-      moduleItems.value = filterDataMenu;
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(
@@ -177,7 +198,7 @@ export const dashboardStore = defineStore("dashboard", () => {
     }
   }
 
-  function iconPath(icon: QuickAccessItem["icon"] | ModuleItem["icon"]) {
+  function iconPath(icon: string) {
     switch (icon) {
       case "report":
         return "M8 3a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8.5a1 1 0 0 0 .707-.293l3.5-3.5A1 1 0 0 0 21 16.5V4a1 1 0 0 0-1-1H8Zm2 4h8M10 11h8M10 15h5";
@@ -215,6 +236,7 @@ export const dashboardStore = defineStore("dashboard", () => {
     loading,
     errorMessage,
     moduleItems,
+    flatModuleItems,
     initDataMenu,
     iconPath,
   };

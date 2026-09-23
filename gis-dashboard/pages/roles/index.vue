@@ -208,8 +208,8 @@ async function fillForm(role) {
 
   Object.assign(form, result);
 
-  form.nama = role.nama ?? "";
-  form.deskripsi = role.deskripsi ?? "";
+  form.nama = String(role.nama ?? "").toUpperCase();
+  form.deskripsi = String(role.deskripsi ?? "").toUpperCase();
   activePermissionTab.value = "menu";
 
   form.menu_ids = (existingAkses?.menu ?? [])
@@ -252,6 +252,9 @@ function closeFormModal() {
 }
 
 async function submitForm() {
+  form.nama = String(form.nama ?? "").toUpperCase();
+  form.deskripsi = String(form.deskripsi ?? "").toUpperCase();
+
   if (formMode.value === "create") {
     await manageRoleStore.createRole(form);
   } else {
@@ -260,6 +263,14 @@ async function submitForm() {
 
   showFormModal.value = false;
   await manageRoleStore.fetchRoles();
+}
+
+function onNamaInput(event) {
+  form.nama = String(event.target?.value ?? "").toUpperCase();
+}
+
+function onDeskripsiInput(event) {
+  form.deskripsi = String(event.target?.value ?? "").toUpperCase();
 }
 
 async function gotoUsers() {
@@ -885,14 +896,14 @@ onMounted(async () => {
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
             <label class="mb-1 block text-label">Nama Role</label>
-            <input v-model="form.nama" @input="form.nama = $event.target.value.toUpperCase()" required type="text"
-              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
+            <input :value="form.nama" @input="onNamaInput" required type="text"
+              class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
           <div>
             <label class="mb-1 block text-label">Deskripsi</label>
-            <input v-model="form.deskripsi" @input="form.deskripsi = $event.target.value.toUpperCase()" required
-              type="text" class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
+            <input :value="form.deskripsi" @input="onDeskripsiInput" required type="text"
+              class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
           <div class="md:col-span-2 rounded-xl border border-default p-4 max-h-[70vh] overflow-y-auto">
@@ -928,12 +939,17 @@ onMounted(async () => {
                 Belum ada data permission menu.
               </div>
 
-              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div v-else class="grid grid-cols-1 gap-2">
                 <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
-                  class="flex items-center gap-2 rounded-lg border border-default p-2">
+                  class="flex items-center gap-2 rounded-lg border border-default p-2"
+                  :style="{ marginLeft: `${(Number(menu.level || 1) - 1) * 20}px` }">
                   <input :checked="form.menu_ids.includes(menu.id)" type="checkbox" class="h-4 w-4"
                     @change="togglePermission(menu.id)" />
-                  <span>{{ menu.title }}</span>
+                  <span>
+                    <span v-if="Number(menu.level) > 1" class="text-muted">↳ </span>
+                    {{ menu.title }}
+                    <span class="text-muted">· Level {{ menu.level || 1 }}</span>
+                  </span>
                 </label>
               </div>
             </div>
@@ -1039,13 +1055,10 @@ onMounted(async () => {
                       <label v-for="afdeling in group.afdelings"
                         :key="getAfdelingSelectionKey(group.estateKey, getAfdelingCode(afdeling))"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input
-                          :checked="isAfdelingSelected(group.estateKey, getAfdelingCode(afdeling))"
-                          type="checkbox"
-                          class="h-4 w-4"
-                          @change="toggleAfdeling(afdeling, group.estateKey)" />
+                        <input :checked="isAfdelingSelected(group.estateKey, getAfdelingCode(afdeling))" type="checkbox"
+                          class="h-4 w-4" @change="toggleAfdeling(afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
-                          }}</span>
+                        }}</span>
                       </label>
                     </div>
                   </div>
@@ -1079,8 +1092,7 @@ onMounted(async () => {
           </div>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>

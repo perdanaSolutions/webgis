@@ -104,7 +104,7 @@ function buildSelectOptions(
 
 function buildYearOptions(selectedYear: string): string {
   const currentYear = new Date().getFullYear();
-  return Array.from({ length: 11 }, (_, index) => {
+  return Array.from({ length: 6 }, (_, index) => {
     const year = String(currentYear - index);
     const selected = year === selectedYear ? "selected" : "";
     return `<option value="${year}" ${selected}>${year}</option>`;

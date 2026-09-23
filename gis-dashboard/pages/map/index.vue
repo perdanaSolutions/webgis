@@ -3,16 +3,39 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
 
 import { useAuthStore } from "~/stores/authStore";
+import { dashboardStore } from "~/stores/dashboardStore";
 import { useMapStore } from "~/stores/mapStore";
 
 const { $api } = useNuxtApp();
 const authStore = useAuthStore();
+const dashboardService = dashboardStore();
+const route = useRoute();
 
 defineOptions({
   name: "MapPage",
 });
 
 const mapStore = useMapStore();
+
+const activeModule = computed(() => {
+  const path = route.path;
+  return (
+    dashboardService.flatModuleItems.find((item) => {
+      if (!item.to) return false;
+      return path === item.to || path.startsWith(`${item.to}/`);
+    }) ?? null
+  );
+});
+
+const headerBrandTitle = computed(
+  () => activeModule.value?.title || dashboardService.dashboardConfig.brandTitle,
+);
+
+const headerBrandSubtitle = computed(
+  () =>
+    activeModule.value?.description ||
+    dashboardService.dashboardConfig.brandSubtitle,
+);
 
 type FilterKey =
   | "area"
@@ -85,7 +108,7 @@ const bulanOptions = [
 
 const tahunOptions = computed<Array<{ label: string; value: string }>>(() => {
   const currentYear = new Date().getFullYear();
-  return Array.from({ length: 11 }, (_, index) => {
+  return Array.from({ length: 6 }, (_, index) => {
     const year = currentYear - index;
     return { label: String(year), value: String(year) };
   });
@@ -292,6 +315,10 @@ onMounted(async () => {
     return;
   }
 
+  if (!dashboardService.moduleItems.length) {
+    await dashboardService.initDataMenu();
+  }
+
   await mapStore.loadGeoJSONData();
   await initTemaDataOptions();
 
@@ -453,7 +480,7 @@ async function gotoDashboard() {
 
 <template>
   <main class="min-h-screen bg-page-map text-14 text-dark">
-    <Header brand-title="Block Profile" brand-subtitle="" />
+    <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
 
     <aside class="mx-4 mt-3 rounded-xl border border-map-light bg-surface transition-all duration-300"
       :class="isFilterCollapsed ? 'overflow-hidden p-2' : 'p-3'">
