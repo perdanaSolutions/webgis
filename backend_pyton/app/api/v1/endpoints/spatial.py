@@ -523,7 +523,7 @@ def get_history_data(
         "trx_produksi_tbs", 
         description="Pilihan tabel: 'trx_produksi_tbs', 'trx_areal_statement', atau 'trx_rotasi_pusingan'"
     ),
-    tahun: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk akumulasi Tahunan (Multi-Year), isi untuk akumulasi Bulanan"),
+    tahun_tanam: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk akumulasi Tahunan (Multi-Year), isi untuk akumulasi Bulanan"),
     area_id: Optional[str] = Query(None, description="Filter tingkat Area"),
     kode_pt: Optional[str] = Query(None, description="Filter tingkat PT"),
     kode_est: Optional[str] = Query(None, description="Filter tingkat Estate"),
@@ -539,7 +539,7 @@ def get_history_data(
     return blok_detail_service.get_history_aggregated(
         db=db,
         table=table,
-        tahun=tahun,
+        tahun=tahun_tanam,
         area_id=area_id,
         kode_pt=kode_pt,
         kode_est=kode_est,
