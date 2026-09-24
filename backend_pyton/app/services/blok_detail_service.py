@@ -512,88 +512,235 @@ def _resolve_blok_period(db: Session, blok_id: str, bulan: Optional[int], tahun:
     return (bulan if bulan is not None else row.bulan), (tahun if tahun is not None else row.tahun)
 
 
+# =====================================================================
+# DETAIL BLOK UNTUK POPUP (1 blok, 1 periode, semua tabel sekaligus)
+# =====================================================================
+
 def get_blok_detail(db: Session, blok_id: str, bulan: Optional[int] = None, tahun: Optional[int] = None) -> dict:
     """
-    Mengambil data popup lengkap saat Polygon Blok diklik pada Peta.
-    Mendukung recalculation KPI (SPH, BJR, Kg/pkk, Jjg/pkk, GAP, Kategori Yield) s/d Bulan ini (sdBi).
+    Mengambil data popup lengkap saat Polygon Blok diklik pada Peta:
+    1. Data Master Blok + Hierarki (Afdeling, Estate, PT, Area)
+    2. Data Areal Statement lengkap (luas, pokok, SPH, % topografi/lereng)
+    3. Data Produksi TBS lengkap (Aktual, Budget, Sensus untuk TBS, Janjang, BJR, + KPI Per Pokok)
+    4. Data Riwayat Rotasi Pusingan (Daftar semua kegiatan rotasi pada periode bulan/tahun tersebut)
     """
-    # Resolve periode jika dikosongi di popup
+    # 1. Resolve periode jika parameter bulan/tahun tidak dikirim FE
     if bulan is None or tahun is None:
         period_row = db.execute(
-            text("SELECT bulan, tahun FROM blok WHERE blok_id = :bid ORDER BY tahun DESC, bulan DESC LIMIT 1"),
+            text("""
+                SELECT bulan, tahun 
+                FROM trx_areal_statement 
+                WHERE blok_id = :bid 
+                ORDER BY tahun DESC, bulan DESC 
+                LIMIT 1
+            """),
             {"bid": blok_id}
         ).fetchone()
+        
+        # Fallback ke tabel master blok jika tidak ditemukan di trx
+        if not period_row:
+            period_row = db.execute(
+                text("SELECT bulan, tahun FROM blok WHERE blok_id = :bid ORDER BY tahun DESC, bulan DESC LIMIT 1"),
+                {"bid": blok_id}
+            ).fetchone()
+            
         if not period_row:
             raise HTTPException(status_code=404, detail=f"Blok ID '{blok_id}' tidak ditemukan.")
+            
         bulan = bulan if bulan is not None else period_row.bulan
         tahun = tahun if tahun is not None else period_row.tahun
 
-    # Kueri gabungan Master + Hierarki + Areal Statement + Produksi TBS (s/d Bulan ini)
-    sql = """
+    # Helper konversi nilai dari NULL/None secara aman
+    def safe_float(val, default=0.0):
+        return float(val) if val is not None else default
+
+    def safe_int(val, default=0):
+        return int(val) if val is not None else default
+
+    # 2. Query Utama: Master Blok + Hierarki + Areal Statement + Produksi TBS
+    # Menggunakan af.nama AS nama_afd untuk menyesuaikan skema tabel afdeling
+    sql_main = """
         SELECT 
-            -- Hierarki & Master Blok
-            b.blok_id, b.nama_blok, b.kode_blok, b.tahun_tanam, b.jenis_bibit, b.status_tanam,
-            af.kode_afd, e.nama_estate, e.kode_est, p.nama_pt, p.kode_pt, ar.nama AS nama_area,
+            -- Master Blok & Hierarki
+            b.blok_id, b.nama_blok, b.kode_blok, b.tahun_tanam, 
+            b.jenis_bibit, b.status_tanam, b.jenis_topografi, b.jenis_tanah,
             b.bulan, b.tahun,
+            af.kode_afd, af.kode_afd AS nama_afd,
+            e.kode_est, e.nama_estate,
+            p.kode_pt, p.nama_pt,
+            ar.area_id, ar.nama AS nama_area,
             
-            -- Areal Statement
-            COALESCE(ast.luas_tanam, 0) AS luas,
-            COALESCE(ast.total_pokok, 0) AS pokok,
+            -- Areal Statement (Lengkap)
+            ast.bulan_tanam,
+            COALESCE(ast.luas_tanam, 0) AS luas_tanam,
+            COALESCE(ast.luas_tanah, 0) AS luas_tanah,
+            COALESCE(ast.total_pokok, 0) AS total_pokok,
             CASE 
-                WHEN COALESCE(ast.luas_tanam, 0) > 0 THEN ROUND((COALESCE(ast.total_pokok, 0) / ast.luas_tanam)::numeric, 2)
+                WHEN COALESCE(ast.luas_tanam, 0) > 0 
+                THEN ROUND((COALESCE(ast.total_pokok, 0) / ast.luas_tanam)::numeric, 2)
                 ELSE 0 
             END AS sph,
+            COALESCE(ast.pct_tanah_datar, 0) AS pct_tanah_datar,
+            COALESCE(ast.pct_berbukit, 0) AS pct_berbukit,
+            COALESCE(ast.pct_gelombang, 0) AS pct_gelombang,
+            COALESCE(ast.pct_curam, 0) AS pct_curam,
             
-            -- Produksi TBS (s/d Bulan ini / Cumulative to Date)
-            COALESCE(prod.tbs_aktual, 0) AS act_sdbi,
-            COALESCE(prod.tbs_budget, 0) AS bgt_sdbi,
-            (COALESCE(prod.tbs_aktual, 0) - COALESCE(prod.tbs_budget, 0)) AS gap_sdbi,
+            -- Produksi TBS (Lengkap: Aktual, Budget, Sensus)
+            COALESCE(prod.tbs_aktual, 0) AS tbs_aktual,
+            COALESCE(prod.tbs_budget, 0) AS tbs_budget,
+            COALESCE(prod.tbs_sensus, 0) AS tbs_sensus,
+            (COALESCE(prod.tbs_aktual, 0) - COALESCE(prod.tbs_budget, 0)) AS gap_tbs,
+            
             COALESCE(prod.janjang_aktual, 0) AS janjang_aktual,
-            COALESCE(prod.bjr_aktual, 0) AS bjr_sdbi,
+            COALESCE(prod.janjang_budget, 0) AS janjang_budget,
+            COALESCE(prod.janjang_sensus, 0) AS janjang_sensus,
             
-            -- KPI Kalkulasi Per Pokok
+            COALESCE(prod.bjr_aktual, 0) AS bjr_aktual,
+            COALESCE(prod.bjr_budget, 0) AS bjr_budget,
+            COALESCE(prod.bjr_sensus, 0) AS bjr_sensus,
+            
+            -- KPI Per Pokok (Recalculated)
             CASE 
-                WHEN COALESCE(ast.total_pokok, 0) > 0 THEN ROUND((COALESCE(prod.tbs_aktual, 0) / ast.total_pokok)::numeric, 2)
+                WHEN COALESCE(ast.total_pokok, 0) > 0 
+                THEN ROUND((COALESCE(prod.tbs_aktual, 0) / ast.total_pokok)::numeric, 2)
                 ELSE 0 
-            END AS kg_pkk_sdbi,
+            END AS kg_pkk,
             
             CASE 
-                WHEN COALESCE(ast.total_pokok, 0) > 0 THEN ROUND((COALESCE(prod.janjang_aktual, 0) / ast.total_pokok)::numeric, 2)
+                WHEN COALESCE(ast.total_pokok, 0) > 0 
+                THEN ROUND((COALESCE(prod.janjang_aktual, 0) / ast.total_pokok)::numeric, 2)
                 ELSE 0 
-            END AS jjg_pkk_sdbi
+            END AS jjg_pkk
             
         FROM blok b
-        JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun
-        JOIN estate e ON af.est_id = e.est_id AND af.bulan = e.bulan AND af.tahun = e.tahun
-        JOIN perusahaan p ON e.pt_id = p.pt_id
+        LEFT JOIN afdeling af ON b.afd_id = af.afd_id AND b.tahun = af.tahun
+        LEFT JOIN estate e ON af.est_id = e.est_id AND af.tahun = e.tahun
+        LEFT JOIN perusahaan p ON e.pt_id = p.pt_id
         LEFT JOIN area ar ON p.area_id = ar.area_id
         LEFT JOIN trx_areal_statement ast ON b.blok_id = ast.blok_id AND b.bulan = ast.bulan AND b.tahun = ast.tahun
         LEFT JOIN trx_produksi_tbs prod ON b.blok_id = prod.blok_id AND b.bulan = prod.bulan AND b.tahun = prod.tahun
         WHERE b.blok_id = :bid AND b.bulan = :b AND b.tahun = :t
     """
     
-    row = db.execute(text(sql), {"bid": blok_id, "b": bulan, "t": tahun}).fetchone()
+    row = db.execute(text(sql_main), {"bid": blok_id, "b": bulan, "t": tahun}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail=f"Detail data untuk blok '{blok_id}' periode {bulan}-{tahun} tidak ditemukan.")
 
-    data = dict(row._mapping)
+    data_main = dict(row._mapping)
     
-    # Penentuan Dynamic Kategori Yield berdasarkan pencapaian % ACT vs BGT
-    act = data["act_sdbi"]
-    bgt = data["bgt_sdbi"]
-    if bgt > 0:
-        pct = (act / bgt) * 100
-        if pct >= 100:
+    # 3. Penentuan Dynamic Kategori Yield (% Achievement = ACT vs BGT)
+    tbs_act = safe_float(data_main.get("tbs_aktual"))
+    tbs_bgt = safe_float(data_main.get("tbs_budget"))
+    if tbs_bgt > 0:
+        pct_achievement = round((tbs_act / tbs_bgt) * 100, 2)
+        if pct_achievement >= 100:
             kategori_yield = "HIGH YIELD"
-        elif pct >= 85:
+        elif pct_achievement >= 85:
             kategori_yield = "MEDIUM YIELD"
         else:
             kategori_yield = "LOW YIELD"
     else:
+        pct_achievement = 0.0
         kategori_yield = "NO TARGET"
 
-    data["kategori_yield"] = kategori_yield
-    return data
+    # 4. Query Riwayat Rotasi Pusingan (Daftar seluruh rotasi di bulan tersebut)
+    sql_rotasi = """
+        SELECT 
+            id_rotasi_pusingan,
+            tanggal,
+            rotasi_ke,
+            pusingan_hari,
+            status_pusingan,
+            COALESCE(luas, 0) AS luas,
+            COALESCE(pokok, 0) AS pokok
+        FROM trx_rotasi_pusingan
+        WHERE blok_id = :bid AND bulan = :b AND tahun = :t
+        ORDER BY tanggal ASC, rotasi_ke ASC
+    """
+    rotasi_rows = db.execute(text(sql_rotasi), {"bid": blok_id, "b": bulan, "t": tahun}).fetchall()
+    
+    list_rotasi = [
+        {
+            "id_rotasi_pusingan": r.id_rotasi_pusingan,
+            "tanggal": r.tanggal.isoformat() if r.tanggal else None,
+            "rotasi_ke": r.rotasi_ke,
+            "pusingan_hari": r.pusingan_hari,
+            "status_pusingan": r.status_pusingan,
+            "luas": safe_float(r.luas),
+            "pokok": safe_int(r.pokok)
+        }
+        for r in rotasi_rows
+    ]
+
+    # 5. Susun Response Terstruktur & Rapi
+    return {
+        "status": "success",
+        "message": f"Detail data blok {blok_id} berhasil dimuat",
+        "periode": {
+            "bulan": bulan,
+            "tahun": tahun
+        },
+        "informasi_blok": {
+            "blok_id": data_main["blok_id"],
+            "nama_blok": data_main["nama_blok"],
+            "kode_blok": data_main["kode_blok"],
+            "tahun_tanam": data_main["tahun_tanam"],
+            "bulan_tanam": data_main["bulan_tanam"],
+            "jenis_bibit": data_main["jenis_bibit"],
+            "status_tanam": data_main["status_tanam"],
+            "jenis_topografi": data_main["jenis_topografi"],
+            "jenis_tanah": data_main["jenis_tanah"],
+            "hierarki": {
+                "nama_area": data_main["nama_area"],
+                "kode_pt": data_main["kode_pt"],
+                "nama_pt": data_main["nama_pt"],
+                "kode_est": data_main["kode_est"],
+                "nama_estate": data_main["nama_estate"],
+                "kode_afd": data_main["kode_afd"],
+                "nama_afd": data_main["nama_afd"]
+            }
+        },
+        "areal_statement": {
+            "luas_tanam": safe_float(data_main["luas_tanam"]),
+            "luas_tanah": safe_float(data_main["luas_tanah"]),
+            "total_pokok": safe_int(data_main["total_pokok"]),
+            "sph": safe_float(data_main["sph"]),
+            "topografi": {
+                "pct_tanah_datar": safe_float(data_main["pct_tanah_datar"]),
+                "pct_berbukit": safe_float(data_main["pct_berbukit"]),
+                "pct_gelombang": safe_float(data_main["pct_gelombang"]),
+                "pct_curam": safe_float(data_main["pct_curam"])
+            }
+        },
+        "produksi_tbs": {
+            "tbs": {
+                "aktual": safe_float(data_main["tbs_aktual"]),
+                "budget": safe_float(data_main["tbs_budget"]),
+                "sensus": safe_float(data_main["tbs_sensus"]),
+                "gap": safe_float(data_main["gap_tbs"]),
+                "pct_achievement": pct_achievement,
+                "kategori_yield": kategori_yield
+            },
+            "janjang": {
+                "aktual": safe_int(data_main["janjang_aktual"]),
+                "budget": safe_int(data_main["janjang_budget"]),
+                "sensus": safe_int(data_main["janjang_sensus"])
+            },
+            "bjr": {
+                "aktual": safe_float(data_main["bjr_aktual"]),
+                "budget": safe_float(data_main["bjr_budget"]),
+                "sensus": safe_float(data_main["bjr_sensus"])
+            },
+            "kpi_per_pokok": {
+                "kg_pkk": safe_float(data_main["kg_pkk"]),
+                "jjg_pkk": safe_float(data_main["jjg_pkk"])
+            }
+        },
+        "rotasi_pusingan": {
+            "total_kegiatan": len(list_rotasi),
+            "daftar_rotasi": list_rotasi
+        }
+    }
 
 
 # =====================================================================
