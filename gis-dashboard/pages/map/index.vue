@@ -87,6 +87,12 @@ const isFilterCollapsed = ref(false);
 const selectedTemaData = ref("");
 const selectedBulan = ref("");
 const selectedTahun = ref(String(new Date().getFullYear()));
+const selectedOwnership = ref("");
+
+const ownershipOptions = [
+  { label: "Inti", value: "inti" },
+  { label: "Plasma", value: "plasma" },
+];
 
 const temaDataOptions = ref<Array<{ label: string; value: string }>>([]);
 const isTemaDataLoading = ref(false);
@@ -137,33 +143,30 @@ async function initTemaDataOptions() {
   isTemaDataLoading.value = true;
   try {
     const baseUrl = getApiBaseUrl();
-    const response = await $api<any[]>(`${baseUrl}/v1/database/tables`, {
-      method: "GET",
-      headers: getAuthHeaders(),
-    });
+    const response = await $api<Array<{ table: string; label: string }>>(
+      `${baseUrl}/v1/spatial/history/tables`,
+      {
+        method: "GET",
+        headers: getAuthHeaders(),
+      },
+    );
 
     const normalizedData = Array.isArray(response)
       ? response
       : ((response as any)?.data ?? []);
 
     temaDataOptions.value = normalizedData
-      .map((item: any) => {
-        if (typeof item === "string") {
-          return { label: item, value: item };
-        }
-
-        const value =
-          item?.table_name ||
-          item?.tableName ||
-          item?.name ||
-          item?.value ||
-          "";
+      .map((item: { table?: string; label?: string }) => {
+        const value = item?.table || "";
         const label = item?.label || value;
-
         return value ? { label, value } : null;
       })
       .filter(Boolean) as Array<{ label: string; value: string }>;
-  } catch (error) {
+
+    if (!selectedTemaData.value && temaDataOptions.value.length > 0) {
+      selectedTemaData.value = temaDataOptions.value[0]?.value || "";
+    }
+  } catch {
     temaDataOptions.value = [];
   } finally {
     isTemaDataLoading.value = false;
@@ -337,19 +340,141 @@ function getSelectedLabelByKey(key: FilterKey): string {
   return option?.label ?? value;
 }
 
-const blockProfileRows = computed(() => [
-  { label: "Area", value: getSelectedLabelByKey("area") },
-  { label: "Perusahaan (PT)", value: getSelectedLabelByKey("pt") },
-  { label: "Estate", value: getSelectedLabelByKey("estate") },
-  { label: "Afdeling", value: getSelectedLabelByKey("afdeling") },
-  { label: "Blok", value: getSelectedLabelByKey("blok") },
-  { label: "Bibit", value: "" },
-  { label: "Tahun Tanam", value: "" },
-  { label: "Luas Kerangka", value: "" },
-  { label: "Luas Tertanam", value: "" },
-  { label: "Pokok", value: "" },
-  { label: "SPH", value: "" },
-]);
+function formatDisplayValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? String(value)
+      : value.toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  }
+  return String(value);
+}
+
+function getLatestHistoryRow(): Record<string, unknown> | null {
+  const history = mapStore.historyData;
+  if (!history) return null;
+
+  if (Array.isArray(history.data_histori) && history.data_histori.length > 0) {
+    return (history.data_histori[history.data_histori.length - 1] ??
+      null) as Record<string, unknown> | null;
+  }
+
+  if (Array.isArray(history.data) && history.data.length > 0) {
+    return history.data[history.data.length - 1] ?? null;
+  }
+
+  return null;
+}
+
+const blockProfileRows = computed(() => {
+  const latest = getLatestHistoryRow();
+
+  return [
+    { label: "Area", value: getSelectedLabelByKey("area") },
+    { label: "Perusahaan (PT)", value: getSelectedLabelByKey("pt") },
+    { label: "Estate", value: getSelectedLabelByKey("estate") },
+    { label: "Afdeling", value: getSelectedLabelByKey("afdeling") },
+    { label: "Blok", value: getSelectedLabelByKey("blok") },
+    { label: "Bibit", value: "" },
+    { label: "Tahun Tanam", value: selectedTahun.value || "" },
+    {
+      label: "Luas Kerangka",
+      value: formatDisplayValue(latest?.luas_tanah),
+    },
+    {
+      label: "Luas Tertanam",
+      value: formatDisplayValue(latest?.luas_tanam ?? latest?.luas),
+    },
+    {
+      label: "Pokok",
+      value: formatDisplayValue(latest?.total_pokok ?? latest?.pokok),
+    },
+    {
+      label: "SPH",
+      value: formatDisplayValue(latest?.sph),
+    },
+  ];
+});
+
+const historyInfoTitle = computed(
+  () => mapStore.historyData?.label || "Data Informasi",
+);
+
+const slopeRows = computed(() => {
+  const slope = mapStore.historyData?.slope_kemiringan_lereng;
+  if (!slope || typeof slope !== "object") return [];
+
+  return Object.entries(slope).map(([label, value]) => ({
+    label,
+    value: formatDisplayValue(value),
+  }));
+});
+
+function getBulanLabel(bulan: unknown): string {
+  if (bulan === null || bulan === undefined || bulan === "") return "";
+  const match = bulanOptions.find(
+    (item) => item.value === String(Number(bulan)),
+  );
+  return match?.label || `Bulan ${bulan}`;
+}
+
+function getPeriodTitle(row: Record<string, unknown>): string {
+  const bulanLabel = getBulanLabel(row.bulan);
+  const tahun = formatDisplayValue(row.tahun);
+
+  if (bulanLabel && tahun) return `${bulanLabel} ${tahun}`;
+  if (bulanLabel) return bulanLabel;
+  if (tahun) return `Tahun ${tahun}`;
+  if (row.periode != null) return `Periode ${formatDisplayValue(row.periode)}`;
+  return "Periode";
+}
+
+function buildMetricItems(row: Record<string, unknown>) {
+  if ("luas" in row || "ton" in row || "ton_ha" in row) {
+    return [
+      { label: "Luas", value: formatDisplayValue(row.luas) },
+      { label: "Ton", value: formatDisplayValue(row.ton) },
+      { label: "Ton/Ha", value: formatDisplayValue(row.ton_ha) },
+      { label: "BJR", value: formatDisplayValue(row.bjr) },
+      { label: "Jjg/Pkk", value: formatDisplayValue(row.jjg_ppk) },
+      { label: "Kg/Pkk", value: formatDisplayValue(row.kg_ppk) },
+    ].filter((item) => item.value !== "");
+  }
+
+  const excludedKeys = new Set(["tahun", "bulan", "periode"]);
+  return Object.entries(row)
+    .filter(
+      ([key, value]) =>
+        !excludedKeys.has(key) && value != null && value !== "",
+    )
+    .map(([key, value]) => ({
+      label: key
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase()),
+      value: formatDisplayValue(value),
+    }));
+}
+
+const dataInformasiPeriods = computed(() => {
+  const history = mapStore.historyData;
+  if (!history) return [];
+
+  const rows: Array<Record<string, unknown>> = Array.isArray(
+    history.data_histori,
+  )
+    ? (history.data_histori as Array<Record<string, unknown>>)
+    : Array.isArray(history.data)
+      ? history.data
+      : [];
+
+  return rows.map((row, index) => ({
+    id: `${row.tahun ?? "y"}-${row.bulan ?? row.periode ?? index}`,
+    title: getPeriodTitle(row),
+    metrics: buildMetricItems(row),
+  }));
+});
+
+const isLoadingHistory = computed(() => mapStore.loadingHistory);
 
 watch(
   filters,
@@ -452,13 +577,21 @@ async function applyAllFilters() {
   }
 
   try {
-    await mapStore.applyFilters({
-      area: filterInputs.area,
-      pt: filterInputs.pt,
-      estate: filterInputs.estate,
-      afdeling: filterInputs.afdeling,
-      blok: filterInputs.blok,
-    }, selectedTahun.value);
+    const table =
+      selectedTemaData.value || temaDataOptions.value[0]?.value || "";
+
+    await mapStore.applyFilters(
+      {
+        area: filterInputs.area,
+        pt: filterInputs.pt,
+        estate: filterInputs.estate,
+        afdeling: filterInputs.afdeling,
+        blok: filterInputs.blok,
+        ownership: selectedOwnership.value,
+      },
+      selectedTahun.value,
+      table,
+    );
   } catch {
     // errorMessage sudah di-set di store
   }
@@ -470,6 +603,7 @@ async function resetAllFilters() {
   filterInputs.estate = "";
   filterInputs.afdeling = "";
   filterInputs.blok = "";
+  selectedOwnership.value = "";
   await mapStore.resetFilters();
 }
 
@@ -530,7 +664,7 @@ async function gotoDashboard() {
             <p class="mb-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
               Informasi
             </p>
-            <div class="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid grid-cols-1 items-end gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
               <label class="min-w-0">
                 <span class="mb-1 block text-13 font-medium text-gray-label">
                   Tema Data
@@ -542,27 +676,35 @@ async function gotoDashboard() {
               </label>
               <label class="min-w-0">
                 <span class="mb-1 block text-13 font-medium text-gray-label">
+                  Ownership
+                </span>
+                <v-autocomplete v-model="selectedOwnership" class="custom-underlined-input"
+                  :items="ownershipOptions" item-title="label" item-value="value"
+                  placeholder="Pilih Ownership" variant="underlined" density="compact" bg-color="white"
+                  color="#2B7FFF" hide-details clearable menu-icon="mdi-chevron-down" />
+              </label>
+              <label class="min-w-0">
+                <span class="mb-1 block text-13 font-medium text-gray-label">
                   Tahun
                 </span>
                 <v-autocomplete v-model="selectedTahun" class="custom-underlined-input" :items="tahunOptions"
                   item-title="label" item-value="value" placeholder="Pilih Tahun" variant="underlined" density="compact"
                   bg-color="white" color="#2B7FFF" hide-details clearable menu-icon="mdi-chevron-down" />
               </label>
+              <div class="flex items-center justify-stretch gap-2 sm:col-span-2 sm:justify-end lg:col-span-1">
+                <button
+                  class="inline-flex h-8 flex-1 items-center justify-center rounded-md border border-slate-light bg-surface px-3 text-13 font-semibold text-slate hover-bg-hover-slate disabled:cursor-not-allowed sm:flex-none"
+                  type="button" :disabled="isLoading" @click="resetAllFilters">
+                  Reset
+                </button>
+                <button
+                  class="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-blue-primary px-3 text-13 font-semibold text-on-brand hover-bg-blue-primary-hover disabled:cursor-not-allowed disabled:bg-blue-disabled sm:flex-none"
+                  type="button" :disabled="isLoading" @click="applyAllFilters">
+                  {{ isLoadingGeoJSON ? 'Memuat...' : 'Apply' }}
+                </button>
+              </div>
             </div>
           </section>
-
-          <div v-if="!isFilterCollapsed" class="flex justify-end items-center gap-2">
-            <button
-              class="inline-flex h-8 items-center justify-center rounded-md border border-slate-light bg-surface px-3 text-13 font-semibold text-slate hover-bg-hover-slate disabled:cursor-not-allowed"
-              type="button" :disabled="isLoading" @click="resetAllFilters">
-              Reset
-            </button>
-            <button
-              class="inline-flex h-8 items-center justify-center rounded-md bg-blue-primary px-3 text-13 font-semibold text-on-brand hover-bg-blue-primary-hover disabled:cursor-not-allowed disabled:bg-blue-disabled"
-              type="button" :disabled="isLoading" @click="applyAllFilters">
-              {{ isLoadingGeoJSON ? 'Memuat...' : 'Apply' }}
-            </button>
-          </div>
         </div>
       </template>
     </aside>
@@ -581,23 +723,72 @@ async function gotoDashboard() {
       <aside class="space-y-3">
         <div class="rounded-2xl border border-map-light bg-surface p-4">
           <h2 class="mb-3 text-16 font-bold text-gray-title">
-            Block Profile
+            Blok Profile
           </h2>
           <div class="space-y-1.5">
             <div v-for="item in blockProfileRows" :key="item.label"
               class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
               <p class="text-14 text-gray-muted">{{ item.label }}</p>
               <p class="truncate text-14 font-semibold text-gray-darker">
-                {{ item.value }}
+                {{ item.value || "-" }}
               </p>
             </div>
           </div>
         </div>
 
         <div class="rounded-2xl border border-map-light bg-surface p-4">
-          <h2 class="mb-3 text-16 font-bold text-gray-title">
-            Data Informasi
-          </h2>
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <h2 class="text-16 font-bold text-gray-title">
+              {{ historyInfoTitle }}
+            </h2>
+            <span v-if="mapStore.historyData?.mode_akumulasi"
+              class="shrink-0 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+              {{ mapStore.historyData.mode_akumulasi }}
+            </span>
+          </div>
+
+          <p v-if="isLoadingHistory" class="text-14 text-gray-muted">
+            Memuat data informasi...
+          </p>
+
+          <template v-else-if="slopeRows.length || dataInformasiPeriods.length">
+            <div v-if="slopeRows.length" class="mb-4 space-y-1.5">
+              <p class="mb-1 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+                Kemiringan Lereng
+              </p>
+              <div v-for="item in slopeRows" :key="`slope-${item.label}`"
+                class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
+                <p class="text-14 text-gray-muted">{{ item.label }}</p>
+                <p class="truncate text-14 font-semibold text-gray-darker">
+                  {{ item.value || "-" }}
+                </p>
+              </div>
+            </div>
+
+            <div v-if="dataInformasiPeriods.length" class="data-info-table">
+              <div v-for="period in dataInformasiPeriods" :key="period.id" class="data-info-cell">
+                <p class="mb-2 text-13 font-bold text-gray-title">
+                  {{ period.title }}
+                </p>
+                <div class="space-y-1">
+                  <div v-for="metric in period.metrics" :key="`${period.id}-${metric.label}`"
+                    class="flex items-baseline justify-between gap-2 text-13">
+                    <span class="text-gray-muted">{{ metric.label }}</span>
+                    <span class="font-semibold text-gray-darker">
+                      {{ metric.value || "-" }}
+                    </span>
+                  </div>
+                  <p v-if="!period.metrics.length" class="text-13 text-gray-muted">
+                    Tidak ada data
+                  </p>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <p v-else class="text-14 text-gray-muted">
+            Belum ada data
+          </p>
         </div>
       </aside>
     </div>
@@ -623,5 +814,33 @@ async function gotoDashboard() {
 .custom-underlined-input :deep(.v-field__clearable) {
   padding-top: 0;
   padding-bottom: 0;
+}
+
+.data-info-table {
+  display: grid;
+  grid-template-columns: 1fr;
+  border-top: 1px solid #d7dee8;
+  border-left: 1px solid #d7dee8;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.data-info-cell {
+  padding: 0.75rem;
+  border-right: 1px solid #d7dee8;
+  border-bottom: 1px solid #d7dee8;
+  background: #fff;
+}
+
+@media (min-width: 640px) {
+  .data-info-table {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .data-info-table {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 </style>

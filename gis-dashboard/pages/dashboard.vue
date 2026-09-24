@@ -113,13 +113,18 @@ onMounted(async () => {
       </section>
 
       <section class="mt-7">
-        <div class="mb-4 flex items-center justify-between gap-2">
-          <h3 class="text-20 font-bold">
-            {{ dashboardService.dashboardConfig.moduleTitle }}
-          </h3>
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 class="text-20 font-bold">
+              {{ dashboardService.dashboardConfig.moduleTitle }}
+            </h3>
+            <p class="mt-1 text-14 text-muted">
+              Buka modul langsung, atau perluas kelompok menu untuk melihat submenu.
+            </p>
+          </div>
 
           <NuxtLink v-if="informasiUser?.role === 'superadmin'" to="/menus"
-            class="rounded-md border border-tan bg-cream px-4 py-1.5 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
+            class="rounded-full border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
             Management Menu
           </NuxtLink>
         </div>

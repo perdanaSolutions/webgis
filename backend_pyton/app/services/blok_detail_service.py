@@ -102,7 +102,8 @@ def get_history_aggregated(
     kode_pt: Optional[str] = None,
     kode_est: Optional[str] = None,
     kode_afd: Optional[str] = None,
-    blok_id: Optional[str] = None
+    blok_id: Optional[str] = None,
+    ownership: Optional[str] = None,
 ) -> dict:
     """
     Endpoint History Agregasi Dinamis:
@@ -149,6 +150,10 @@ def get_history_aggregated(
         where_conditions.append("p.area_id = :area_id")
         params["area_id"] = area_id
 
+    if ownership:
+        where_conditions.append("LOWER(TRIM(b.ownership)) = LOWER(TRIM(:ownership))")
+        params["ownership"] = ownership
+
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     join_clause = " ".join(joins)
     group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
@@ -161,7 +166,8 @@ def get_history_aggregated(
         "kode_pt": kode_pt,
         "kode_est": kode_est,
         "kode_afd": kode_afd,
-        "blok_id": blok_id
+        "blok_id": blok_id,
+        "ownership": ownership,
     }
 
     # =========================================================================

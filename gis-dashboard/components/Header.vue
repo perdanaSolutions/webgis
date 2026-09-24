@@ -227,58 +227,103 @@ onUnmounted(() => {
     <div v-if="isSidebarOpen" class="fixed inset-0 z-[1590] bg-overlay" @click="closeSidebar" />
 
     <aside
-      class="fixed left-0 top-0 z-[1600] h-full w-[300px] max-w-[85vw] transform border-r border-default bg-surface shadow-2xl transition-transform duration-300"
+      class="fixed left-0 top-0 z-[1600] flex h-full w-[320px] max-w-[88vw] transform flex-col border-r border-default bg-surface shadow-2xl transition-transform duration-300"
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
-      <div class="flex items-center justify-between border-b border-menu px-4 py-4">
-        <h3 class="text-16 font-bold text-brand">
-          Menu Modul
-        </h3>
-        <button @click="closeSidebar" class="rounded-full p-2 text-label hover-bg-sidebar-hover"
-          aria-label="Tutup Sidebar">
-          ✕
-        </button>
+      <div class="border-b border-menu bg-surface-warm px-4 py-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-11 font-semibold uppercase tracking-wide text-label">
+              Navigasi
+            </p>
+            <h3 class="truncate text-16 font-bold text-brand">
+              Menu Modul
+            </h3>
+          </div>
+          <button @click="closeSidebar"
+            class="flex h-9 w-9 items-center justify-center rounded-full border border-menu bg-surface text-label transition hover-bg-cream"
+            aria-label="Tutup Sidebar">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+              stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div class="max-h-[calc(100%-73px)] space-y-2 overflow-y-auto p-3">
-        <button @click="navigateTo('/dashboard'); closeSidebar()"
-          class="flex w-full items-center gap-3 rounded-xl border border-menu px-3 py-2.5 text-left transition hover-bg-cream">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-on-brand" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
-            </svg>
-          </div>
-          <div class="min-w-0">
-            <p class="truncate text-14 font-bold text-brand">
-              Dashboard
-            </p>
-            <p class="line-clamp-1 text-12 text-muted-light">
-              Halaman utama dashboard
-            </p>
-          </div>
-        </button>
+      <div class="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        <section>
+          <p class="mb-2 px-2 text-11 font-semibold uppercase tracking-wide text-label">
+            Pintasan
+          </p>
+          <div class="space-y-1">
+            <button @click="navigateTo('/dashboard'); closeSidebar()"
+              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-on-brand" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                    d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="truncate text-13 font-bold text-brand">
+                  Dashboard
+                </p>
+                <p class="line-clamp-1 text-11 text-muted-light">
+                  Halaman utama
+                </p>
+              </div>
+            </button>
 
-        <button v-if="informasiUser?.role === 'superadmin'" @click="navigateTo('/menus'); closeSidebar()"
-          class="flex w-full items-center gap-3 rounded-xl border border-menu px-3 py-2.5 text-left transition hover-bg-cream">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-menu-blue-light">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-menu-blue" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                d="M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7" />
-            </svg>
+            <button v-if="informasiUser?.role === 'superadmin'" @click="navigateTo('/menus'); closeSidebar()"
+              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-menu-blue-light">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-menu-blue" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                    d="M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="truncate text-13 font-bold text-brand">
+                  Management Menu
+                </p>
+                <p class="line-clamp-1 text-11 text-muted-light">
+                  Kelola struktur menu
+                </p>
+              </div>
+            </button>
           </div>
-          <div class="min-w-0">
-            <p class="truncate text-14 font-bold text-brand">
-              Management Menu
-            </p>
-            <p class="line-clamp-1 text-12 text-muted-light">
-              Kelola menu modul dashboard
-            </p>
-          </div>
-        </button>
+        </section>
 
-        <MenuSidebarNode :items="dashboardService.moduleItems" @navigate="closeSidebar" />
+        <section>
+          <div class="mb-2 flex items-center justify-between px-2">
+            <p class="text-11 font-semibold uppercase tracking-wide text-label">
+              Modul
+            </p>
+            <span class="rounded-full bg-surface-warm px-2 py-0.5 text-11 font-semibold text-label">
+              {{ dashboardService.moduleItems.length }}
+            </span>
+          </div>
+
+          <div v-if="dashboardService.loading" class="space-y-2 px-1">
+            <div v-for="i in 4" :key="`sidebar-skel-${i}`"
+              class="flex items-center gap-3 rounded-xl px-2.5 py-2.5 animate-pulse">
+              <div class="h-9 w-9 rounded-lg bg-slate-muted" />
+              <div class="min-w-0 flex-1 space-y-2">
+                <div class="h-3 w-2/3 rounded bg-slate-muted" />
+                <div class="h-2.5 w-full rounded bg-slate-muted" />
+              </div>
+            </div>
+          </div>
+
+          <MenuSidebarNode v-else-if="dashboardService.moduleItems.length"
+            :items="dashboardService.moduleItems" @navigate="closeSidebar" />
+
+          <p v-else class="rounded-xl bg-surface-warm px-3 py-4 text-center text-12 text-muted">
+            Belum ada modul yang tersedia.
+          </p>
+        </section>
       </div>
     </aside>
   </header>
