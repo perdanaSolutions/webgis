@@ -550,13 +550,12 @@ def get_blok_detail(
     db: Session, 
     blok_id: str, 
     tahun_tanam: Optional[int] = None,
-    ownership: Optional[str] = None  # Parameter Baru: "Inti" atau "Plasma"
+    ownership: Optional[str] = None
 ) -> dict:
     """
     Mengambil data popup lengkap saat Polygon Blok diklik pada Peta:
-    - Filter berdasarkan tahun_tanam & ownership (tipe_blok: 'Inti' / 'Plasma').
-    - Jika tahun_tanam KOSONG: Otomatis mengambil data tahun_tanam TERBARU (latest).
-    - Format areal_statement disesuaikan dengan struktur get_history_aggregated.
+    - areal_statement mengembalikan struktur data akumulasi berdasarkan tahun terbaru
+      yang memiliki kelompok data (groups) dan grand_total.
     """
     def safe_float(val, default=0.0):
         return float(val) if val is not None else default
@@ -564,10 +563,9 @@ def get_blok_detail(
     def safe_int(val, default=0):
         return int(val) if val is not None else default
 
-    # Clean ownership parameter jika dikirim
     ownership_clean = ownership.strip() if ownership else None
 
-    # 1. Tentukan tahun_tanam jika dikosongi (ambil yang terbaru / LATEST)
+    # 1. Tentukan tahun_tanam jika dikosongi (ambil TERBARU / LATEST)
     is_latest_fallback = tahun_tanam is None
     if is_latest_fallback:
         sql_latest_tt = """
@@ -598,7 +596,6 @@ def get_blok_detail(
         if res_tt and res_tt.tahun_tanam:
             tahun_tanam = res_tt.tahun_tanam
 
-    # Parameter SQL dasar untuk query selanjutnya
     trx_params = {"bid": blok_id}
     if tahun_tanam is not None:
         trx_params["tt"] = tahun_tanam
@@ -607,7 +604,6 @@ def get_blok_detail(
 
     # 2. Ambil Data Master Blok & Hierarki
     where_master = ["b.blok_id = :bid"]
-
     if tahun_tanam is not None:
         where_master.append("b.tahun_tanam = :tt")
     if ownership_clean:
@@ -631,8 +627,8 @@ def get_blok_detail(
         LIMIT 1
     """
     master_row = db.execute(text(sql_master), trx_params).fetchone()
-    
-    # Fallback ke master blok jika tidak ditemukan dengan kombinasi filter ketat
+
+    # Fallback ke master blok jika tidak ditemukan dengan filter ketat
     if not master_row:
         master_row = db.execute(
             text("""
@@ -660,155 +656,151 @@ def get_blok_detail(
 
     master_data = dict(master_row._mapping)
 
-    # 3. Query Detailed TRX Areal Statement untuk Aggregation (Filter ownership / tipe_blok)
+    # 3. Cari Tahun Terakhir (Latest Year) pada Areal Statement
     ast_where = ["ast.blok_id = :bid"]
     if tahun_tanam is not None:
         ast_where.append("ast.tahun_tanam = :tt")
     if ownership_clean:
         ast_where.append("LOWER(ast.tipe_blok) = LOWER(:ownership)")
 
-    sql_ast_detail = f"""
-        SELECT 
-            ast.tahun,
-            COALESCE(ast.status_tanam, b.status_tanam) AS status_tanam,
-            ast.bulan_tanam,
-            ast.tahun_tanam,
-            COALESCE(ast.tipe_blok, b.tipe_blok) AS tipe_blok,
-            COALESCE(ast.jenis_bibit, b.jenis_bibit) AS jenis_bibit,
-            COALESCE(ast.jenis_topografi, b.jenis_topografi) AS jenis_topografi,
-            COALESCE(ast.jenis_tanah, b.jenis_tanah) AS jenis_tanah,
-            COALESCE(ast.luas_tanam, 0) AS luas_tanam,
-            COALESCE(ast.luas_tanah, 0) AS luas_tanah,
-            COALESCE(ast.total_pokok, 0) AS total_pokok,
-            COALESCE(ast.pct_tanah_datar, 0) AS pct_tanah_datar,
-            COALESCE(ast.pct_berbukit, 0) AS pct_berbukit,
-            COALESCE(ast.pct_gelombang, 0) AS pct_gelombang,
-            COALESCE(ast.pct_curam, 0) AS pct_curam
+    sql_latest_year = f"""
+        SELECT MAX(ast.tahun) AS latest_tahun 
         FROM trx_areal_statement ast
-        LEFT JOIN blok b ON ast.blok_id = b.blok_id AND ast.tahun = b.tahun AND ast.bulan = b.bulan
         WHERE {" AND ".join(ast_where)}
-        ORDER BY ast.tahun DESC
     """
-    ast_rows = db.execute(text(sql_ast_detail), trx_params).fetchall()
+    latest_year_row = db.execute(text(sql_latest_year), trx_params).fetchone()
+    latest_tahun = latest_year_row.latest_tahun if latest_year_row else None
 
-    # Membangun Struktur Aggregation Areal Statement
-    total_records = len(ast_rows)
-    
-    gt_luas_tanam = 0.0
-    gt_luas_tanah = 0.0
-    gt_total_pokok = 0
-    gt_pct_datar = 0.0
-    gt_pct_bukit = 0.0
-    gt_pct_gelombang = 0.0
-    gt_pct_curam = 0.0
-
-    grouped_tree = defaultdict(lambda: defaultdict(list))
-
-    for r in ast_rows:
-        row_dict = dict(r._mapping)
-        th = row_dict["tahun"]
-        
-        gt_luas_tanam += safe_float(row_dict["luas_tanam"])
-        gt_luas_tanah += safe_float(row_dict["luas_tanah"])
-        gt_total_pokok += safe_int(row_dict["total_pokok"])
-        gt_pct_datar += safe_float(row_dict["pct_tanah_datar"])
-        gt_pct_bukit += safe_float(row_dict["pct_berbukit"])
-        gt_pct_gelombang += safe_float(row_dict["pct_gelombang"])
-        gt_pct_curam += safe_float(row_dict["pct_curam"])
-
-        group_key = (
-            row_dict.get("status_tanam"),
-            row_dict.get("bulan_tanam"),
-            row_dict.get("tahun_tanam"),
-            row_dict.get("jenis_bibit"),
-            row_dict.get("jenis_topografi"),
-            row_dict.get("jenis_tanah")
-        )
-        grouped_tree[th][group_key].append(row_dict)
-
-    if total_records > 0:
-        grand_total = {
-            "luas_tanam": round(gt_luas_tanam, 2),
-            "luas_tanah": round(gt_luas_tanah, 2),
-            "total_pokok": gt_total_pokok,
-            "sph": round(gt_total_pokok / gt_luas_tanam, 2) if gt_luas_tanam > 0 else 0.0,
-            "pct_tanah_datar": round(gt_pct_datar / total_records, 2),
-            "pct_berbukit": round(gt_pct_bukit / total_records, 2),
-            "pct_gelombang": round(gt_pct_gelombang / total_records, 2),
-            "pct_curam": round(gt_pct_curam / total_records, 2)
-        }
-    else:
-        grand_total = {
-            "luas_tanam": 0.0,
-            "luas_tanah": 0.0,
-            "total_pokok": 0,
-            "sph": 0.0,
-            "pct_tanah_datar": 0.0,
-            "pct_berbukit": 0.0,
-            "pct_gelombang": 0.0,
-            "pct_curam": 0.0
-        }
-
-    data_grouped_list = []
-    for th in sorted(grouped_tree.keys(), reverse=True):
-        groups_list = []
-        for g_key, items in grouped_tree[th].items():
-            st, bt, tt, jb, jt_topo, jt_tanah = g_key
-            cnt = len(items)
-            
-            sum_lt = sum(safe_float(x["luas_tanam"]) for x in items)
-            sum_ltanah = sum(safe_float(x["luas_tanah"]) for x in items)
-            sum_tp = sum(safe_int(x["total_pokok"]) for x in items)
-            
-            avg_datar = sum(safe_float(x["pct_tanah_datar"]) for x in items) / cnt if cnt > 0 else 0.0
-            avg_bukit = sum(safe_float(x["pct_berbukit"]) for x in items) / cnt if cnt > 0 else 0.0
-            avg_gel = sum(safe_float(x["pct_gelombang"]) for x in items) / cnt if cnt > 0 else 0.0
-            avg_curam = sum(safe_float(x["pct_curam"]) for x in items) / cnt if cnt > 0 else 0.0
-            
-            sph_calc = round(sum_tp / sum_lt, 2) if sum_lt > 0 else 0.0
-
-            groups_list.append({
-                "group_keys": {
-                    "status_tanam": st,
-                    "bulan_tanam": bt,
-                    "tahun_tanam": tt,
-                    "jenis_bibit": jb,
-                    "jenis_topografi": jt_topo,
-                    "jenis_tanah": jt_tanah
-                },
-                "totals": {
-                    "count_records": cnt,
-                    "luas_tanam": round(sum_lt, 2),
-                    "luas_tanah": round(sum_ltanah, 2),
-                    "total_pokok": sum_tp,
-                    "sph": sph_calc,
-                    "pct_tanah_datar": round(avg_datar, 2),
-                    "pct_berbukit": round(avg_bukit, 2),
-                    "pct_gelombang": round(avg_gel, 2),
-                    "pct_curam": round(avg_curam, 2)
-                }
-            })
-        
-        data_grouped_list.append({
-            "tahun": th,
-            "groups": groups_list
-        })
-
-    areal_statement_response = {
-        "group_by_attributes": [
-            "status_tanam",
-            "bulan_tanam",
-            "tahun_tanam",
-            "jenis_bibit",
-            "jenis_topografi",
-            "jenis_tanah"
-        ],
-        "total_records": total_records,
-        "grand_total": grand_total,
-        "data": data_grouped_list
+    month_names = {
+        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+        7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
     }
 
-    # 4. Query Produksi TBS (JOIN ke trx_areal_statement untuk memfilter tahun_tanam & ownership)
+    areal_statement_response = None
+    grand_total_pokok = 0
+    grand_total_luas_tanam = 0.0
+
+    if latest_tahun is not None:
+        # Menambahkan filter tahun terbaru ke kueri agregasi
+        ast_group_where = ast_where + ["ast.tahun = :latest_tahun"]
+        ast_params = {**trx_params, "latest_tahun": latest_tahun}
+
+        sql_ast_groups = f"""
+            SELECT 
+                COALESCE(ast.status_tanam, b.status_tanam) AS status_tanam,
+                ast.bulan_tanam,
+                COALESCE(ast.tahun_tanam, b.tahun_tanam) AS tahun_tanam,
+                COALESCE(ast.jenis_bibit, b.jenis_bibit) AS jenis_bibit,
+                COALESCE(ast.jenis_topografi, b.jenis_topografi) AS jenis_topografi,
+                COALESCE(ast.jenis_tanah, b.jenis_tanah) AS jenis_tanah,
+                
+                COUNT(*)::int AS count_records,
+                ROUND(SUM(COALESCE(ast.luas_tanam, 0))::numeric, 2) AS luas_tanam,
+                ROUND(SUM(COALESCE(ast.luas_tanah, 0))::numeric, 2) AS luas_tanah,
+                SUM(COALESCE(ast.total_pokok, 0))::int AS total_pokok,
+                
+                CASE 
+                    WHEN SUM(COALESCE(ast.luas_tanam, 0)) > 0 
+                    THEN ROUND((SUM(COALESCE(ast.total_pokok, 0)) / SUM(ast.luas_tanam))::numeric, 2)
+                    ELSE 0.0 
+                END AS sph,
+                
+                ROUND(AVG(COALESCE(ast.pct_tanah_datar, 0))::numeric, 2) AS pct_tanah_datar,
+                ROUND(AVG(COALESCE(ast.pct_berbukit, 0))::numeric, 2) AS pct_berbukit,
+                ROUND(AVG(COALESCE(ast.pct_gelombang, 0))::numeric, 2) AS pct_gelombang,
+                ROUND(AVG(COALESCE(ast.pct_curam, 0))::numeric, 2) AS pct_curam
+            FROM trx_areal_statement ast
+            LEFT JOIN blok b ON ast.blok_id = b.blok_id AND ast.tahun = b.tahun AND ast.bulan = b.bulan
+            WHERE {" AND ".join(ast_group_where)}
+            GROUP BY 
+                COALESCE(ast.status_tanam, b.status_tanam),
+                ast.bulan_tanam,
+                COALESCE(ast.tahun_tanam, b.tahun_tanam),
+                COALESCE(ast.jenis_bibit, b.jenis_bibit),
+                COALESCE(ast.jenis_topografi, b.jenis_topografi),
+                COALESCE(ast.jenis_tanah, b.jenis_tanah)
+        """
+        ast_rows = db.execute(text(sql_ast_groups), ast_params).fetchall()
+
+        groups = []
+        gt_count = 0
+        gt_luas_tanam = 0.0
+        gt_luas_tanah = 0.0
+        gt_total_pokok = 0
+        gt_pct_datar = []
+        gt_pct_berbukit = []
+        gt_pct_gelombang = []
+        gt_pct_curam = []
+
+        for row in ast_rows:
+            d = dict(row._mapping)
+            bln_tanam = d.get("bulan_tanam")
+            str_bln_tanam = month_names.get(bln_tanam, bln_tanam) if isinstance(bln_tanam, int) else bln_tanam
+
+            c_rec = safe_int(d.get("count_records"))
+            lt_nam = safe_float(d.get("luas_tanam"))
+            lt_nah = safe_float(d.get("luas_tanah"))
+            t_pkk = safe_int(d.get("total_pokok"))
+
+            gt_count += c_rec
+            gt_luas_tanam += lt_nam
+            gt_luas_tanah += lt_nah
+            gt_total_pokok += t_pkk
+
+            gt_pct_datar.append(safe_float(d.get("pct_tanah_datar")))
+            gt_pct_berbukit.append(safe_float(d.get("pct_berbukit")))
+            gt_pct_gelombang.append(safe_float(d.get("pct_gelombang")))
+            gt_pct_curam.append(safe_float(d.get("pct_curam")))
+
+            groups.append({
+                "group_keys": {
+                    "status_tanam": d.get("status_tanam"),
+                    "bulan_tanam": str_bln_tanam,
+                    "tahun_tanam": d.get("tahun_tanam"),
+                    "jenis_bibit": d.get("jenis_bibit"),
+                    "jenis_topografi": d.get("jenis_topografi"),
+                    "jenis_tanah": d.get("jenis_tanah")
+                },
+                "totals": {
+                    "count_records": c_rec,
+                    "luas_tanam": lt_nam,
+                    "luas_tanah": lt_nah,
+                    "total_pokok": t_pkk,
+                    "sph": safe_float(d.get("sph")),
+                    "pct_tanah_datar": safe_float(d.get("pct_tanah_datar")),
+                    "pct_berbukit": safe_float(d.get("pct_berbukit")),
+                    "pct_gelombang": safe_float(d.get("pct_gelombang")),
+                    "pct_curam": safe_float(d.get("pct_curam"))
+                }
+            })
+
+        # Menghitung agregasi Grand Total
+        gt_sph = round(gt_total_pokok / gt_luas_tanam, 2) if gt_luas_tanam > 0 else 0.0
+        gt_avg_datar = round(sum(gt_pct_datar) / len(gt_pct_datar), 2) if gt_pct_datar else 0.0
+        gt_avg_berbukit = round(sum(gt_pct_berbukit) / len(gt_pct_berbukit), 2) if gt_pct_berbukit else 0.0
+        gt_avg_gelombang = round(sum(gt_pct_gelombang) / len(gt_pct_gelombang), 2) if gt_pct_gelombang else 0.0
+        gt_avg_curam = round(sum(gt_pct_curam) / len(gt_pct_curam), 2) if gt_pct_curam else 0.0
+
+        grand_total_pokok = gt_total_pokok
+        grand_total_luas_tanam = gt_luas_tanam
+
+        areal_statement_response = {
+            "tahun": latest_tahun,
+            "groups": groups,
+            "grand_total": {
+                "count_records": gt_count,
+                "luas_tanam": round(gt_luas_tanam, 2),
+                "luas_tanah": round(gt_luas_tanah, 2),
+                "total_pokok": gt_total_pokok,
+                "sph": gt_sph,
+                "pct_tanah_datar": gt_avg_datar,
+                "pct_berbukit": gt_avg_berbukit,
+                "pct_gelombang": gt_avg_gelombang,
+                "pct_curam": gt_avg_curam
+            }
+        }
+
+    # 4. Query Produksi TBS
     prod_where = ["p.blok_id = :bid"]
     prod_join = ""
 
@@ -839,14 +831,13 @@ def get_blok_detail(
     prod_row = db.execute(text(sql_prod), trx_params).fetchone()
     prod_data = dict(prod_row._mapping) if prod_row else {}
 
-    # Perhitungan KPI Produksi
-    total_pokok_val = grand_total["total_pokok"]
+    # KPI Perhitungan menggunakan data grand_total_pokok
     tbs_act = safe_float(prod_data.get("tbs_aktual"))
     tbs_bgt = safe_float(prod_data.get("tbs_budget"))
     jjg_act = safe_int(prod_data.get("janjang_aktual"))
 
-    kg_pkk = round(tbs_act / total_pokok_val, 2) if total_pokok_val > 0 else 0.0
-    jjg_pkk = round(jjg_act / total_pokok_val, 2) if total_pokok_val > 0 else 0.0
+    kg_pkk = round(tbs_act / grand_total_pokok, 2) if grand_total_pokok > 0 else 0.0
+    jjg_pkk = round(jjg_act / grand_total_pokok, 2) if grand_total_pokok > 0 else 0.0
     gap_tbs = round(tbs_act - tbs_bgt, 2)
 
     if tbs_bgt > 0:
@@ -861,7 +852,7 @@ def get_blok_detail(
         pct_achievement = 0.0
         kategori_yield = "NO TARGET"
 
-    # 5. Query Riwayat Rotasi Pusingan (JOIN ke trx_areal_statement untuk memfilter tahun_tanam & ownership)
+    # 5. Query Riwayat Rotasi Pusingan
     rotasi_where = ["r.blok_id = :bid"]
     rotasi_join = ""
 
@@ -903,7 +894,7 @@ def get_blok_detail(
 
     return {
         "status": "success",
-        "message": f"Detail data blok {blok_id} periode {periode_label} berhasil dimuat.",
+        "message": f"Detail data blok {blok_id} berhasil dimuat.",
         "mode": "LATEST_TAHUN_TANAM" if is_latest_fallback else "SPESIFIK_TAHUN_TANAM",
         "periode": {
             "bulan": None,
