@@ -103,11 +103,8 @@ def get_history_aggregated(
     kode_est: Optional[str] = None,
     kode_afd: Optional[str] = None,
     blok_id: Optional[str] = None,
-<<<<<<< HEAD
     ownership: Optional[str] = None,
-=======
     group_by_fields: Optional[list] = None
->>>>>>> yunita
 ) -> dict:
     """
     Endpoint History Agregasi Dinamis:
