@@ -95,7 +95,54 @@ type HistoryHistoriItem = {
   [key: string]: unknown;
 };
 
+type ArealStatementGroupKeys = {
+  status_tanam?: string | null;
+  bulan_tanam?: string | number | null;
+  tahun_tanam?: number | null;
+  jenis_bibit?: string | null;
+  jenis_topografi?: string | null;
+  jenis_tanah?: string | null;
+  [key: string]: unknown;
+};
+
+type ArealStatementTotals = {
+  count_records?: number | null;
+  luas_tanam?: number | null;
+  luas_tanah?: number | null;
+  total_pokok?: number | null;
+  sph?: number | null;
+  pct_tanah_datar?: number | null;
+  pct_berbukit?: number | null;
+  pct_gelombang?: number | null;
+  pct_curam?: number | null;
+  [key: string]: unknown;
+};
+
+type ArealStatementGroup = {
+  group_keys?: ArealStatementGroupKeys;
+  totals?: ArealStatementTotals;
+};
+
+type ArealStatementMonthItem = {
+  bulan?: string | number | null;
+  tahun?: string | number | null;
+  groups?: ArealStatementGroup[];
+  [key: string]: unknown;
+};
+
+type SpatialHistoryMeta = {
+  table?: string;
+  label?: string;
+  mode_akumulasi?: string;
+  grouped_by_level_1?: string;
+  filter_applied?: Record<string, unknown>;
+  group_by_attributes?: string[];
+  total_records?: number;
+};
+
 type SpatialHistoryResponse = {
+  status?: string;
+  message?: string;
   table?: string;
   label?: string;
   mode_akumulasi?: string;
@@ -103,7 +150,9 @@ type SpatialHistoryResponse = {
   slope_kemiringan_lereng?: Record<string, string>;
   total_periode?: number;
   data_histori?: HistoryHistoriItem[];
-  data?: Array<Record<string, unknown>>;
+  meta?: SpatialHistoryMeta;
+  grand_total?: ArealStatementTotals;
+  data?: Array<Record<string, unknown> | ArealStatementMonthItem>;
 };
 
 function getApiBaseUrl() {

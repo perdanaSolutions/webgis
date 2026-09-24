@@ -360,14 +360,33 @@ function getLatestHistoryRow(): Record<string, unknown> | null {
   }
 
   if (Array.isArray(history.data) && history.data.length > 0) {
-    return history.data[history.data.length - 1] ?? null;
+    const last = history.data[history.data.length - 1];
+    if (last && typeof last === "object" && !("groups" in last)) {
+      return last as Record<string, unknown>;
+    }
   }
 
   return null;
 }
 
+function getHistoryTable(): string {
+  const history = mapStore.historyData;
+  if (!history) return "";
+  return String(history.table || history.meta?.table || "");
+}
+
+const isArealStatement = computed(() => {
+  const history = mapStore.historyData;
+  if (!history) return false;
+  if (getHistoryTable() === "trx_areal_statement") return true;
+  return !!history.grand_total;
+});
+
+const arealGrandTotal = computed(() => mapStore.historyData?.grand_total ?? null);
+
 const blockProfileRows = computed(() => {
   const latest = getLatestHistoryRow();
+  const grand = arealGrandTotal.value;
 
   return [
     { label: "Area", value: getSelectedLabelByKey("area") },
@@ -379,25 +398,39 @@ const blockProfileRows = computed(() => {
     { label: "Tahun Tanam", value: selectedTahun.value || "" },
     {
       label: "Luas Kerangka",
-      value: formatDisplayValue(latest?.luas_tanah),
+      value: formatDisplayValue(grand?.luas_tanah ?? latest?.luas_tanah),
     },
     {
       label: "Luas Tertanam",
-      value: formatDisplayValue(latest?.luas_tanam ?? latest?.luas),
+      value: formatDisplayValue(
+        grand?.luas_tanam ?? latest?.luas_tanam ?? latest?.luas,
+      ),
     },
     {
       label: "Pokok",
-      value: formatDisplayValue(latest?.total_pokok ?? latest?.pokok),
+      value: formatDisplayValue(
+        grand?.total_pokok ?? latest?.total_pokok ?? latest?.pokok,
+      ),
     },
     {
       label: "SPH",
-      value: formatDisplayValue(latest?.sph),
+      value: formatDisplayValue(grand?.sph ?? latest?.sph),
     },
   ];
 });
 
 const historyInfoTitle = computed(
-  () => mapStore.historyData?.label || "Data Informasi",
+  () =>
+    mapStore.historyData?.label ||
+    mapStore.historyData?.meta?.label ||
+    "Data Informasi",
+);
+
+const historyModeAkumulasi = computed(
+  () =>
+    mapStore.historyData?.mode_akumulasi ||
+    mapStore.historyData?.meta?.mode_akumulasi ||
+    "",
 );
 
 const slopeRows = computed(() => {
@@ -410,8 +443,49 @@ const slopeRows = computed(() => {
   }));
 });
 
+const AREAL_GROUP_KEY_LABELS: Record<string, string> = {
+  status_tanam: "Status Tanam",
+  bulan_tanam: "Bulan Tanam",
+  tahun_tanam: "Tahun Tanam",
+  jenis_bibit: "Bibit",
+  jenis_topografi: "Topografi",
+  jenis_tanah: "Jenis Tanah",
+};
+
+const AREAL_TOTAL_METRIC_KEYS = [
+  { key: "luas_tanam", label: "Luas Tanam", unit: "Ha" },
+  { key: "luas_tanah", label: "Luas Tanah", unit: "Ha" },
+  { key: "total_pokok", label: "Total Pokok", unit: "" },
+  { key: "sph", label: "SPH", unit: "" },
+] as const;
+
+const AREAL_TOPO_KEYS = [
+  { key: "pct_tanah_datar", label: "Datar" },
+  { key: "pct_berbukit", label: "Berbukit" },
+  { key: "pct_gelombang", label: "Gelombang" },
+  { key: "pct_curam", label: "Curam" },
+] as const;
+
 function getBulanLabel(bulan: unknown): string {
   if (bulan === null || bulan === undefined || bulan === "") return "";
+
+  const asString = String(bulan).trim();
+  const shortMonthMap: Record<string, string> = {
+    Jan: "Januari",
+    Feb: "Februari",
+    Mar: "Maret",
+    Apr: "April",
+    May: "Mei",
+    Jun: "Juni",
+    Jul: "Juli",
+    Aug: "Agustus",
+    Sep: "September",
+    Oct: "Oktober",
+    Nov: "November",
+    Dec: "Desember",
+  };
+  if (shortMonthMap[asString]) return shortMonthMap[asString];
+
   const match = bulanOptions.find(
     (item) => item.value === String(Number(bulan)),
   );
@@ -441,7 +515,7 @@ function buildMetricItems(row: Record<string, unknown>) {
     ].filter((item) => item.value !== "");
   }
 
-  const excludedKeys = new Set(["tahun", "bulan", "periode"]);
+  const excludedKeys = new Set(["tahun", "bulan", "periode", "groups"]);
   return Object.entries(row)
     .filter(
       ([key, value]) =>
@@ -455,16 +529,120 @@ function buildMetricItems(row: Record<string, unknown>) {
     }));
 }
 
+function buildArealMetricItems(totals: Record<string, unknown> | null | undefined) {
+  if (!totals) return [];
+  return AREAL_TOTAL_METRIC_KEYS.map((item) => ({
+    label: item.label,
+    unit: item.unit,
+    value: formatDisplayValue(totals[item.key]),
+  })).filter((item) => item.value !== "");
+}
+
+function buildArealTopoItems(totals: Record<string, unknown> | null | undefined) {
+  if (!totals) return [];
+  return AREAL_TOPO_KEYS.map((item) => {
+    const raw = totals[item.key];
+    const numeric =
+      typeof raw === "number" ? raw : Number(raw ?? Number.NaN);
+    return {
+      label: item.label,
+      value: formatDisplayValue(raw),
+      percent: Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0,
+    };
+  }).filter((item) => item.value !== "");
+}
+
+function buildArealGroupTags(groupKeys: Record<string, unknown> | null | undefined) {
+  if (!groupKeys) return [];
+  return Object.entries(groupKeys)
+    .filter(([, value]) => value != null && value !== "")
+    .map(([key, value]) => ({
+      key,
+      label: AREAL_GROUP_KEY_LABELS[key] || key.replace(/_/g, " "),
+      value:
+        key === "bulan_tanam"
+          ? getBulanLabel(value) || formatDisplayValue(value)
+          : formatDisplayValue(value),
+    }));
+}
+
+const arealGrandTotalMetrics = computed(() =>
+  buildArealMetricItems(arealGrandTotal.value as Record<string, unknown> | null),
+);
+
+const arealGrandTotalTopo = computed(() =>
+  buildArealTopoItems(arealGrandTotal.value as Record<string, unknown> | null),
+);
+
+const arealStatementPeriods = computed(() => {
+  const history = mapStore.historyData;
+  if (!history || !isArealStatement.value || !Array.isArray(history.data)) {
+    return [];
+  }
+
+  return history.data.map((row, index) => {
+    const item = row as Record<string, unknown>;
+    const groups = Array.isArray(item.groups) ? item.groups : [];
+    const title = getPeriodTitle(item);
+    const yearHint = formatDisplayValue(item.tahun) || selectedTahun.value;
+
+    return {
+      id: `areal-${item.bulan ?? index}-${yearHint}`,
+      title: yearHint && !String(title).includes(yearHint)
+        ? `${title} ${yearHint}`
+        : title,
+      groupCount: groups.length,
+      groups: groups.map((group, groupIndex) => {
+        const g = (group || {}) as {
+          group_keys?: Record<string, unknown>;
+          totals?: Record<string, unknown>;
+        };
+        return {
+          id: `${item.bulan ?? index}-${groupIndex}`,
+          tags: buildArealGroupTags(g.group_keys),
+          metrics: buildArealMetricItems(g.totals),
+          topo: buildArealTopoItems(g.totals),
+          countRecords: formatDisplayValue(g.totals?.count_records),
+        };
+      }),
+    };
+  });
+});
+
+const expandedArealPeriodId = ref<string | null>(null);
+
+watch(
+  arealStatementPeriods,
+  (periods) => {
+    if (!periods.length) {
+      expandedArealPeriodId.value = null;
+      return;
+    }
+    const stillExists = periods.some(
+      (period) => period.id === expandedArealPeriodId.value,
+    );
+    if (!stillExists) {
+      expandedArealPeriodId.value = periods[0]?.id ?? null;
+    }
+  },
+  { immediate: true },
+);
+
+function toggleArealPeriod(periodId: string) {
+  expandedArealPeriodId.value =
+    expandedArealPeriodId.value === periodId ? null : periodId;
+}
+
 const dataInformasiPeriods = computed(() => {
   const history = mapStore.historyData;
-  if (!history) return [];
+  if (!history || isArealStatement.value) return [];
 
   const rows: Array<Record<string, unknown>> = Array.isArray(
     history.data_histori,
   )
     ? (history.data_histori as Array<Record<string, unknown>>)
     : Array.isArray(history.data)
-      ? history.data
+      ? (history.data as Array<Record<string, unknown>>)
       : [];
 
   return rows.map((row, index) => ({
@@ -472,6 +650,16 @@ const dataInformasiPeriods = computed(() => {
     title: getPeriodTitle(row),
     metrics: buildMetricItems(row),
   }));
+});
+
+const hasDataInformasiContent = computed(() => {
+  if (isArealStatement.value) {
+    return (
+      arealGrandTotalMetrics.value.length > 0 ||
+      arealStatementPeriods.value.length > 0
+    );
+  }
+  return slopeRows.value.length > 0 || dataInformasiPeriods.value.length > 0;
 });
 
 const isLoadingHistory = computed(() => mapStore.loadingHistory);
@@ -709,54 +897,24 @@ async function gotoDashboard() {
       </template>
     </aside>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 lg:gap-5 lg:p-5">
-      <section class="space-y-3">
-        <div
-          class="relative h-[65vh] sm:h-[70vh] lg:h-[72vh] min-h-[400px] sm:min-h-[520px] w-full overflow-hidden rounded-2xl border border-map bg-surface shadow-sm transition-all duration-300">
-          <!-- Wrapper untuk MapDashboard agar mengisi penuh area dan ramah perangkat sentuh -->
-          <div class="absolute inset-0 h-full w-full">
-            <MapDashboard class="h-full w-full object-cover" />
-          </div>
-        </div>
-      </section>
-
-      <aside class="space-y-3">
-        <div class="rounded-2xl border border-map-light bg-surface p-4">
-          <h2 class="mb-3 text-16 font-bold text-gray-title">
-            Blok Profile
-          </h2>
-          <div class="space-y-1.5">
-            <div v-for="item in blockProfileRows" :key="item.label"
-              class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
-              <p class="text-14 text-gray-muted">{{ item.label }}</p>
-              <p class="truncate text-14 font-semibold text-gray-darker">
-                {{ item.value || "-" }}
-              </p>
+    <div class="space-y-4 p-4 lg:space-y-5 lg:p-5">
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
+        <section>
+          <div
+            class="relative h-[65vh] sm:h-[70vh] lg:h-[72vh] min-h-[400px] sm:min-h-[520px] w-full overflow-hidden rounded-2xl border border-map bg-surface shadow-sm transition-all duration-300">
+            <div class="absolute inset-0 h-full w-full">
+              <MapDashboard class="h-full w-full object-cover" />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="rounded-2xl border border-map-light bg-surface p-4">
-          <div class="mb-3 flex items-center justify-between gap-2">
-            <h2 class="text-16 font-bold text-gray-title">
-              {{ historyInfoTitle }}
+        <aside>
+          <div class="rounded-2xl border border-map-light bg-surface p-4">
+            <h2 class="mb-3 text-16 font-bold text-gray-title">
+              Blok Profile
             </h2>
-            <span v-if="mapStore.historyData?.mode_akumulasi"
-              class="shrink-0 text-11 font-semibold uppercase tracking-wide text-gray-muted">
-              {{ mapStore.historyData.mode_akumulasi }}
-            </span>
-          </div>
-
-          <p v-if="isLoadingHistory" class="text-14 text-gray-muted">
-            Memuat data informasi...
-          </p>
-
-          <template v-else-if="slopeRows.length || dataInformasiPeriods.length">
-            <div v-if="slopeRows.length" class="mb-4 space-y-1.5">
-              <p class="mb-1 text-11 font-semibold uppercase tracking-wide text-gray-muted">
-                Kemiringan Lereng
-              </p>
-              <div v-for="item in slopeRows" :key="`slope-${item.label}`"
+            <div class="space-y-1.5">
+              <div v-for="item in blockProfileRows" :key="item.label"
                 class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
                 <p class="text-14 text-gray-muted">{{ item.label }}</p>
                 <p class="truncate text-14 font-semibold text-gray-darker">
@@ -764,33 +922,165 @@ async function gotoDashboard() {
                 </p>
               </div>
             </div>
+          </div>
+        </aside>
+      </div>
 
-            <div v-if="dataInformasiPeriods.length" class="data-info-table">
-              <div v-for="period in dataInformasiPeriods" :key="period.id" class="data-info-cell">
-                <p class="mb-2 text-13 font-bold text-gray-title">
-                  {{ period.title }}
+      <section class="rounded-2xl border border-map-light bg-surface p-4">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <h2 class="text-16 font-bold text-gray-title">
+            {{ historyInfoTitle }}
+          </h2>
+          <span v-if="historyModeAkumulasi"
+            class="shrink-0 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+            {{ historyModeAkumulasi }}
+          </span>
+        </div>
+
+        <p v-if="isLoadingHistory" class="text-14 text-gray-muted">
+          Memuat data informasi...
+        </p>
+
+        <template v-else-if="isArealStatement && hasDataInformasiContent">
+          <div v-if="arealGrandTotalMetrics.length" class="mb-4">
+            <p class="mb-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+              Grand Total
+            </p>
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div v-for="metric in arealGrandTotalMetrics" :key="`gt-${metric.label}`"
+                class="rounded-lg border border-map-light bg-[#f8fafc] px-2.5 py-2">
+                <p class="text-11 text-gray-muted">{{ metric.label }}</p>
+                <p class="mt-0.5 text-14 font-bold text-gray-darker">
+                  {{ metric.value }}
+                  <span v-if="metric.unit" class="text-11 font-medium text-gray-muted">
+                    {{ metric.unit }}
+                  </span>
                 </p>
-                <div class="space-y-1">
-                  <div v-for="metric in period.metrics" :key="`${period.id}-${metric.label}`"
-                    class="flex items-baseline justify-between gap-2 text-13">
-                    <span class="text-gray-muted">{{ metric.label }}</span>
-                    <span class="font-semibold text-gray-darker">
-                      {{ metric.value || "-" }}
-                    </span>
+              </div>
+            </div>
+
+            <div v-if="arealGrandTotalTopo.length" class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div v-for="topo in arealGrandTotalTopo" :key="`gt-topo-${topo.label}`" class="space-y-1">
+                <div class="flex items-center justify-between gap-2 text-12">
+                  <span class="text-gray-muted">{{ topo.label }}</span>
+                  <span class="font-semibold text-gray-darker">{{ topo.value }}%</span>
+                </div>
+                <div class="h-1.5 overflow-hidden rounded-full bg-[#e8eef5]">
+                  <div class="h-full rounded-full bg-blue-primary transition-all duration-300"
+                    :style="{ width: `${topo.percent}%` }" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="arealStatementPeriods.length" class="space-y-2">
+            <p class="text-11 font-semibold uppercase tracking-wide text-gray-muted">
+              Rincian per Bulan
+            </p>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div v-for="period in arealStatementPeriods" :key="period.id"
+                class="overflow-hidden rounded-xl border border-map-light">
+                <button type="button"
+                  class="flex w-full items-center justify-between gap-2 bg-[#f8fafc] px-3 py-2.5 text-left hover-bg-hover-slate"
+                  @click="toggleArealPeriod(period.id)">
+                  <div class="min-w-0">
+                    <p class="truncate text-13 font-bold text-gray-title">
+                      {{ period.title }}
+                    </p>
+                    <p class="text-11 text-gray-muted">
+                      {{ period.groupCount }} kelompok
+                    </p>
                   </div>
-                  <p v-if="!period.metrics.length" class="text-13 text-gray-muted">
-                    Tidak ada data
+                  <span class="shrink-0 text-12 text-gray-muted">
+                    {{ expandedArealPeriodId === period.id ? "▴" : "▾" }}
+                  </span>
+                </button>
+
+                <div v-if="expandedArealPeriodId === period.id" class="space-y-2 border-t border-map-light p-2.5">
+                  <div v-for="group in period.groups" :key="group.id"
+                    class="rounded-lg border border-map-light bg-surface p-2.5">
+                    <div class="mb-2 flex flex-wrap items-center gap-1.5">
+                      <span v-for="tag in group.tags" :key="`${group.id}-${tag.key}`"
+                        class="inline-flex max-w-full items-center gap-1 rounded-md border border-slate-light bg-[#f8fafc] px-1.5 py-0.5 text-11 text-gray-darker">
+                        <span class="text-gray-muted">{{ tag.label }}</span>
+                        <span class="truncate font-semibold">{{ tag.value }}</span>
+                      </span>
+                      <span v-if="group.countRecords"
+                        class="ml-auto text-11 font-medium text-gray-muted">
+                        {{ group.countRecords }} rekaman
+                      </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                      <div v-for="metric in group.metrics" :key="`${group.id}-${metric.label}`">
+                        <p class="text-11 text-gray-muted">{{ metric.label }}</p>
+                        <p class="text-13 font-semibold text-gray-darker">
+                          {{ metric.value || "-" }}
+                          <span v-if="metric.unit" class="text-11 font-medium text-gray-muted">
+                            {{ metric.unit }}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div v-if="group.topo.length" class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                      <div v-for="topo in group.topo" :key="`${group.id}-topo-${topo.label}`"
+                        class="flex items-baseline justify-between gap-1 text-11">
+                        <span class="text-gray-muted">{{ topo.label }}</span>
+                        <span class="font-semibold text-gray-darker">{{ topo.value }}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p v-if="!period.groups.length" class="px-1 py-2 text-13 text-gray-muted">
+                    Tidak ada kelompok data
                   </p>
                 </div>
               </div>
             </div>
-          </template>
+          </div>
+        </template>
 
-          <p v-else class="text-14 text-gray-muted">
-            Belum ada data
-          </p>
-        </div>
-      </aside>
+        <template v-else-if="hasDataInformasiContent">
+          <div v-if="slopeRows.length" class="mb-4 space-y-1.5">
+            <p class="mb-1 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+              Kemiringan Lereng
+            </p>
+            <div v-for="item in slopeRows" :key="`slope-${item.label}`"
+              class="grid grid-cols-[120px_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd-bg-hover-slate">
+              <p class="text-14 text-gray-muted">{{ item.label }}</p>
+              <p class="truncate text-14 font-semibold text-gray-darker">
+                {{ item.value || "-" }}
+              </p>
+            </div>
+          </div>
+
+          <div v-if="dataInformasiPeriods.length" class="data-info-table">
+            <div v-for="period in dataInformasiPeriods" :key="period.id" class="data-info-cell">
+              <p class="mb-2 text-13 font-bold text-gray-title">
+                {{ period.title }}
+              </p>
+              <div class="space-y-1">
+                <div v-for="metric in period.metrics" :key="`${period.id}-${metric.label}`"
+                  class="flex items-baseline justify-between gap-2 text-13">
+                  <span class="text-gray-muted">{{ metric.label }}</span>
+                  <span class="font-semibold text-gray-darker">
+                    {{ metric.value || "-" }}
+                  </span>
+                </div>
+                <p v-if="!period.metrics.length" class="text-13 text-gray-muted">
+                  Tidak ada data
+                </p>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <p v-else class="text-14 text-gray-muted">
+          Belum ada data
+        </p>
+      </section>
     </div>
   </main>
 </template>
