@@ -5,7 +5,13 @@ import 'leaflet/dist/leaflet.css'
 import { useMapStore } from '~/stores/mapStore'
 import {
   buildBlokPopupHtml,
+  buildBlokPopupSkeletonHtml,
+  getBulanPopupLabel,
+  getCurrentPopupPeriod,
+  normalizeBlokDetailResponse,
   normalizeBlokPopupData,
+  type BlokDetailResponse,
+  type BlokPopupData,
 } from '~/utils/mapBlokPopup'
 
 type LeafletModule = typeof import('leaflet')
@@ -16,6 +22,13 @@ type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<stri
 type Feature = GeoJSON.Feature<GeoJSON.Geometry, Record<string, any>>
 type FeatureProperties = Record<string, string | number | null | undefined>
 
+type PopupCacheEntry = {
+  detail: BlokDetailResponse
+  bulan: string
+  tahun: string
+  popupData: BlokPopupData
+}
+
 const mapStore = useMapStore()
 
 const mapContainer = shallowRef<HTMLElement | null>(null)
@@ -23,6 +36,10 @@ const map = shallowRef<LeafletMap | null>(null)
 const geoJsonLayer = shallowRef<LeafletGeoJson | null>(null)
 const isMapReady = shallowRef(false)
 const isLayerUpdating = shallowRef(false)
+const leafletModule = shallowRef<LeafletModule | null>(null)
+
+const popupCacheByBlokId = new Map<string, PopupCacheEntry>()
+const loadSequenceByBlokId = new Map<string, number>()
 
 const defaultCenter: [number, number] = [-6.2088, 106.8456]
 const defaultZoom = 6
@@ -76,23 +93,220 @@ function getRenderableFeatureCollection(): FeatureCollection {
   }
 }
 
-function buildPopupContent(
-  feature: Feature,
-  overrides?: { bulan?: string; tahun?: string },
-  loading = false,
-) {
+function getFeatureBlokId(feature: Feature) {
+  const properties = (feature.properties ?? {}) as FeatureProperties
+  return String(properties.blok_id ?? properties.global_id ?? '').trim()
+}
+
+function getFeatureKodeBlok(feature: Feature) {
+  const properties = (feature.properties ?? {}) as FeatureProperties
+  return String(properties.kode_blok ?? '').trim()
+}
+
+function getErrorStatus(error: unknown): number | null {
+  const err = error as {
+    statusCode?: number
+    status?: number
+    response?: { status?: number }
+  }
+
+  return err?.statusCode ?? err?.status ?? err?.response?.status ?? null
+}
+
+function buildInitialPopupContent(feature: Feature) {
+  const period = getCurrentPopupPeriod()
   const popupData = normalizeBlokPopupData(
     (feature.properties ?? {}) as FeatureProperties,
     mapStore.getPopupHierarchyLabels(),
-    overrides,
+    period,
   )
 
-  return buildBlokPopupHtml(popupData, { loading })
+  return buildBlokPopupHtml(popupData)
+}
+
+function getLayerPopup(layer: LeafletLayer) {
+  return (layer as any).getPopup?.() as import('leaflet').Popup | undefined
 }
 
 function getPopupElement(layer: LeafletLayer) {
-  const popup = (layer as any).getPopup?.()
-  return popup?.getElement?.() as HTMLElement | undefined
+  return getLayerPopup(layer)?.getElement?.() as HTMLElement | undefined
+}
+
+function protectPopupInteractions(layer: LeafletLayer) {
+  const popupElement = getPopupElement(layer)
+  const L = leafletModule.value
+  if (!popupElement || !L)
+    return
+
+  L.DomEvent.disableClickPropagation(popupElement)
+  L.DomEvent.disableScrollPropagation(popupElement)
+}
+
+function setPopupHtml(layer: LeafletLayer, html: string) {
+  const popup = getLayerPopup(layer)
+  if (!popup)
+    return
+
+  popup.setContent(html)
+  popup.update()
+
+  // Pastikan popup tetap terbuka setelah konten diganti (hindari close karena click-through)
+  if (map.value && !popup.isOpen()) {
+    layer.openPopup()
+  }
+
+  protectPopupInteractions(layer)
+}
+
+function setPopupLoading(
+  layer: LeafletLayer,
+  feature: Feature,
+  bulan: string,
+  tahun: string,
+) {
+  const skeletonHtml = buildBlokPopupSkeletonHtml({
+    bulan,
+    tahun,
+    blokId: getFeatureBlokId(feature),
+    kodeBlok: getFeatureKodeBlok(feature),
+  })
+
+  setPopupHtml(layer, skeletonHtml)
+}
+
+function renderPopupFromDetail(
+  layer: LeafletLayer,
+  feature: Feature,
+  detail: BlokDetailResponse | null,
+  bulan: string,
+  tahun: string,
+  errorMessage?: string,
+) {
+  const hierarchy = mapStore.getPopupHierarchyLabels()
+  const popupData = detail
+    ? normalizeBlokDetailResponse(detail, hierarchy, { bulan, tahun })
+    : normalizeBlokPopupData(
+      (feature.properties ?? {}) as FeatureProperties,
+      hierarchy,
+      { bulan, tahun },
+    )
+
+  const nextHtml = buildBlokPopupHtml(popupData, { errorMessage })
+  setPopupHtml(layer, nextHtml)
+  attachPopupHandlers(layer, feature)
+
+  return popupData
+}
+
+function restoreCachedPopup(
+  layer: LeafletLayer,
+  feature: Feature,
+  cache: PopupCacheEntry,
+  errorMessage: string,
+) {
+  const nextHtml = buildBlokPopupHtml(cache.popupData, { errorMessage })
+  setPopupHtml(layer, nextHtml)
+  attachPopupHandlers(layer, feature)
+}
+
+async function loadBlokDetail(
+  layer: LeafletLayer,
+  feature: Feature,
+  bulan: string,
+  tahun: string,
+  options?: { keepPreviousOn404?: boolean },
+) {
+  const blokId = getFeatureBlokId(feature)
+  if (!blokId) {
+    renderPopupFromDetail(
+      layer,
+      feature,
+      null,
+      bulan,
+      tahun,
+      'blok_id tidak ditemukan pada data peta.',
+    )
+    return
+  }
+
+  const nextSequence = (loadSequenceByBlokId.get(blokId) ?? 0) + 1
+  loadSequenceByBlokId.set(blokId, nextSequence)
+
+  const previousCache = popupCacheByBlokId.get(blokId)
+  setPopupLoading(layer, feature, bulan, tahun)
+
+  try {
+    const detail = await mapStore.fetchBlokPopupData({
+      blokId,
+      bulan,
+      tahun,
+    }) as BlokDetailResponse | null
+
+    if (loadSequenceByBlokId.get(blokId) !== nextSequence)
+      return
+
+    const popupData = renderPopupFromDetail(
+      layer,
+      feature,
+      detail,
+      bulan,
+      tahun,
+    )
+
+    if (detail) {
+      popupCacheByBlokId.set(blokId, {
+        detail,
+        bulan,
+        tahun,
+        popupData,
+      })
+    }
+  }
+  catch (error) {
+    if (loadSequenceByBlokId.get(blokId) !== nextSequence)
+      return
+
+    const status = getErrorStatus(error)
+    const keepPrevious = options?.keepPreviousOn404 !== false
+
+    if (status === 404 && keepPrevious && previousCache) {
+      const alertMessage = `Data filter ${getBulanPopupLabel(bulan)} ${tahun} tidak tersedia.`
+      restoreCachedPopup(layer, feature, previousCache, alertMessage)
+      // window.alert(alertMessage)
+      return
+    }
+
+    if (status === 404) {
+      renderPopupFromDetail(
+        layer,
+        feature,
+        null,
+        bulan,
+        tahun,
+        `Data filter ${getBulanPopupLabel(bulan)} ${tahun} tidak tersedia.`,
+      )
+      return
+    }
+
+    if (previousCache && options?.keepPreviousOn404) {
+      restoreCachedPopup(
+        layer,
+        feature,
+        previousCache,
+        'Gagal memuat detail blok. Data sebelumnya tetap ditampilkan.',
+      )
+      return
+    }
+
+    renderPopupFromDetail(
+      layer,
+      feature,
+      null,
+      bulan,
+      tahun,
+      'Gagal memuat detail blok. Coba lagi.',
+    )
+  }
 }
 
 async function handlePopupApply(layer: LeafletLayer, feature: Feature) {
@@ -102,44 +316,21 @@ async function handlePopupApply(layer: LeafletLayer, feature: Feature) {
 
   const bulanSelect = popupElement.querySelector('[data-popup-bulan]') as HTMLSelectElement | null
   const tahunSelect = popupElement.querySelector('[data-popup-tahun]') as HTMLSelectElement | null
-  const applyButton = popupElement.querySelector('[data-popup-apply]') as HTMLButtonElement | null
 
-  if (!bulanSelect || !tahunSelect || !applyButton)
+  if (!bulanSelect || !tahunSelect)
     return
 
-  const bulan = bulanSelect.value
-  const tahun = tahunSelect.value
-  const properties = (feature.properties ?? {}) as FeatureProperties
-  const kodeBlok = String(properties.kode_blok ?? '')
-
-  applyButton.disabled = true
-  applyButton.textContent = 'Memuat...'
-
-  try {
-    const updatedFeature = await mapStore.fetchBlokPopupData({
-      kodePt: mapStore.selectedPt || undefined,
-      kodeEst: mapStore.selectedEstate || undefined,
-      kodeAfd: mapStore.selectedAfdeling || undefined,
-      kodeBlok,
-      bulan,
-      tahun,
-    })
-
-    const nextFeature = updatedFeature ?? feature
-    const nextHtml = buildPopupContent(nextFeature, { bulan, tahun })
-
-    ;(layer as any).setPopupContent?.(nextHtml)
-    attachPopupApplyHandler(layer, nextFeature as Feature)
-  } catch {
-    applyButton.disabled = false
-    applyButton.textContent = 'Apply'
-  }
+  await loadBlokDetail(layer, feature, bulanSelect.value, tahunSelect.value, {
+    keepPreviousOn404: true,
+  })
 }
 
-function attachPopupApplyHandler(layer: LeafletLayer, feature: Feature) {
+function attachPopupHandlers(layer: LeafletLayer, feature: Feature) {
   const popupElement = getPopupElement(layer)
   if (!popupElement)
     return
+
+  protectPopupInteractions(layer)
 
   const applyButton = popupElement.querySelector('[data-popup-apply]') as HTMLButtonElement | null
   if (!applyButton)
@@ -148,16 +339,35 @@ function attachPopupApplyHandler(layer: LeafletLayer, feature: Feature) {
   const clonedButton = applyButton.cloneNode(true) as HTMLButtonElement
   applyButton.replaceWith(clonedButton)
 
-  clonedButton.addEventListener('click', () => {
-    void handlePopupApply(layer, feature)
+  const onApply = (event: Event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (typeof (event as any).stopImmediatePropagation === 'function') {
+      ; (event as any).stopImmediatePropagation()
+    }
+
+    // Defer ganti konten supaya click tidak "jatuh" ke map dan menutup popup
+    window.setTimeout(() => {
+      void handlePopupApply(layer, feature)
+    }, 0)
+  }
+
+  clonedButton.addEventListener('mousedown', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
   })
+  clonedButton.addEventListener('click', onApply)
 }
 
 function bindPopupInteractions(layer: LeafletLayer, feature: Feature) {
   layer.off('popupopen')
 
   layer.on('popupopen', () => {
-    attachPopupApplyHandler(layer, feature)
+    protectPopupInteractions(layer)
+    const period = getCurrentPopupPeriod()
+    void loadBlokDetail(layer, feature, period.bulan, period.tahun, {
+      keepPreviousOn404: false,
+    })
   })
 }
 
@@ -189,12 +399,14 @@ function updateGeoJSONLayer(L: LeafletModule) {
     const layer = L.geoJSON(featureCollection, {
       style: (feature) => resolveFeatureStyle(feature as Feature),
       onEachFeature: (feature, leafletLayer) => {
-        const popupHtml = buildPopupContent(feature as Feature)
+        const popupHtml = buildInitialPopupContent(feature as Feature)
         leafletLayer.bindPopup(popupHtml, {
           maxWidth: 340,
           minWidth: 320,
           autoPanPadding: [24, 24],
           className: 'map-blok-popup-wrapper',
+          closeOnClick: false,
+          autoClose: true,
         })
         bindPopupInteractions(leafletLayer, feature as Feature)
       },
@@ -210,21 +422,26 @@ function updateGeoJSONLayer(L: LeafletModule) {
         padding: [32, 32],
         maxZoom: 16,
       })
-    } else {
+    }
+    else {
       map.value.setView(defaultCenter, defaultZoom)
     }
-  } finally {
+  }
+  finally {
     isLayerUpdating.value = false
   }
 }
 
 async function initializeMap() {
   const L = await import('leaflet')
+  leafletModule.value = L
 
   if (!mapContainer.value)
     return
 
-  map.value = L.map(mapContainer.value).setView(defaultCenter, defaultZoom)
+  map.value = L.map(mapContainer.value, {
+    closePopupOnClick: false,
+  }).setView(defaultCenter, defaultZoom)
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
@@ -260,6 +477,8 @@ onBeforeUnmount(() => {
   }
 
   isMapReady.value = false
+  popupCacheByBlokId.clear()
+  loadSequenceByBlokId.clear()
 })
 
 watch(
@@ -268,7 +487,8 @@ watch(
     if (!isMapReady.value)
       return
 
-    const L = await import('leaflet')
+    const L = leafletModule.value ?? await import('leaflet')
+    leafletModule.value = L
     updateGeoJSONLayer(L)
   },
   { deep: true },
@@ -279,19 +499,17 @@ watch(
   <div class="relative h-full w-full">
     <div ref="mapContainer" class="h-full w-full" />
 
-    <div
-      v-if="mapStore.loadingGeoJSON"
-      class="absolute inset-0 z-[1100] flex items-center justify-center bg-white/70 backdrop-blur-[1px]"
-    >
-      <div class="flex flex-col items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-lg">
-        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-[#2B7FFF] border-t-transparent" />
-        <p class="text-[13px] font-medium text-[#334155]">
+    <div v-if="mapStore.loadingGeoJSON"
+      class="absolute inset-0 z-[1100] flex items-center justify-center bg-surface-70 backdrop-blur-[1px]">
+      <div class="flex flex-col items-center gap-3 rounded-xl bg-surface px-5 py-4 shadow-lg">
+        <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-primary border-t-transparent" />
+        <p class="text-13 font-medium text-slate">
           Memuat data peta...
         </p>
       </div>
     </div>
 
-    <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-white/90 px-3 py-2 text-sm shadow-md">
+    <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-surface-90 px-3 py-2 text-size-sm shadow-md">
       Menampilkan <strong>{{ featureCount }}</strong> blok
     </div>
   </div>
@@ -315,5 +533,15 @@ watch(
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip {
   background: #fff;
+}
+
+@keyframes map-blok-skeleton-shine {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 </style>

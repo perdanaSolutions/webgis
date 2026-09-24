@@ -19,11 +19,21 @@ dimaksudkan untuk endpoint ini.
 ===========================================================================
 """
 from collections import defaultdict
-from typing import Optional
+from decimal import Decimal
+from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+
+def _json_safe(value: Any):
+    """Konversi nilai DB (Decimal, dll) agar aman untuk json.dumps."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 # Whitelist tabel yang boleh diakses lewat endpoint history generik, plus
 # daftar kolom yang boleh di-SELECT (juga whitelist -- bukan "SELECT *")
@@ -57,6 +67,14 @@ HISTORY_TABLE_REGISTRY = {
         "order_by": "tanggal",
     },
 }
+
+
+def list_history_tables() -> list:
+    """Daftar tabel/tema yang boleh dipakai di GET /history (untuk dropdown FE)."""
+    return [
+        {"table": table, "label": config["label"]}
+        for table, config in HISTORY_TABLE_REGISTRY.items()
+    ]
 
 
 # def get_history(db: Session, table: str, tahun: int, blok_id: Optional[str] = None) -> dict:
@@ -103,6 +121,7 @@ def get_history_aggregated(
     kode_est: Optional[str] = None,
     kode_afd: Optional[str] = None,
     blok_id: Optional[str] = None,
+    ownership: Optional[str] = None,
     group_by_fields: Optional[list] = None
 ) -> dict:
     """
@@ -136,7 +155,8 @@ def get_history_aggregated(
         params["tahun"] = tahun
 
     if blok_id:
-        where_conditions.append("b.blok_id = :blok_id")
+        # FE bisa kirim blok_id penuh ATAU kode_blok pendek (mis. D051)
+        where_conditions.append("(b.blok_id = :blok_id OR b.kode_blok = :blok_id)")
         params["blok_id"] = blok_id
     elif kode_afd:
         where_conditions.append("af.kode_afd = :kode_afd")
@@ -151,6 +171,11 @@ def get_history_aggregated(
         where_conditions.append("p.area_id = :area_id")
         params["area_id"] = area_id
 
+    if ownership:
+        # Skema v2: kolom di tabel blok bernama tipe_blok (bukan ownership)
+        where_conditions.append("LOWER(TRIM(b.tipe_blok)) = LOWER(TRIM(:ownership))")
+        params["ownership"] = ownership
+
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     join_clause = " ".join(joins)
     group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
@@ -163,7 +188,8 @@ def get_history_aggregated(
         "kode_pt": kode_pt,
         "kode_est": kode_est,
         "kode_afd": kode_afd,
-        "blok_id": blok_id
+        "blok_id": blok_id,
+        "ownership": ownership,
     }
 
     # =========================================================================
@@ -962,8 +988,10 @@ def fetch_trx_summary_by_blok(db: Session, blok_ids: list, bulan: Optional[int],
     ).fetchall()
     for r in areal_rows:
         summary[r.blok_id]["areal_statement"] = {
-            "luas_tanam": r.luas_tanam, "luas_tanah": r.luas_tanah,
-            "total_pokok": r.total_pokok, "sph": r.sph,
+            "luas_tanam": _json_safe(r.luas_tanam),
+            "luas_tanah": _json_safe(r.luas_tanah),
+            "total_pokok": _json_safe(r.total_pokok),
+            "sph": _json_safe(r.sph),
         }
 
     produksi_rows = db.execute(
@@ -976,8 +1004,10 @@ def fetch_trx_summary_by_blok(db: Session, blok_ids: list, bulan: Optional[int],
     ).fetchall()
     for r in produksi_rows:
         summary[r.blok_id]["produksi_tbs"] = {
-            "tbs_aktual": r.tbs_aktual, "tbs_budget": r.tbs_budget,
-            "janjang_aktual": r.janjang_aktual, "bjr_aktual": r.bjr_aktual,
+            "tbs_aktual": _json_safe(r.tbs_aktual),
+            "tbs_budget": _json_safe(r.tbs_budget),
+            "janjang_aktual": _json_safe(r.janjang_aktual),
+            "bjr_aktual": _json_safe(r.bjr_aktual),
         }
 
     # DISTINCT ON (Postgres) -- ambil 1 baris rotasi TERAKHIR (tanggal

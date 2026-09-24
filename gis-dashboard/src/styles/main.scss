@@ -1,3 +1,4 @@
 .select-custom {
-  @apply border border-[#EEE6DE] rounded-xl h-[50px];
+  @apply border rounded-xl h-[50px];
+  border-color: var(--color-border-default);
 }

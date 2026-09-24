@@ -105,12 +105,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="border-b border-[#ECE8E3] bg-white">
+  <header class="border-b border-header bg-surface">
     <div
       class="mx-auto flex flex-wrap items-start justify-between gap-3 px-4 py-3 sm:items-center sm:px-6 sm:py-4 lg:px-10">
       <div class="min-w-0 flex items-center gap-2 sm:gap-3">
         <button @click.stop="toggleSidebar"
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#E8DFD5] bg-white text-[#4D392A] transition hover:bg-[#FFF8F2] sm:h-11 sm:w-11"
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream sm:h-11 sm:w-11"
           aria-label="Buka Sidebar">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
             stroke="currentColor">
@@ -119,14 +119,14 @@ onUnmounted(() => {
         </button>
 
         <div
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E8DFD5] sm:h-14 sm:w-14">
-          <div class="h-8 w-8 rounded-full border-4 border-[#D99B47] border-t-[#4A7B3F] sm:h-10 sm:w-10" />
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-header-soft sm:h-14 sm:w-14">
+          <div class="h-8 w-8 rounded-full border-4 border-gold border-t-green-accent sm:h-10 sm:w-10" />
         </div>
         <div class="min-w-0">
-          <h1 class="truncate text-[16px] font-bold leading-tight sm:text-[20px]">
+          <h1 class="truncate text-16 font-bold leading-tight sm:text-20">
             {{ props.brandTitle }}
           </h1>
-          <p class="truncate text-[12px] text-[#8E8A86] sm:text-[14px]">
+          <p class="truncate text-12 text-muted-light sm:text-14">
             {{ props.brandSubtitle }}
           </p>
         </div>
@@ -134,7 +134,7 @@ onUnmounted(() => {
 
       <div class="ml-auto flex items-center gap-2 sm:gap-3">
         <button
-          class="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFF1E9] text-[#4D392A] sm:h-12 sm:w-12">
+          class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand sm:h-12 sm:w-12">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
             stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -144,7 +144,7 @@ onUnmounted(() => {
 
         <!-- <div class="quick-menu-container relative">
           <button @click.stop="toggleQuickMenu"
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFF1E9] text-[#4D392A] transition hover:bg-[#FDE7D7] sm:h-12 sm:w-12"
+            class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover sm:h-12 sm:w-12"
             aria-label="Quick Menu">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
               stroke="currentColor">
@@ -153,27 +153,27 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isQuickMenuOpen"
-            class="fixed inset-x-4 top-30 z-[1500] rounded-2xl border border-[#EEE6DE] bg-white p-3 shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[500px] sm:max-w-[90vw]">
-            <p class="mb-3 px-2 text-[14px] font-bold text-[#4D392A]">
+            class="fixed inset-x-4 top-30 z-[1500] rounded-2xl border border-default bg-surface p-3 shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[500px] sm:max-w-[90vw]">
+            <p class="mb-3 px-2 text-14 font-bold text-brand">
               Quick Menu
             </p>
 
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button v-for="item in dashboardService.moduleItems" :key="`quick-menu-${item.title}`"
                 @click="navigateTo(item.to); closeQuickMenu()"
-                class="flex items-center gap-3 rounded-xl border border-[#F2ECE6] px-3 py-2.5 text-left transition hover:bg-[#FFF8F2]">
+                class="flex items-center gap-3 rounded-xl border border-menu px-3 py-2.5 text-left transition hover-bg-cream">
                 <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" :class="item.bgClass">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-on-brand" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
                       :d="dashboardService.iconPath(item.icon)" />
                   </svg>
                 </div>
                 <div class="min-w-0">
-                  <p class="truncate text-[13px] font-bold text-[#4D392A]">
+                  <p class="truncate text-13 font-bold text-brand">
                     {{ item.title }}
                   </p>
-                  <p class="line-clamp-1 text-[12px] text-[#8E8A86]">
+                  <p class="line-clamp-1 text-12 text-muted-light">
                     {{ item.description }}
                   </p>
                 </div>
@@ -184,38 +184,38 @@ onUnmounted(() => {
 
         <div class="profile-dropdown-container relative">
           <button @click="toggleMenu"
-            class="flex items-center gap-2 rounded-2xl border border-[#EEE6DE] bg-[#FFF8F2] px-2.5 py-2 transition-all hover:bg-[#FDF3E7] focus:outline-none sm:gap-3 sm:px-3">
-            <div class="h-9 w-9 overflow-hidden rounded-lg bg-[#D0B59A] sm:h-11 sm:w-11" />
+            class="flex items-center gap-2 rounded-2xl border border-default bg-cream px-2.5 py-2 transition-all hover-bg-cream-hover focus:outline-none sm:gap-3 sm:px-3">
+            <div class="h-9 w-9 overflow-hidden rounded-lg bg-avatar sm:h-11 sm:w-11" />
             <div class="hidden text-left sm:block">
-              <p class="text-[16px] font-bold leading-tight text-[#4D392A]">
+              <p class="text-16 font-bold leading-tight text-brand">
                 {{ displayProfileName }}
               </p>
-              <p class="text-[14px] text-[#6F645B]">
+              <p class="text-14 text-label">
                 {{ displayProfileRole }}
               </p>
             </div>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-[#6F645B] transition-transform duration-200"
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-label transition-transform duration-200"
               :class="{ 'rotate-180': isMenuOpen }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
 
           <div v-if="isMenuOpen"
-            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-[#EEE6DE] bg-white p-2 shadow-xl z-[1500] animate-fade-in">
+            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl z-[1500] animate-fade-in">
             <button v-for="(item, index) in menuItems" :key="index" @click="item.action(); closeMenu();"
-              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[#FFF8F2] group">
+              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream group">
               <div
-                class="flex h-9 w-9 items-center justify-center rounded-lg bg-[#FFF1E9] text-[#4D392A] group-hover:bg-[#D99B47] group-hover:text-white transition-colors">
+                class="flex h-9 w-9 items-center justify-center rounded-lg bg-peach text-brand group-hover-bg-gold group-hover-text-on-brand transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                   stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" :d="item.icon" />
                 </svg>
               </div>
               <div>
-                <p class="text-[14px] font-bold text-[#4D392A] group-hover:text-[#D99B47]">
+                <p class="text-14 font-bold text-brand group-hover-text-gold">
                   {{ item.label }}
                 </p>
-                <p class="text-[12px] text-[#8E8A86]">
+                <p class="text-12 text-muted-light">
                   {{ item.info }}
                 </p>
               </div>
@@ -224,79 +224,106 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <div v-if="isSidebarOpen" class="fixed inset-0 z-[1590] bg-black/40" @click="closeSidebar" />
+    <div v-if="isSidebarOpen" class="fixed inset-0 z-[1590] bg-overlay" @click="closeSidebar" />
 
     <aside
-      class="fixed left-0 top-0 z-[1600] h-full w-[300px] max-w-[85vw] transform border-r border-[#EEE6DE] bg-white shadow-2xl transition-transform duration-300"
+      class="fixed left-0 top-0 z-[1600] flex h-full w-[320px] max-w-[88vw] transform flex-col border-r border-default bg-surface shadow-2xl transition-transform duration-300"
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
-      <div class="flex items-center justify-between border-b border-[#F2ECE6] px-4 py-4">
-        <h3 class="text-[16px] font-bold text-[#4D392A]">
-          Menu Modul
-        </h3>
-        <button @click="closeSidebar" class="rounded-full p-2 text-[#6F645B] hover:bg-[#F7F2EC]"
-          aria-label="Tutup Sidebar">
-          ✕
-        </button>
+      <div class="border-b border-menu bg-surface-warm px-4 py-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-11 font-semibold uppercase tracking-wide text-label">
+              Navigasi
+            </p>
+            <h3 class="truncate text-16 font-bold text-brand">
+              Menu Modul
+            </h3>
+          </div>
+          <button @click="closeSidebar"
+            class="flex h-9 w-9 items-center justify-center rounded-full border border-menu bg-surface text-label transition hover-bg-cream"
+            aria-label="Tutup Sidebar">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+              stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div class="space-y-2 p-3">
-        <button @click="navigateTo('/dashboard'); closeSidebar()"
-          class="flex w-full items-center gap-3 rounded-xl border border-[#F2ECE6] px-3 py-2.5 text-left transition hover:bg-[#FFF8F2]">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4D392A]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
-            </svg>
-          </div>
-          <div class="min-w-0">
-            <p class="truncate text-[14px] font-bold text-[#4D392A]">
-              Dashboard
-            </p>
-            <p class="line-clamp-1 text-[12px] text-[#8E8A86]">
-              Halaman utama dashboard
-            </p>
-          </div>
-        </button>
+      <div class="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        <section>
+          <p class="mb-2 px-2 text-11 font-semibold uppercase tracking-wide text-label">
+            Pintasan
+          </p>
+          <div class="space-y-1">
+            <button @click="navigateTo('/dashboard'); closeSidebar()"
+              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-on-brand" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                    d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="truncate text-13 font-bold text-brand">
+                  Dashboard
+                </p>
+                <p class="line-clamp-1 text-11 text-muted-light">
+                  Halaman utama
+                </p>
+              </div>
+            </button>
 
-        <button v-if="informasiUser?.role === 'superadmin'" @click="navigateTo('/menus'); closeSidebar()"
-          class="flex w-full items-center gap-3 rounded-xl border border-[#F2ECE6] px-3 py-2.5 text-left transition hover:bg-[#FFF8F2]">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                d="M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7" />
-            </svg>
+            <button v-if="informasiUser?.role === 'superadmin'" @click="navigateTo('/menus'); closeSidebar()"
+              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-menu-blue-light">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-menu-blue" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                    d="M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="truncate text-13 font-bold text-brand">
+                  Management Menu
+                </p>
+                <p class="line-clamp-1 text-11 text-muted-light">
+                  Kelola struktur menu
+                </p>
+              </div>
+            </button>
           </div>
-          <div class="min-w-0">
-            <p class="truncate text-[14px] font-bold text-[#4D392A]">
-              Management Menu
-            </p>
-            <p class="line-clamp-1 text-[12px] text-[#8E8A86]">
-              Kelola menu modul dashboard
-            </p>
-          </div>
-        </button>
+        </section>
 
-        <button v-for="item in dashboardService.moduleItems" :key="`sidebar-menu-${item.title}`"
-          @click="navigateTo(item.to); closeSidebar()"
-          class="flex w-full items-center gap-3 rounded-xl border border-[#F2ECE6] px-3 py-2.5 text-left transition hover:bg-[#FFF8F2]">
-          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" :class="item.bgClass">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="item.iconClass" fill="none"
-              viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                :d="dashboardService.iconPath(item.icon)" />
-            </svg>
-          </div>
-          <div class="min-w-0">
-            <p class="truncate text-[14px] font-bold text-[#4D392A]">
-              {{ item.title }}
+        <section>
+          <div class="mb-2 flex items-center justify-between px-2">
+            <p class="text-11 font-semibold uppercase tracking-wide text-label">
+              Modul
             </p>
-            <p class="line-clamp-1 text-[12px] text-[#8E8A86]">
-              {{ item.description }}
-            </p>
+            <span class="rounded-full bg-surface-warm px-2 py-0.5 text-11 font-semibold text-label">
+              {{ dashboardService.moduleItems.length }}
+            </span>
           </div>
-        </button>
+
+          <div v-if="dashboardService.loading" class="space-y-2 px-1">
+            <div v-for="i in 4" :key="`sidebar-skel-${i}`"
+              class="flex items-center gap-3 rounded-xl px-2.5 py-2.5 animate-pulse">
+              <div class="h-9 w-9 rounded-lg bg-slate-muted" />
+              <div class="min-w-0 flex-1 space-y-2">
+                <div class="h-3 w-2/3 rounded bg-slate-muted" />
+                <div class="h-2.5 w-full rounded bg-slate-muted" />
+              </div>
+            </div>
+          </div>
+
+          <MenuSidebarNode v-else-if="dashboardService.moduleItems.length"
+            :items="dashboardService.moduleItems" @navigate="closeSidebar" />
+
+          <p v-else class="rounded-xl bg-surface-warm px-3 py-4 text-center text-12 text-muted">
+            Belum ada modul yang tersedia.
+          </p>
+        </section>
       </div>
     </aside>
   </header>

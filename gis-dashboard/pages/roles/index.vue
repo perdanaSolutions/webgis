@@ -208,8 +208,8 @@ async function fillForm(role) {
 
   Object.assign(form, result);
 
-  form.nama = role.nama ?? "";
-  form.deskripsi = role.deskripsi ?? "";
+  form.nama = String(role.nama ?? "").toUpperCase();
+  form.deskripsi = String(role.deskripsi ?? "").toUpperCase();
   activePermissionTab.value = "menu";
 
   form.menu_ids = (existingAkses?.menu ?? [])
@@ -252,6 +252,9 @@ function closeFormModal() {
 }
 
 async function submitForm() {
+  form.nama = String(form.nama ?? "").toUpperCase();
+  form.deskripsi = String(form.deskripsi ?? "").toUpperCase();
+
   if (formMode.value === "create") {
     await manageRoleStore.createRole(form);
   } else {
@@ -260,6 +263,14 @@ async function submitForm() {
 
   showFormModal.value = false;
   await manageRoleStore.fetchRoles();
+}
+
+function onNamaInput(event) {
+  form.nama = String(event.target?.value ?? "").toUpperCase();
+}
+
+function onDeskripsiInput(event) {
+  form.deskripsi = String(event.target?.value ?? "").toUpperCase();
 }
 
 async function gotoUsers() {
@@ -793,46 +804,46 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
+  <main class="min-h-screen bg-page text-14 text-content">
     <Header brand-title="Management Role" brand-subtitle="Kelola role dan mapping permission" />
 
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center gap-3">
         <button type="button" aria-label="Back" @click="gotoUsers"
-          class="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8DEE8] bg-white text-[#566074] shadow-sm transition-all duration-200 hover:border-[#1A315B] hover:bg-slate-50 hover:text-[#1A315B]">
+          class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-light bg-surface text-icon shadow-sm transition-all duration-200 hover-border-navy hover-bg-slate-light hover-text-navy">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
             stroke="currentColor" class="h-4 w-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
 
-        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management User</p>
+        <p class="text-size-sm font-semibold tracking-wide text-subtitle">Management User</p>
       </div>
 
-      <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
+      <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 class="text-[20px] font-bold">Daftar Role</h2>
-            <p class="text-[#8A817A]">Kelola role dan permission bertingkat berdasarkan scope akses.</p>
+            <h2 class="text-20 font-bold">Daftar Role</h2>
+            <p class="text-muted">Kelola role dan permission bertingkat berdasarkan scope akses.</p>
           </div>
 
-          <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
+          <button class="rounded-full bg-brand px-5 py-2.5 font-semibold text-on-brand" @click="openCreateModal">
             + Tambah Role
           </button>
         </div>
 
         <div class="mb-4">
           <input v-model="search" type="text" placeholder="Cari role..."
-            class="h-11 w-full rounded-xl border border-[#EEE6DE] px-4 outline-none placeholder:text-[#A6A29D]" />
+            class="h-11 w-full rounded-xl border border-default px-4 outline-none placeholder-text-placeholder" />
         </div>
 
-        <p v-if="manageRoleStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
+        <p v-if="manageRoleStore.errorMessage" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
           {{ manageRoleStore.errorMessage }}
         </p>
 
-        <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
-          <table class="min-w-full bg-white">
-            <thead class="bg-[#F8F3EE] text-left text-[#4D392A]">
+        <div class="overflow-x-auto rounded-xl border border-default">
+          <table class="min-w-full bg-surface">
+            <thead class="bg-surface-warm text-left text-brand">
               <tr>
                 <th class="px-4 py-3 font-bold">Nama</th>
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
@@ -843,13 +854,13 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="manageRoleStore.loadingList" class="border-t border-[#F0E8E0]">
-                <td colspan="4" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="manageRoleStore.loadingList" class="border-t border-row">
+                <td colspan="4" class="px-4 py-8 text-center text-muted">
                   Memuat data role...
                 </td>
               </tr>
 
-              <tr v-for="item in filteredRoles" :key="item.id" class="border-t border-[#F0E8E0]">
+              <tr v-for="item in filteredRoles" :key="item.id" class="border-t border-row">
                 <td class="px-4 py-3">{{ item.nama }}</td>
                 <td class="px-4 py-3">{{ item.deskripsi }}</td>
                 <td class="px-4 py-3">{{ item.akses_menu?.length ?? 0 }}</td>
@@ -857,15 +868,15 @@ onMounted(async () => {
                 <td class="px-4 py-3">{{ item.akses_transaksi?.length ?? 0 }}</td>
                 <td class="px-4 py-3">
                   <button v-if="item.nama != 'superadmin'"
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
+                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                     @click="openEditModal(item)">
                     Edit
                   </button>
                 </td>
               </tr>
 
-              <tr v-if="!manageRoleStore.loadingList && filteredRoles.length === 0" class="border-t border-[#F0E8E0]">
-                <td colspan="4" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="!manageRoleStore.loadingList && filteredRoles.length === 0" class="border-t border-row">
+                <td colspan="4" class="px-4 py-8 text-center text-muted">
                   Belum ada data role.
                 </td>
               </tr>
@@ -875,82 +886,87 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-4xl rounded-2xl bg-white p-5">
+    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-4xl rounded-2xl bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
-          <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
+          <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
+          <button class="text-muted" @click="closeFormModal">✕</button>
         </div>
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
-            <label class="mb-1 block text-[#6F645B]">Nama Role</label>
-            <input v-model="form.nama" @input="form.nama = $event.target.value.toUpperCase()" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <label class="mb-1 block text-label">Nama Role</label>
+            <input :value="form.nama" @input="onNamaInput" required type="text"
+              class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
-            <input v-model="form.deskripsi" @input="form.deskripsi = $event.target.value.toUpperCase()" required
-              type="text" class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+            <label class="mb-1 block text-label">Deskripsi</label>
+            <input :value="form.deskripsi" @input="onDeskripsiInput" required type="text"
+              class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
-          <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] p-4 max-h-[70vh] overflow-y-auto">
-            <div class="mb-4 flex flex-wrap gap-2 border-b border-[#EEE6DE] pb-3">
-              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'menu'
-                ? 'bg-[#4D392A] text-white'
-                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('menu')">
+          <div class="md:col-span-2 rounded-xl border border-default p-4 max-h-[70vh] overflow-y-auto">
+            <div class="mb-4 flex flex-wrap gap-2 border-b border-default pb-3">
+              <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'menu'
+                ? 'bg-brand text-on-brand'
+                : 'border border-tan bg-cream text-brand'" @click="changeContent('menu')">
                 Akses Menu
               </button>
-              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'perusahaan'
-                ? 'bg-[#4D392A] text-white'
-                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('perusahaan')">
+              <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'perusahaan'
+                ? 'bg-brand text-on-brand'
+                : 'border border-tan bg-cream text-brand'" @click="changeContent('perusahaan')">
                 Akses Data
               </button>
-              <button type="button" class="rounded-xl px-4 py-2 text-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
-                ? 'bg-[#4D392A] text-white'
-                : 'border border-[#DDD1C7] bg-[#FFF8F2] text-[#4D392A]'" @click="changeContent('transaksi')">
+              <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
+                ? 'bg-brand text-on-brand'
+                : 'border border-tan bg-cream text-brand'" @click="changeContent('transaksi')">
                 Akses transaksi
               </button>
             </div>
 
-            <div v-show="activePermissionTab === 'menu'" class="rounded-xl border border-[#EEE6DE] p-4">
+            <div v-show="activePermissionTab === 'menu'" class="rounded-xl border border-default p-4">
               <div class="mb-3 flex items-center justify-between gap-2">
-                <p class="font-semibold text-[#4D392A]">List Menu</p>
+                <p class="font-semibold text-brand">List Menu</p>
                 <button type="button"
-                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm font-semibold text-brand"
                   @click="toggleAllMenu">
                   Ceklis Semua
                 </button>
               </div>
 
-              <div v-if="!manageRoleStore.allDataMenu.length" class="text-[#8A817A]">
+              <div v-if="!manageRoleStore.allDataMenu.length" class="text-muted">
                 Belum ada data permission menu.
               </div>
 
-              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div v-else class="grid grid-cols-1 gap-2">
                 <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
-                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  class="flex items-center gap-2 rounded-lg border border-default p-2"
+                  :style="{ marginLeft: `${(Number(menu.level || 1) - 1) * 20}px` }">
                   <input :checked="form.menu_ids.includes(menu.id)" type="checkbox" class="h-4 w-4"
                     @change="togglePermission(menu.id)" />
-                  <span>{{ menu.title }}</span>
+                  <span>
+                    <span v-if="Number(menu.level) > 1" class="text-muted">↳ </span>
+                    {{ menu.title }}
+                    <span class="text-muted">· Level {{ menu.level || 1 }}</span>
+                  </span>
                 </label>
               </div>
             </div>
 
-            <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-[#EEE6DE] p-4">
-              <div class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
+            <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-default p-4">
+              <div class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-[#4D392A]">Level 1 - Area</p>
+                  <p class="font-semibold text-brand">Level 1 - Area</p>
                   <!-- <input v-model="searchQueryArea" type="text" placeholder="Cari area..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
+                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
-                <div v-if="!allDataArea.length" class="text-[#8A817A]">
+                <div v-if="!allDataArea.length" class="text-muted">
                   Belum ada data area.
                 </div>
                 <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                   <label v-for="area in allDataArea" :key="area.id ?? area.kode_area ?? area.kode"
-                    class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                    class="flex items-center gap-2 rounded-lg border border-default p-2">
                     <input :checked="form.area_ids.includes(String(area.id))" type="checkbox" class="h-4 w-4"
                       @change="toggleArea(area)" />
                     <span>{{ area.nama ?? '' }}</span>
@@ -958,29 +974,29 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="loadingHierarchy" class="mb-4 rounded-xl border border-[#EEE6DE] p-4 text-[#8A817A]">
+              <div v-if="loadingHierarchy" class="mb-4 rounded-xl border border-default p-4 text-muted">
                 Memuat data hierarchy (perusahaan, estate, afdeling)...
               </div>
 
-              <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
+              <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-[#4D392A]">Level 2 - Perusahaan</p>
+                  <p class="font-semibold text-brand">Level 2 - Perusahaan</p>
                   <!-- <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
+                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
 
                 <div class="space-y-3">
                   <div v-for="group in groupedPerusahaanByArea" :key="group.areaKey"
-                    class="rounded-lg border border-[#EEE6DE] p-3">
-                    <p class="mb-2 text-sm font-semibold text-[#6F645B]">
+                    class="rounded-lg border border-default p-3">
+                    <p class="mb-2 text-size-sm font-semibold text-label">
                       Area: {{ group.area?.nama_area ?? group.area?.nama ?? group.areaKey }}
                     </p>
-                    <div v-if="!group.perusahaan.length" class="text-[#8A817A]">
+                    <div v-if="!group.perusahaan.length" class="text-muted">
                       Tidak ada perusahaan untuk area ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="perusahaan in group.perusahaan" :key="perusahaan.id"
-                        class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                        class="flex items-center gap-2 rounded-lg border border-default p-2">
                         <input :checked="form.perusahaan_ids.includes(String(perusahaan.id))" type="checkbox"
                           class="h-4 w-4" @change="togglePerusahaan(perusahaan)" />
                         <span>{{ perusahaan.nama_pt ?? perusahaan.nama ?? perusahaan.title ??
@@ -991,25 +1007,25 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="groupedEstateByPerusahaan.length" class="mb-4 rounded-xl border border-[#EEE6DE] p-4">
+              <div v-if="groupedEstateByPerusahaan.length" class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-[#4D392A]">Level 3 - Estate</p>
+                  <p class="font-semibold text-brand">Level 3 - Estate</p>
                   <!-- <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
+                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
 
                 <div class="space-y-3">
                   <div v-for="group in groupedEstateByPerusahaan" :key="group.perusahaanKey"
-                    class="rounded-lg border border-[#EEE6DE] p-3">
-                    <p class="mb-2 text-sm font-semibold text-[#6F645B]">
+                    class="rounded-lg border border-default p-3">
+                    <p class="mb-2 text-size-sm font-semibold text-label">
                       Perusahaan: {{ group.perusahaan?.nama_pt ?? group.perusahaan?.nama ?? group.perusahaanKey }}
                     </p>
-                    <div v-if="!group.estates.length" class="text-[#8A817A]">
+                    <div v-if="!group.estates.length" class="text-muted">
                       Tidak ada estate untuk perusahaan ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="estate in group.estates" :key="getEstateCode(estate)"
-                        class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                        class="flex items-center gap-2 rounded-lg border border-default p-2">
                         <input :checked="form.estate_ids.includes(getEstateCode(estate))" type="checkbox"
                           class="h-4 w-4" @change="toggleEstate(estate)" />
                         <span>{{ estate.nama_estate ?? estate.nama ?? estate.title ?? getEstateCode(estate) }}</span>
@@ -1019,33 +1035,30 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="groupedAfdelingByEstate.length" class="rounded-xl border border-[#EEE6DE] p-4">
+              <div v-if="groupedAfdelingByEstate.length" class="rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-[#4D392A]">Level 4 - Afdeling</p>
+                  <p class="font-semibold text-brand">Level 4 - Afdeling</p>
                   <!-- <input v-model="searchQueryAfdeling" type="text" placeholder="Cari afdeling..."
-                    class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm text-[#4D392A] focus:outline-none focus:ring-1 focus:ring-[#4D392A]" /> -->
+                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
 
                 <div class="space-y-3">
                   <div v-for="group in groupedAfdelingByEstate" :key="group.estateKey"
-                    class="rounded-lg border border-[#EEE6DE] p-3">
-                    <p class="mb-2 text-sm font-semibold text-[#6F645B]">
+                    class="rounded-lg border border-default p-3">
+                    <p class="mb-2 text-size-sm font-semibold text-label">
                       Estate: {{ group.estate?.nama_estate ?? group.estate?.nama ?? group.estateKey }}
                     </p>
-                    <div v-if="!group.afdelings.length" class="text-[#8A817A]">
+                    <div v-if="!group.afdelings.length" class="text-muted">
                       Tidak ada afdeling untuk estate ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="afdeling in group.afdelings"
                         :key="getAfdelingSelectionKey(group.estateKey, getAfdelingCode(afdeling))"
-                        class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
-                        <input
-                          :checked="isAfdelingSelected(group.estateKey, getAfdelingCode(afdeling))"
-                          type="checkbox"
-                          class="h-4 w-4"
-                          @change="toggleAfdeling(afdeling, group.estateKey)" />
+                        class="flex items-center gap-2 rounded-lg border border-default p-2">
+                        <input :checked="isAfdelingSelected(group.estateKey, getAfdelingCode(afdeling))" type="checkbox"
+                          class="h-4 w-4" @change="toggleAfdeling(afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
-                          }}</span>
+                        }}</span>
                       </label>
                     </div>
                   </div>
@@ -1053,23 +1066,23 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-show="activePermissionTab === 'transaksi'" class="rounded-xl border border-[#EEE6DE] p-4">
+            <div v-show="activePermissionTab === 'transaksi'" class="rounded-xl border border-default p-4">
               <div class="mb-3 flex items-center justify-between gap-2">
-                <p class="font-semibold text-[#4D392A]">List data transaksi</p>
+                <p class="font-semibold text-brand">List data transaksi</p>
                 <button type="button"
-                  class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 text-sm font-semibold text-[#4D392A]"
+                  class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm font-semibold text-brand"
                   @click="toggleAllTransaksi">
                   Ceklis Semua
                 </button>
               </div>
 
-              <div v-if="!allDataTransaksi.length" class="text-[#8A817A]">
+              <div v-if="!allDataTransaksi.length" class="text-muted">
                 Belum ada data transaksi.
               </div>
 
               <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <label v-for="transaksi in allDataTransaksi" :key="getTransaksiCode(transaksi)"
-                  class="flex items-center gap-2 rounded-lg border border-[#EEE6DE] p-2">
+                  class="flex items-center gap-2 rounded-lg border border-default p-2">
                   <input :checked="form.transaksi_ids.includes(getTransaksiCode(transaksi))" type="checkbox"
                     class="h-4 w-4" @change="togglePermission(getTransaksiCode(transaksi))" />
                   <span>{{ transaksi?.title ?? transaksi?.nama_table_transaksi ?? transaksi }}</span>
@@ -1079,12 +1092,11 @@ onMounted(async () => {
           </div>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>
-            <button type="submit" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+            <button type="submit" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="submitLoading">
               {{ submitLoading ? "Menyimpan..." : "Simpan" }}
             </button>

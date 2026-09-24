@@ -65,6 +65,7 @@ type MapFilters = {
   estate: string;
   afdeling: string;
   blok: string;
+  ownership?: string;
 };
 
 type MapSummary = {
@@ -80,6 +81,79 @@ type GeoJSONFeatureCollection = GeoJSON.FeatureCollection<
   GeoJSON.Geometry,
   Record<string, unknown>
 >;
+
+type HistoryHistoriItem = {
+  periode?: number | null;
+  tahun?: number | null;
+  bulan?: number | null;
+  luas?: number | null;
+  ton?: number | null;
+  ton_ha?: number | null;
+  bjr?: number | null;
+  jjg_ppk?: number | null;
+  kg_ppk?: number | null;
+  [key: string]: unknown;
+};
+
+type ArealStatementGroupKeys = {
+  status_tanam?: string | null;
+  bulan_tanam?: string | number | null;
+  tahun_tanam?: number | null;
+  jenis_bibit?: string | null;
+  jenis_topografi?: string | null;
+  jenis_tanah?: string | null;
+  [key: string]: unknown;
+};
+
+type ArealStatementTotals = {
+  count_records?: number | null;
+  luas_tanam?: number | null;
+  luas_tanah?: number | null;
+  total_pokok?: number | null;
+  sph?: number | null;
+  pct_tanah_datar?: number | null;
+  pct_berbukit?: number | null;
+  pct_gelombang?: number | null;
+  pct_curam?: number | null;
+  [key: string]: unknown;
+};
+
+type ArealStatementGroup = {
+  group_keys?: ArealStatementGroupKeys;
+  totals?: ArealStatementTotals;
+};
+
+type ArealStatementMonthItem = {
+  bulan?: string | number | null;
+  tahun?: string | number | null;
+  groups?: ArealStatementGroup[];
+  [key: string]: unknown;
+};
+
+type SpatialHistoryMeta = {
+  table?: string;
+  label?: string;
+  mode_akumulasi?: string;
+  grouped_by_level_1?: string;
+  filter_applied?: Record<string, unknown>;
+  group_by_attributes?: string[];
+  total_records?: number;
+};
+
+type SpatialHistoryResponse = {
+  status?: string;
+  message?: string;
+  table?: string;
+  label?: string;
+  mode_akumulasi?: string;
+  filter_applied?: Record<string, unknown>;
+  slope_kemiringan_lereng?: Record<string, string>;
+  total_periode?: number;
+  data_histori?: HistoryHistoriItem[];
+  meta?: SpatialHistoryMeta;
+  grand_total?: ArealStatementTotals;
+  data?: Array<Record<string, unknown> | ArealStatementMonthItem>;
+};
 
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
@@ -101,6 +175,7 @@ export const useMapStore = defineStore("map", () => {
   const selectedEstate = ref("");
   const selectedAfdeling = ref("");
   const selectedBlok = ref("");
+  const selectedOwnership = ref("");
 
   const loadingArea = ref(false);
   const loadingPt = ref(false);
@@ -108,8 +183,10 @@ export const useMapStore = defineStore("map", () => {
   const loadingAfdeling = ref(false);
   const loadingBlok = ref(false);
   const loadingGeoJSON = ref(false);
+  const loadingHistory = ref(false);
   const errorMessage = ref("");
   const filteredGeoJSON = ref<GeoJSONFeatureCollection | null>(null);
+  const historyData = ref<SpatialHistoryResponse | null>(null);
 
   const areaCodeAliases = ref<Map<string, Set<string>>>(new Map());
   const ptCodeAliases = ref<Map<string, Set<string>>>(new Map());
@@ -181,6 +258,10 @@ export const useMapStore = defineStore("map", () => {
     const data = (response as any)?.data;
     if (Array.isArray(data)) return data as T[];
     return [];
+  }
+
+  function isSuperAdmin(): boolean {
+    return authStore.user?.role === "superadmin";
   }
 
   function getUserAksesData(): AksesDataItem[] {
@@ -353,6 +434,27 @@ export const useMapStore = defineStore("map", () => {
     selectedRef.value = "";
   }
 
+  function enforceFilterHierarchy(filters: MapFilters): MapFilters {
+    const area = filters.area || "";
+    let pt = filters.pt || "";
+    let estate = filters.estate || "";
+    let afdeling = filters.afdeling || "";
+    let blok = filters.blok || "";
+
+    if (!pt) {
+      estate = "";
+      afdeling = "";
+      blok = "";
+    } else if (!estate) {
+      afdeling = "";
+      blok = "";
+    } else if (!afdeling) {
+      blok = "";
+    }
+
+    return { area, pt, estate, afdeling, blok };
+  }
+
   async function loadEstateLevel() {
     selectedEstate.value = "";
     selectedAfdeling.value = "";
@@ -361,9 +463,9 @@ export const useMapStore = defineStore("map", () => {
     afdelingOptions.value = [];
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedPt.value) return;
 
-    await fetchEstateOptions(selectedPt.value || undefined);
+    await fetchEstateOptions(selectedPt.value);
     applySingleOrAllDefault(estateOptions.value, selectedEstate);
     await loadAfdelingLevel();
   }
@@ -374,9 +476,9 @@ export const useMapStore = defineStore("map", () => {
     afdelingOptions.value = [];
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedEstate.value) return;
 
-    await fetchAfdelingOptions(selectedEstate.value || undefined);
+    await fetchAfdelingOptions(selectedEstate.value);
     applySingleOrAllDefault(afdelingOptions.value, selectedAfdeling);
     await loadBlokLevel();
   }
@@ -385,9 +487,9 @@ export const useMapStore = defineStore("map", () => {
     selectedBlok.value = "";
     blokOptions.value = [];
 
-    if (!selectedArea.value) return;
+    if (!selectedArea.value || !selectedAfdeling.value) return;
 
-    await fetchBlokOptions(selectedAfdeling.value || undefined);
+    await fetchBlokOptions(selectedAfdeling.value);
     applySingleOrAllDefault(blokOptions.value, selectedBlok);
   }
 
@@ -449,16 +551,18 @@ export const useMapStore = defineStore("map", () => {
       const allowedAreas = getAllowedAreaCodes();
       areaCodeAliases.value = new Map();
 
-      const filteredItems = items.filter((item) => {
-        if (allowedAreas.size === 0) return false;
-        const areaId = normalizeText(item.area_id);
-        const kodeArea = normalizeText(item.kode_area);
-        return (
-          allowedAreas.has(areaId) ||
-          allowedAreas.has(kodeArea) ||
-          allowedAreas.has(normalizeText(item.id))
-        );
-      });
+      const filteredItems = isSuperAdmin()
+        ? items
+        : items.filter((item) => {
+            if (allowedAreas.size === 0) return false;
+            const areaId = normalizeText(item.area_id);
+            const kodeArea = normalizeText(item.kode_area);
+            return (
+              allowedAreas.has(areaId) ||
+              allowedAreas.has(kodeArea) ||
+              allowedAreas.has(normalizeText(item.id))
+            );
+          });
 
       filteredItems.forEach(registerAreaCodeAliases);
 
@@ -507,8 +611,10 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       ptOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(getPtIdentifiers(item), allowedPtCodes),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(getPtIdentifiers(item), allowedPtCodes),
           )
           .map(mapPtToOption)
           .filter((item) => !!item.value),
@@ -555,11 +661,13 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       estateOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(
-              getEstateIdentifiers(item),
-              allowedEstateCodes,
-            ),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(
+                getEstateIdentifiers(item),
+                allowedEstateCodes,
+              ),
           )
           .map(mapEstateToOption)
           .filter((item) => !!item.value),
@@ -614,11 +722,13 @@ export const useMapStore = defineStore("map", () => {
         : new Set<string>();
       afdelingOptions.value = sortOptionsByLabelAsc(
         items
-          .filter((item) =>
-            itemMatchesAllowedCodes(
-              getAfdelingIdentifiers(item),
-              allowedAfdelingCodes,
-            ),
+          .filter(
+            (item) =>
+              isSuperAdmin() ||
+              itemMatchesAllowedCodes(
+                getAfdelingIdentifiers(item),
+                allowedAfdelingCodes,
+              ),
           )
           .map(mapAfdelingToOption)
           .filter((item) => !!item.value),
@@ -675,9 +785,10 @@ export const useMapStore = defineStore("map", () => {
           codesMatch(afdelingCodeAliases.value, kodeAfd, code),
         );
 
-      blokOptions.value = isAfdelingAllowed
-        ? sortOptionsByLabelAsc(mappedOptions)
-        : [];
+      blokOptions.value =
+        isSuperAdmin() || isAfdelingAllowed
+          ? sortOptionsByLabelAsc(mappedOptions)
+          : [];
       return blokOptions.value;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(error, "Gagal mengambil data blok.");
@@ -694,20 +805,45 @@ export const useMapStore = defineStore("map", () => {
 
   async function setSelectedPt(value: string) {
     selectedPt.value = value || "";
+    if (!selectedPt.value) {
+      selectedEstate.value = "";
+      selectedAfdeling.value = "";
+      selectedBlok.value = "";
+      estateOptions.value = [];
+      afdelingOptions.value = [];
+      blokOptions.value = [];
+      return;
+    }
     await loadEstateLevel();
   }
 
   async function setSelectedEstate(value: string) {
     selectedEstate.value = value || "";
+    if (!selectedEstate.value) {
+      selectedAfdeling.value = "";
+      selectedBlok.value = "";
+      afdelingOptions.value = [];
+      blokOptions.value = [];
+      return;
+    }
     await loadAfdelingLevel();
   }
 
   async function setSelectedAfdeling(value: string) {
     selectedAfdeling.value = value || "";
+    if (!selectedAfdeling.value) {
+      selectedBlok.value = "";
+      blokOptions.value = [];
+      return;
+    }
     await loadBlokLevel();
   }
 
   function setSelectedBlok(value: string) {
+    if (value && !selectedAfdeling.value) {
+      selectedBlok.value = "";
+      return;
+    }
     selectedBlok.value = value || "";
   }
 
@@ -748,33 +884,38 @@ export const useMapStore = defineStore("map", () => {
   }
 
   async function fetchBlokPopupData(params: {
-    kodePt?: string;
-    kodeEst?: string;
-    kodeAfd?: string;
-    kodeBlok: string;
-    bulan: string;
-    tahun: string;
+    blokId: string;
+    bulan?: string;
+    tahun?: string;
   }) {
+    if (!params.blokId) {
+      throw new Error("blok_id wajib diisi");
+    }
+
     const baseUrl = getApiBaseUrl();
     const query = new URLSearchParams();
+    query.set("blok_id", params.blokId);
 
-    if (params.kodePt) query.set("kode_pt", params.kodePt);
-    if (params.kodeEst) query.set("kode_est", params.kodeEst);
-    if (params.kodeAfd) query.set("kode_afd", params.kodeAfd);
-    if (params.kodeBlok) query.set("kode_blok", params.kodeBlok);
-    if (params.bulan) query.set("bulan", params.bulan);
-    if (params.tahun) query.set("tahun", params.tahun);
+    if (params.bulan) {
+      query.set("bulan", params.bulan);
+    }
+    if (params.tahun) {
+      query.set("tahun", params.tahun);
+    }
 
-    const response = await $api(
-      `${baseUrl}/v1/spatial/geojson?${query.toString()}`,
+    const response = await $api<Record<string, unknown>>(
+      `${baseUrl}/v1/spatial/blok/detail?${query.toString()}`,
       {
         method: "GET",
         headers: getAuthHeaders(),
       },
     );
 
-    const featureCollection = normalizeGeoJSONResponse(response);
-    return featureCollection.features[0] ?? null;
+    if (response && typeof response === "object") {
+      return response;
+    }
+
+    return null;
   }
 
   function getFilterLabel(
@@ -813,35 +954,122 @@ export const useMapStore = defineStore("map", () => {
     };
   }
 
-  async function applyFilters(nextFilters: MapFilters, selectedTahun: string) {
-    loadingGeoJSON.value = true;
-    clearError();
+  function buildHistoryQuery(
+    normalizedFilters: MapFilters,
+    selectedTahun: string,
+    selectedTable: string,
+  ) {
+    const query = new URLSearchParams();
+    query.set("table", selectedTable);
 
+    if (selectedTahun) {
+      query.set("tahun", selectedTahun);
+    }
+    if (normalizedFilters.area) {
+      query.set("area_id", normalizedFilters.area);
+    }
+    if (normalizedFilters.pt) {
+      query.set("kode_pt", normalizedFilters.pt);
+    }
+    if (normalizedFilters.estate) {
+      query.set("kode_est", normalizedFilters.estate);
+    }
+    if (normalizedFilters.afdeling) {
+      query.set("kode_afd", normalizedFilters.afdeling);
+    }
+    if (normalizedFilters.blok) {
+      query.set("blok_id", normalizedFilters.blok);
+    }
+    if (normalizedFilters.ownership) {
+      query.set("ownership", normalizedFilters.ownership);
+    }
+
+    return query;
+  }
+
+  async function fetchSpatialHistory(
+    normalizedFilters: MapFilters,
+    selectedTahun: string,
+    selectedTable: string,
+  ) {
+    if (!selectedTable) {
+      historyData.value = null;
+      return;
+    }
+
+    loadingHistory.value = true;
     try {
-      selectedArea.value = nextFilters.area || "";
-      selectedPt.value = nextFilters.pt || "";
-      selectedEstate.value = nextFilters.estate || "";
-      selectedAfdeling.value = nextFilters.afdeling || "";
-      selectedBlok.value = nextFilters.blok || "";
-
       const baseUrl = getApiBaseUrl();
-      const query = new URLSearchParams();
+      const query = buildHistoryQuery(
+        normalizedFilters,
+        selectedTahun,
+        selectedTable,
+      );
 
-      query.set("kode_pt", nextFilters.pt || "");
-      query.set("kode_est", nextFilters.estate || "");
-      query.set("kode_afd", nextFilters.afdeling || "");
-      query.set("kode_blok", nextFilters.blok || "");
-      query.set("tahun", selectedTahun || "");
-
-      const response = await $api(
-        `${baseUrl}/v1/spatial/geojson?${query.toString()}`,
+      const response = await $api<SpatialHistoryResponse>(
+        `${baseUrl}/v1/spatial/history?${query.toString()}`,
         {
           method: "GET",
           headers: getAuthHeaders(),
         },
       );
 
-      filteredGeoJSON.value = normalizeGeoJSONResponse(response);
+      historyData.value =
+        response && typeof response === "object" ? response : null;
+    } catch {
+      historyData.value = null;
+    } finally {
+      loadingHistory.value = false;
+    }
+  }
+
+  async function applyFilters(
+    nextFilters: MapFilters,
+    selectedTahun: string,
+    selectedTable = "",
+  ) {
+    loadingGeoJSON.value = true;
+    clearError();
+
+    try {
+      const normalizedFilters = enforceFilterHierarchy({
+        area: nextFilters.area || "",
+        pt: nextFilters.pt || "",
+        estate: nextFilters.estate || "",
+        afdeling: nextFilters.afdeling || "",
+        blok: nextFilters.blok || "",
+      });
+
+      selectedArea.value = normalizedFilters.area || "";
+      selectedPt.value = normalizedFilters.pt;
+      selectedEstate.value = normalizedFilters.estate;
+      selectedAfdeling.value = normalizedFilters.afdeling;
+      selectedBlok.value = normalizedFilters.blok;
+      selectedOwnership.value = nextFilters.ownership || "";
+
+      const historyFilters: MapFilters = {
+        ...normalizedFilters,
+        ownership: selectedOwnership.value,
+      };
+
+      const baseUrl = getApiBaseUrl();
+      const query = new URLSearchParams();
+
+      query.set("kode_pt", normalizedFilters.pt || "");
+      query.set("kode_est", normalizedFilters.estate || "");
+      query.set("kode_afd", normalizedFilters.afdeling || "");
+      query.set("kode_blok", normalizedFilters.blok || "");
+      query.set("tahun", selectedTahun || "");
+
+      const [geoResult] = await Promise.all([
+        $api(`${baseUrl}/v1/spatial/geojson?${query.toString()}`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        }),
+        fetchSpatialHistory(historyFilters, selectedTahun, selectedTable),
+      ]);
+
+      filteredGeoJSON.value = normalizeGeoJSONResponse(geoResult);
     } catch (error: any) {
       filteredGeoJSON.value = null;
       errorMessage.value = getErrorMessage(error, "Gagal mengambil data blok");
@@ -853,6 +1081,8 @@ export const useMapStore = defineStore("map", () => {
 
   async function resetFilters() {
     filteredGeoJSON.value = null;
+    historyData.value = null;
+    selectedOwnership.value = "";
     await initDefaultSpatialSelection();
   }
 
@@ -862,6 +1092,7 @@ export const useMapStore = defineStore("map", () => {
     estate: selectedEstate.value,
     afdeling: selectedAfdeling.value,
     blok: selectedBlok.value,
+    ownership: selectedOwnership.value,
   }));
 
   const filterOptions = computed(() => ({
@@ -891,7 +1122,8 @@ export const useMapStore = defineStore("map", () => {
       loadingEstate.value ||
       loadingAfdeling.value ||
       loadingBlok.value ||
-      loadingGeoJSON.value,
+      loadingGeoJSON.value ||
+      loadingHistory.value,
   );
 
   return {
@@ -905,13 +1137,16 @@ export const useMapStore = defineStore("map", () => {
     selectedEstate,
     selectedAfdeling,
     selectedBlok,
+    selectedOwnership,
     loadingArea,
     loadingPt,
     loadingEstate,
     loadingAfdeling,
     loadingBlok,
     loadingGeoJSON,
+    loadingHistory,
     filteredGeoJSON,
+    historyData,
     errorMessage,
     hasArea,
     hasPt,

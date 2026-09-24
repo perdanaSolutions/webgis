@@ -1,19 +1,4 @@
 services:
-  postgres:
-    image: postgis/postgis:16-3.4
-    container_name: gis-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - gis-network
-
   backend_pyton:
     build:
       context: ./backend_pyton
@@ -23,11 +8,9 @@ services:
     env_file:
       - ./backend_pyton/.env
     ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
+      - "127.0.0.1:8000:8000"
     networks:
-      - gis-network
+      - global-network
 
   api:
     build:
@@ -36,11 +19,11 @@ services:
     container_name: gis-api-node
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     volumes:
       - ./gis-dashboard/datas:/gis-dashboard/datas:ro
     networks:
-      - gis-network
+      - global-network
 
   gis-dashboard:
     build:
@@ -49,35 +32,13 @@ services:
     container_name: gis-dashboard-nuxt
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
       - backend_pyton
     networks:
-      - gis-network
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: gis-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - gis-dashboard
-      - api
-      - backend_pyton
-    networks:
-      - gis-network
-
-volumes:
-  postgres_data:
-  caddy_data:
-  caddy_config:
+      - global-network
 
 networks:
-  gis-network:
-    driver: bridge
+  global-network:
+    external: true

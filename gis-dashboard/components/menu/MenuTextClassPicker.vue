@@ -20,7 +20,7 @@ const options = computed(() => {
     {
       value: model.value,
       label: "Custom",
-      swatch: "bg-slate-400",
+      swatch: "bg-slate-icon",
       ring: "ring-slate-300",
     },
     ...MENU_TEXT_OPTIONS,
@@ -30,10 +30,10 @@ const options = computed(() => {
 
 <template>
   <div>
-    <div class="mb-3 flex items-center justify-center rounded-xl border border-[#EEE6DE] bg-[#FBFAF8] p-4">
+    <div class="mb-3 flex items-center justify-center rounded-xl border border-default bg-page p-4">
       <div
         v-if="previewType === 'icon'"
-        class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm"
+        class="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface shadow-sm"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -51,7 +51,7 @@ const options = computed(() => {
           />
         </svg>
       </div>
-      <span v-else class="text-2xl font-bold" :class="model">→</span>
+      <span v-else class="text-size-2xl font-bold" :class="model">→</span>
     </div>
 
     <div class="grid grid-cols-5 gap-2 sm:grid-cols-7">
@@ -62,8 +62,8 @@ const options = computed(() => {
         class="flex flex-col items-center gap-1 rounded-xl border p-2 transition-all duration-200"
         :class="
           model === option.value
-            ? `border-[#4D392A] bg-[#FFF8F2] ring-2 ${option.ring}`
-            : 'border-[#EEE6DE] bg-white hover:border-[#D8CFC6] hover:shadow-sm'
+            ? `picker-selected ring-2 ${option.ring}`
+            : 'picker-default hover:shadow-sm'
         "
         :title="option.label"
         @click="model = option.value"
@@ -72,12 +72,12 @@ const options = computed(() => {
           class="h-7 w-7 rounded-full shadow-sm"
           :class="option.swatch"
         />
-        <span class="text-[10px] font-medium text-[#6F645B]">{{ option.label }}</span>
+        <span class="text-10 font-medium text-label">{{ option.label }}</span>
       </button>
     </div>
 
-    <p class="mt-2 text-xs text-[#8A817A]">
-      Terpilih: <span class="font-semibold text-[#4D392A]">{{ model }}</span>
+    <p class="mt-2 text-size-xs text-muted">
+      Terpilih: <span class="font-semibold text-brand">{{ model }}</span>
     </p>
   </div>
 </template>

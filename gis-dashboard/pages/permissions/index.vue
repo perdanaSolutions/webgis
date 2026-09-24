@@ -164,68 +164,68 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
+  <main class="min-h-screen bg-page text-14 text-content">
     <Header brand-title="Management Permission" brand-subtitle="Kelola permission sistem" />
 
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center gap-3">
         <button type="button" aria-label="Back" @click="gotoUsers"
-          class="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8DEE8] bg-white text-[#566074] shadow-sm transition-all duration-200 hover:border-[#1A315B] hover:bg-slate-50 hover:text-[#1A315B]">
+          class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-light bg-surface text-icon shadow-sm transition-all duration-200 hover-border-navy hover-bg-slate-light hover-text-navy">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
             stroke="currentColor" class="h-4 w-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
 
-        <p class="text-sm font-semibold tracking-wide text-[#333d4e]">Management User</p>
+        <p class="text-size-sm font-semibold tracking-wide text-subtitle">Management User</p>
       </div>
 
-      <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
+      <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 class="text-[20px] font-bold">Daftar Permission</h2>
-            <p class="text-[#8A817A]">
+            <h2 class="text-20 font-bold">Daftar Permission</h2>
+            <p class="text-muted">
               Kelola permission bertingkat: menu, PT, estate, dan transaksi.
             </p>
           </div>
 
-          <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
+          <button class="rounded-full bg-brand px-5 py-2.5 font-semibold text-on-brand" @click="openCreateModal">
             + Tambah Permission
           </button>
         </div>
 
         <div class="mb-4">
           <input v-model="search" type="text" placeholder="Cari permission..."
-            class="h-11 w-full rounded-xl border border-[#EEE6DE] px-4 outline-none placeholder:text-[#A6A29D]" />
+            class="h-11 w-full rounded-xl border border-default px-4 outline-none placeholder-text-placeholder" />
         </div>
 
-        <p v-if="managePermissionStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
+        <p v-if="managePermissionStore.errorMessage" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
           {{ managePermissionStore.errorMessage }}
         </p>
 
-        <!-- <div class="mb-4 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
-          <h3 class="text-[16px] font-bold text-[#4D392A]">Struktur Permission Bertingkat</h3>
-          <p class="mt-1 text-[#8A817A]">
+        <!-- <div class="mb-4 rounded-xl border border-default bg-cream-light p-4">
+          <h3 class="text-16 font-bold text-brand">Struktur Permission Bertingkat</h3>
+          <p class="mt-1 text-muted">
             Preview kategori permission berdasarkan data saat ini. Ini membantu memastikan flow level akses konsisten.
           </p>
 
           <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <div v-for="group in permissionScopeGroups" :key="group.category"
-              class="rounded-lg border border-[#E7DDD3] bg-white p-3">
-              <p class="text-sm font-semibold text-[#4D392A]">{{ group.label }}</p>
-              <p class="mt-1 text-xs text-[#8A817A]">{{ group.items.length }} permission</p>
+              class="rounded-lg border border-dashed-tan bg-surface p-3">
+              <p class="text-size-sm font-semibold text-brand">{{ group.label }}</p>
+              <p class="mt-1 text-size-xs text-muted">{{ group.items.length }} permission</p>
             </div>
 
             <div v-if="permissionScopeGroups.length === 0"
-              class="rounded-lg border border-dashed border-[#E7DDD3] bg-white p-3 text-[#8A817A]">
+              class="rounded-lg border border-dashed border-dashed-tan bg-surface p-3 text-muted">
               Belum ada data permission yang bisa dikategorikan.
             </div>
           </div>
         </div> -->
 
-        <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
-          <table class="min-w-full bg-white">
-            <thead class="bg-[#F8F3EE] text-left text-[#4D392A]">
+        <div class="overflow-x-auto rounded-xl border border-default">
+          <table class="min-w-full bg-surface">
+            <thead class="bg-surface-warm text-left text-brand">
               <tr>
                 <th class="px-4 py-3 font-bold">Kode</th>
                 <th class="px-4 py-3 font-bold">Resource</th>
@@ -235,13 +235,13 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="managePermissionStore.loadingList" class="border-t border-[#F0E8E0]">
-                <td colspan="5" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="managePermissionStore.loadingList" class="border-t border-row">
+                <td colspan="5" class="px-4 py-8 text-center text-muted">
                   Memuat data permission...
                 </td>
               </tr>
 
-              <tr v-for="item in filteredPermissions" :key="item.id" class="border-t border-[#F0E8E0]">
+              <tr v-for="item in filteredPermissions" :key="item.id" class="border-t border-row">
                 <td class="px-4 py-3">{{ item.kode }}</td>
                 <td class="px-4 py-3">{{ item.resource }}</td>
                 <td class="px-4 py-3">{{ item.aksi }}</td>
@@ -249,11 +249,11 @@ onMounted(async () => {
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
                     <button
-                      class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
+                      class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
                       Edit
                     </button>
-                    <button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 font-semibold text-red-600"
+                    <button class="rounded-lg border border-error bg-error-light px-3 py-1.5 font-semibold text-error"
                       @click="openDeleteModal(item)">
                       Hapus
                     </button>
@@ -264,8 +264,8 @@ onMounted(async () => {
               <tr v-if="
                 !managePermissionStore.loadingList &&
                 filteredPermissions.length === 0
-              " class="border-t border-[#F0E8E0]">
-                <td colspan="5" class="px-4 py-8 text-center text-[#8A817A]">
+              " class="border-t border-row">
+                <td colspan="5" class="px-4 py-8 text-center text-muted">
                   Belum ada data permission.
                 </td>
               </tr>
@@ -275,11 +275,11 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-3xl rounded-2xl bg-white p-5">
+    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-3xl rounded-2xl bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
-          <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
+          <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
+          <button class="text-muted" @click="closeFormModal">✕</button>
         </div>
 
         <form @submit.prevent="submitForm">
@@ -288,17 +288,17 @@ onMounted(async () => {
             <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
 
               <button
-                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                class="w-full rounded-lg bg-blue-dark px-5 py-3 font-semibold text-on-brand shadow-md hover-bg-blue-darker transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus-ring-blue focus:ring-opacity-75">
                 Menu
               </button>
 
               <button
-                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                class="w-full rounded-lg bg-blue-dark px-5 py-3 font-semibold text-on-brand shadow-md hover-bg-blue-darker transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus-ring-blue focus:ring-opacity-75">
                 Perusahaan & Estate
               </button>
 
               <button
-                class="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white shadow-md hover:bg-blue-700 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                class="w-full rounded-lg bg-blue-dark px-5 py-3 font-semibold text-on-brand shadow-md hover-bg-blue-darker transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus-ring-blue focus:ring-opacity-75">
                 Transaksi
               </button>
 
@@ -308,51 +308,51 @@ onMounted(async () => {
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 
             <div>
-              <label class="mb-1 block text-[#6F645B]">Kode</label>
+              <label class="mb-1 block text-label">Kode</label>
               <input v-model="form.kode" required type="text"
-                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+                class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
             </div>
 
             <div>
-              <label class="mb-1 block text-[#6F645B]">Resource</label>
+              <label class="mb-1 block text-label">Resource</label>
               <input v-model="form.resource" required type="text"
-                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+                class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
             </div>
 
             <div>
-              <label class="mb-1 block text-[#6F645B]">Aksi</label>
+              <label class="mb-1 block text-label">Aksi</label>
               <input v-model="form.aksi" required type="text"
-                class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+                class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
             </div>
 
             <div class="md:col-span-2">
-              <label class="mb-1 block text-[#6F645B]">Deskripsi</label>
+              <label class="mb-1 block text-label">Deskripsi</label>
               <textarea v-model="form.deskripsi" rows="3"
-                class="w-full rounded-xl border border-[#EEE6DE] px-3 py-2 outline-none" />
+                class="w-full rounded-xl border border-default px-3 py-2 outline-none" />
             </div>
 
-            <!-- <div class="md:col-span-2 rounded-xl border border-[#EEE6DE] bg-[#FFFCF8] p-4">
-              <h4 class="text-[15px] font-bold text-[#4D392A]">Preview Scope Permission</h4>
-              <p class="mt-1 text-[13px] text-[#8A817A]">
+            <!-- <div class="md:col-span-2 rounded-xl border border-default bg-cream-light p-4">
+              <h4 class="text-15 font-bold text-brand">Preview Scope Permission</h4>
+              <p class="mt-1 text-13 text-muted">
                 Kategori akan terdeteksi otomatis dari kombinasi kode/resource/deskripsi.
               </p>
 
-              <div class="mt-3 grid grid-cols-1 gap-2 text-[13px] md:grid-cols-2">
-                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
-                  <p class="text-[#8A817A]">Kategori</p>
-                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.categoryLabel }}</p>
+              <div class="mt-3 grid grid-cols-1 gap-2 text-13 md:grid-cols-2">
+                <div class="rounded-lg border border-default bg-surface px-3 py-2">
+                  <p class="text-muted">Kategori</p>
+                  <p class="font-semibold text-brand">{{ selectedScopePreview.categoryLabel }}</p>
                 </div>
-                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
-                  <p class="text-[#8A817A]">PT Scope</p>
-                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.ptCode }}</p>
+                <div class="rounded-lg border border-default bg-surface px-3 py-2">
+                  <p class="text-muted">PT Scope</p>
+                  <p class="font-semibold text-brand">{{ selectedScopePreview.ptCode }}</p>
                 </div>
-                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
-                  <p class="text-[#8A817A]">Estate Scope</p>
-                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.estateCode }}</p>
+                <div class="rounded-lg border border-default bg-surface px-3 py-2">
+                  <p class="text-muted">Estate Scope</p>
+                  <p class="font-semibold text-brand">{{ selectedScopePreview.estateCode }}</p>
                 </div>
-                <div class="rounded-lg border border-[#EEE6DE] bg-white px-3 py-2">
-                  <p class="text-[#8A817A]">Transaction Scope</p>
-                  <p class="font-semibold text-[#4D392A]">{{ selectedScopePreview.transactionCode }}</p>
+                <div class="rounded-lg border border-default bg-surface px-3 py-2">
+                  <p class="text-muted">Transaction Scope</p>
+                  <p class="font-semibold text-brand">{{ selectedScopePreview.transactionCode }}</p>
                 </div>
               </div>
             </div> -->
@@ -360,12 +360,12 @@ onMounted(async () => {
 
             <div class="md:col-span-2 mt-2 flex justify-end gap-2">
               <button type="button"
-                class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+                class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
                 @click="closeFormModal">
                 Batal
               </button>
               <button type="submit"
-                class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+                class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
                 :disabled="submitLoading">
                 {{ submitLoading ? "Menyimpan..." : "Simpan" }}
               </button>
@@ -375,20 +375,20 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-5">
-        <h3 class="text-[18px] font-bold">Konfirmasi Hapus</h3>
-        <p class="mt-2 text-[#8A817A]">
+    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-md rounded-2xl bg-surface p-5">
+        <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
+        <p class="mt-2 text-muted">
           Apakah Anda yakin ingin menghapus permission ini?
         </p>
 
         <div class="mt-5 flex justify-end gap-2">
-          <button class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+          <button class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
             @click="closeDeleteModal">
             Batal
           </button>
           <button
-            class="rounded-xl border border-red-200 bg-red-50 px-4 py-2 font-semibold text-red-600 disabled:opacity-50"
+            class="rounded-xl border border-error bg-error-light px-4 py-2 font-semibold text-error disabled:opacity-50"
             :disabled="managePermissionStore.loadingDelete" @click="confirmDelete">
             {{ managePermissionStore.loadingDelete ? "Menghapus..." : "Hapus" }}
           </button>

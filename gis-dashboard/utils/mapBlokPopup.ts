@@ -22,6 +22,35 @@ export type BlokPopupData = {
   kodeBlok: string;
 };
 
+export type BlokDetailResponse = {
+  blok_id?: string | null;
+  nama_blok?: string | null;
+  kode_blok?: string | null;
+  tahun_tanam?: string | number | null;
+  jenis_bibit?: string | null;
+  status_tanam?: string | null;
+  kode_afd?: string | null;
+  nama_estate?: string | null;
+  kode_est?: string | null;
+  nama_pt?: string | null;
+  kode_pt?: string | null;
+  nama_area?: string | null;
+  bulan?: number | null;
+  tahun?: number | null;
+  luas?: number | null;
+  pokok?: number | null;
+  sph?: number | null;
+  act_sdbi?: number | null;
+  bgt_sdbi?: number | null;
+  gap_sdbi?: number | null;
+  janjang_aktual?: number | null;
+  bjr_sdbi?: number | null;
+  kg_pkk_sdbi?: number | null;
+  jjg_pkk_sdbi?: number | null;
+  kategori_yield?: string | null;
+  [key: string]: unknown;
+};
+
 export const BULAN_POPUP_OPTIONS = [
   { label: "Januari", value: "1" },
   { label: "Februari", value: "2" },
@@ -104,11 +133,47 @@ function buildSelectOptions(
 
 function buildYearOptions(selectedYear: string): string {
   const currentYear = new Date().getFullYear();
-  return Array.from({ length: 11 }, (_, index) => {
+  return Array.from({ length: 6 }, (_, index) => {
     const year = String(currentYear - index);
     const selected = year === selectedYear ? "selected" : "";
     return `<option value="${year}" ${selected}>${year}</option>`;
   }).join("");
+}
+
+function toDisplayText(value: unknown, fallback = "-"): string {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return fallback;
+  }
+  return String(value);
+}
+
+function toDisplayNumber(value: unknown, fallback = "-"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  return formatNumberId(Number(value));
+}
+
+function resolveGapPercent(detail: BlokDetailResponse): string {
+  const act = Number(detail.act_sdbi);
+  const bgt = Number(detail.bgt_sdbi);
+
+  if (Number.isFinite(act) && Number.isFinite(bgt) && bgt !== 0) {
+    return formatPercentId(((act - bgt) / bgt) * 100);
+  }
+
+  const gap = Number(detail.gap_sdbi);
+  if (Number.isFinite(gap)) {
+    return formatPercentId(gap);
+  }
+
+  return "-";
+}
+
+export function getCurrentPopupPeriod() {
+  const now = new Date();
+  return {
+    bulan: String(now.getMonth() + 1),
+    tahun: String(now.getFullYear()),
+  };
 }
 
 export function normalizeBlokPopupData(
@@ -121,41 +186,125 @@ export function normalizeBlokPopupData(
   },
   overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
 ): BlokPopupData {
-  const gapRaw = pickString(properties, [
-    "gap_sd_bi",
-    "GAP_sd_Bi",
-    "gap_sd",
-    "gap",
-  ], "");
+  const gapRaw = pickString(
+    properties,
+    ["gap_sdbi", "gap_sd_bi", "GAP_sd_Bi", "gap_sd", "gap"],
+    "",
+  );
 
-  const gapNumber = gapRaw === "-"
-    ? NaN
-    : Number(String(gapRaw).replace("%", "").replace(",", "."));
+  const gapNumber =
+    gapRaw === "-"
+      ? NaN
+      : Number(String(gapRaw).replace("%", "").replace(",", "."));
 
   return {
-    area: hierarchy.area || pickString(properties, ["area", "kode_area", "nama_area"]),
+    area:
+      hierarchy.area ||
+      pickString(properties, ["area", "kode_area", "nama_area"]),
     pt: hierarchy.pt || pickString(properties, ["pt", "nama_pt", "kode_pt"]),
-    estate: hierarchy.estate || pickString(properties, ["estate", "nama_estate", "kode_est"]),
-    afdeling: hierarchy.afdeling || pickString(properties, ["afdeling", "nama_afdeling", "kode_afd", "afd_id"]),
+    estate:
+      hierarchy.estate ||
+      pickString(properties, ["estate", "nama_estate", "kode_est"]),
+    afdeling:
+      hierarchy.afdeling ||
+      pickString(properties, [
+        "afdeling",
+        "nama_afdeling",
+        "kode_afd",
+        "afd_id",
+      ]),
     blok: pickString(properties, ["kode_blok", "nama_blok", "blok"]),
     tt: pickString(properties, ["tahun_tanam", "TT", "tt"]),
     bibit: pickString(properties, ["jenis_bibit", "Bibit", "bibit"]),
     luas: pickNumber(properties, ["luas", "luas_tanam", "ltanam", "LTanam"]),
     pokok: pickNumber(properties, ["pokok", "total_pokok", "Pokok"]),
     sph: pickNumber(properties, ["sph", "SPH"]),
-    bjrSdBi: pickNumber(properties, ["bjr_sd_bi", "BJR_sd_Bi", "bjr_sensus", "bjr_aktual"]),
-    kgPkkSdBi: pickNumber(properties, ["kg_pkk_sd_bi", "Kg_pkk_sd_Bi", "kg_pkk"]),
-    jjgPkkSdBi: pickNumber(properties, ["jjg_pkk_sd_bi", "Jjg_pkk_sd_Bi", "jjg_pkk"]),
-    actSdBi: pickNumber(properties, ["act_sd_bi", "ACT_sd_Bi", "tbs_aktual", "act_sd"]),
-    bgtSdBi: pickNumber(properties, ["bgt_sd_bi", "BGT_sd_Bi", "tbs_budget", "bgt_sd"]),
+    bjrSdBi: pickNumber(properties, [
+      "bjr_sdbi",
+      "bjr_sd_bi",
+      "BJR_sd_Bi",
+      "bjr_sensus",
+      "bjr_aktual",
+    ]),
+    kgPkkSdBi: pickNumber(properties, [
+      "kg_pkk_sdbi",
+      "kg_pkk_sd_bi",
+      "Kg_pkk_sd_Bi",
+      "kg_pkk",
+    ]),
+    jjgPkkSdBi: pickNumber(properties, [
+      "jjg_pkk_sdbi",
+      "jjg_pkk_sd_bi",
+      "Jjg_pkk_sd_Bi",
+      "jjg_pkk",
+    ]),
+    actSdBi: pickNumber(properties, [
+      "act_sdbi",
+      "act_sd_bi",
+      "ACT_sd_Bi",
+      "tbs_aktual",
+      "act_sd",
+    ]),
+    bgtSdBi: pickNumber(properties, [
+      "bgt_sdbi",
+      "bgt_sd_bi",
+      "BGT_sd_Bi",
+      "tbs_budget",
+      "bgt_sd",
+    ]),
     gapSdBi: gapRaw === "-" ? "-" : formatPercentId(gapNumber),
-    kategoriYield: pickString(properties, ["kategori_yield", "Kategori_Yield", "kategori"]),
-    bulan: overrides?.bulan
-      ?? pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
-    tahun: overrides?.tahun
-      ?? pickString(properties, ["tahun"], String(new Date().getFullYear())),
+    kategoriYield: pickString(properties, [
+      "kategori_yield",
+      "Kategori_Yield",
+      "kategori",
+    ]),
+    bulan:
+      overrides?.bulan ??
+      pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
+    tahun:
+      overrides?.tahun ??
+      pickString(properties, ["tahun"], String(new Date().getFullYear())),
     blokId: pickString(properties, ["blok_id", "global_id", "GlobalID"], ""),
     kodeBlok: pickString(properties, ["kode_blok"], ""),
+  };
+}
+
+export function normalizeBlokDetailResponse(
+  detail: BlokDetailResponse,
+  hierarchy?: {
+    area?: string;
+    pt?: string;
+    estate?: string;
+    afdeling?: string;
+  },
+  overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
+): BlokPopupData {
+  return {
+    area: toDisplayText(detail.nama_area, hierarchy?.area || "-"),
+    pt: toDisplayText(detail.nama_pt, hierarchy?.pt || "-"),
+    estate: toDisplayText(detail.nama_estate, hierarchy?.estate || "-"),
+    afdeling: toDisplayText(detail.kode_afd, hierarchy?.afdeling || "-"),
+    blok: toDisplayText(detail.kode_blok || detail.nama_blok),
+    tt: toDisplayText(detail.tahun_tanam),
+    bibit: toDisplayText(detail.jenis_bibit),
+    luas: toDisplayNumber(detail.luas),
+    pokok: toDisplayNumber(detail.pokok),
+    sph: toDisplayNumber(detail.sph),
+    bjrSdBi: toDisplayNumber(detail.bjr_sdbi),
+    kgPkkSdBi: toDisplayNumber(detail.kg_pkk_sdbi),
+    jjgPkkSdBi: toDisplayNumber(detail.jjg_pkk_sdbi),
+    actSdBi: toDisplayNumber(detail.act_sdbi),
+    bgtSdBi: toDisplayNumber(detail.bgt_sdbi),
+    gapSdBi: resolveGapPercent(detail),
+    kategoriYield: toDisplayText(detail.kategori_yield),
+    bulan:
+      overrides?.bulan ??
+      toDisplayText(detail.bulan, String(new Date().getMonth() + 1)),
+    tahun:
+      overrides?.tahun ??
+      toDisplayText(detail.tahun, String(new Date().getFullYear())),
+    blokId: toDisplayText(detail.blok_id, ""),
+    kodeBlok: toDisplayText(detail.kode_blok, ""),
   };
 }
 
@@ -178,16 +327,118 @@ function metricColumn(label: string, value: string) {
   `;
 }
 
-export function buildBlokPopupHtml(
-  data: BlokPopupData,
-  options?: { loading?: boolean },
-) {
-  const gapColor = getGapColor(data.gapSdBi);
+function skeletonLine(width = "100%") {
+  return `<div class="map-blok-skeleton-line" style="width:${width};height:12px;border-radius:4px;background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%);background-size:200% 100%;animation:map-blok-skeleton-shine 1.2s ease-in-out infinite;"></div>`;
+}
+
+function skeletonRow() {
+  return `
+    <div style="display:grid;grid-template-columns:72px 8px minmax(0,1fr);gap:0;align-items:center;">
+      ${skeletonLine("70%")}
+      <span></span>
+      ${skeletonLine("85%")}
+    </div>
+  `;
+}
+
+function buildPopupFooter(data: Pick<BlokPopupData, "bulan" | "tahun" | "blokId" | "kodeBlok">, loading = false) {
   const bulanOptions = buildSelectOptions(BULAN_POPUP_OPTIONS, data.bulan);
   const tahunOptions = buildYearOptions(data.tahun);
 
   return `
+    <div style="border-top:1px solid #e5e7eb;padding-top:10px;display:grid;gap:8px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label style="display:grid;gap:4px;font-size:11px;color:#6b7280;">
+          <span>Bulan</span>
+          <select data-popup-bulan ${loading ? "disabled" : ""} style="width:100%;height:30px;border:1px solid #d1d5db;border-radius:6px;padding:0 8px;font-size:12px;color:#111827;background:#fff;">
+            ${bulanOptions}
+          </select>
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:#6b7280;">
+          <span>Tahun</span>
+          <select data-popup-tahun ${loading ? "disabled" : ""} style="width:100%;height:30px;border:1px solid #d1d5db;border-radius:6px;padding:0 8px;font-size:12px;color:#111827;background:#fff;">
+            ${tahunOptions}
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        data-popup-apply
+        data-blok-id="${data.blokId}"
+        data-kode-blok="${data.kodeBlok}"
+        style="width:100%;height:32px;border:none;border-radius:6px;background:${loading ? "#93c5fd" : "#2B7FFF"};color:#fff;font-size:12px;font-weight:600;cursor:${loading ? "not-allowed" : "pointer"};"
+        ${loading ? "disabled" : ""}
+      >
+        ${loading ? "Memuat..." : "Apply"}
+      </button>
+    </div>
+  `;
+}
+
+export function buildBlokPopupSkeletonHtml(options: {
+  bulan: string;
+  tahun: string;
+  blokId: string;
+  kodeBlok?: string;
+}) {
+  return `
     <div class="map-blok-popup" style="width:320px;max-width:320px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+      <div style="display:grid;gap:8px;margin-bottom:12px;">
+        ${Array.from({ length: 10 }, () => skeletonRow()).join("")}
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;">
+        <div style="display:grid;gap:6px;justify-items:center;">
+          ${skeletonLine("70%")}
+          ${skeletonLine("50%")}
+        </div>
+        <div style="display:grid;gap:6px;justify-items:center;">
+          ${skeletonLine("70%")}
+          ${skeletonLine("50%")}
+        </div>
+        <div style="display:grid;gap:6px;justify-items:center;">
+          ${skeletonLine("70%")}
+          ${skeletonLine("50%")}
+        </div>
+      </div>
+
+      <div style="display:grid;gap:8px;margin-bottom:12px;">
+        ${Array.from({ length: 4 }, () => skeletonRow()).join("")}
+      </div>
+
+      ${buildPopupFooter(
+        {
+          bulan: options.bulan,
+          tahun: options.tahun,
+          blokId: options.blokId,
+          kodeBlok: options.kodeBlok || "",
+        },
+        true,
+      )}
+    </div>
+  `;
+}
+
+export function getBulanPopupLabel(bulan: string): string {
+  return (
+    BULAN_POPUP_OPTIONS.find((item) => item.value === String(Number(bulan)))
+      ?.label || `Bulan ${bulan}`
+  );
+}
+
+export function buildBlokPopupHtml(
+  data: BlokPopupData,
+  options?: { loading?: boolean; errorMessage?: string },
+) {
+  const gapColor = getGapColor(data.gapSdBi);
+
+  return `
+    <div class="map-blok-popup" style="width:320px;max-width:320px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+      ${
+        options?.errorMessage
+          ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${options.errorMessage}</p>`
+          : ""
+      }
       <div style="display:grid;gap:4px;margin-bottom:10px;">
         ${popupRow("Area", data.area)}
         ${popupRow("PT", data.pt)}
@@ -214,32 +465,7 @@ export function buildBlokPopupHtml(
         ${popupRow("Kategori Yield", data.kategoriYield)}
       </div>
 
-      <div style="border-top:1px solid #e5e7eb;padding-top:10px;display:grid;gap:8px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <label style="display:grid;gap:4px;font-size:11px;color:#6b7280;">
-            <span>Bulan</span>
-            <select data-popup-bulan style="width:100%;height:30px;border:1px solid #d1d5db;border-radius:6px;padding:0 8px;font-size:12px;color:#111827;background:#fff;">
-              ${bulanOptions}
-            </select>
-          </label>
-          <label style="display:grid;gap:4px;font-size:11px;color:#6b7280;">
-            <span>Tahun</span>
-            <select data-popup-tahun style="width:100%;height:30px;border:1px solid #d1d5db;border-radius:6px;padding:0 8px;font-size:12px;color:#111827;background:#fff;">
-              ${tahunOptions}
-            </select>
-          </label>
-        </div>
-        <button
-          type="button"
-          data-popup-apply
-          data-blok-id="${data.blokId}"
-          data-kode-blok="${data.kodeBlok}"
-          style="width:100%;height:32px;border:none;border-radius:6px;background:#2B7FFF;color:#fff;font-size:12px;font-weight:600;cursor:pointer;"
-          ${options?.loading ? "disabled" : ""}
-        >
-          ${options?.loading ? "Memuat..." : "Apply"}
-        </button>
-      </div>
+      ${buildPopupFooter(data, options?.loading)}
     </div>
   `;
 }

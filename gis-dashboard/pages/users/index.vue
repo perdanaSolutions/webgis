@@ -204,64 +204,64 @@ function filterRoleOption(
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#FBFAF8] text-[14px] text-[#2E1F18]">
+  <main class="min-h-screen bg-page text-14 text-content">
     <Header brand-title="Management User" brand-subtitle="Kelola data pengguna dan role" />
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <button type="button" aria-label="Back" @click="gotoDashboard"
-            class="flex h-8 w-8 items-center justify-center rounded-full border border-[#D8DEE8] bg-white text-[#566074] shadow-sm transition-all duration-200 hover:border-[#1A315B] hover:text-[#1A315B] hover:bg-slate-50 hover:scale-105 active:scale-95">
+            class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-light bg-surface text-icon shadow-sm transition-all duration-200 hover-border-navy hover-text-navy hover-bg-slate-light hover:scale-105 active:scale-95">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
               stroke="currentColor" class="h-4 w-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
           </button>
 
-          <p class="font-semibold tracking-wide text-[#333d4e]">Dashboard</p>
+          <p class="font-semibold tracking-wide text-subtitle">Dashboard</p>
         </div>
 
         <div class="flex flex-1 items-center justify-end gap-2">
           <NuxtLink to="/roles"
-            class="rounded-md border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-1.5 text-sm font-semibold text-[#4D392A] transition hover:bg-[#F4E9DD]">
+            class="rounded-md border border-tan bg-cream px-4 py-1.5 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
             Management Role
           </NuxtLink>
         </div>
       </div>
 
-      <section class="rounded-2xl border border-[#EEE6DE] bg-white p-5">
+      <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 class="text-[20px] font-bold">Daftar User</h2>
-            <p class="text-[#8A817A]">
+            <h2 class="text-20 font-bold">Daftar User</h2>
+            <p class="text-muted">
               Kelola pengguna, role, dan status aktif user.
             </p>
           </div>
 
-          <button class="rounded-full bg-[#4D392A] px-5 py-2.5 font-semibold text-white" @click="openCreateModal">
+          <button class="rounded-full bg-brand px-5 py-2.5 font-semibold text-on-brand" @click="openCreateModal">
             + Tambah User
           </button>
         </div>
 
         <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
           <input v-model="search" type="text" placeholder="Cari username / email / nama lengkap..."
-            class="h-11 rounded-xl border border-[#EEE6DE] px-4 outline-none placeholder:text-[#A6A29D]"
+            class="h-11 rounded-xl border border-default px-4 outline-none placeholder-text-placeholder"
             @keyup.enter="onSearch" />
-          <button class="h-11 rounded-xl bg-[#4D392A] px-5 font-semibold text-white" @click="onSearch">
+          <button class="h-11 rounded-xl bg-brand px-5 font-semibold text-on-brand" @click="onSearch">
             Cari
           </button>
-          <button class="h-11 rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-5 font-semibold text-[#4D392A]"
+          <button class="h-11 rounded-xl border border-tan bg-cream px-5 font-semibold text-brand"
             @click="onResetSearch">
             Reset
           </button>
         </div>
 
-        <p v-if="manageUserStore.errorMessage" class="mb-3 rounded-xl bg-red-50 px-4 py-3 text-red-600">
+        <p v-if="manageUserStore.errorMessage" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
           {{ manageUserStore.errorMessage }}
         </p>
 
-        <div class="overflow-x-auto rounded-xl border border-[#EEE6DE]">
-          <table class="min-w-full bg-white">
-            <thead class="bg-[#F8F3EE] text-left text-[#4D392A]">
+        <div class="overflow-x-auto rounded-xl border border-default">
+          <table class="min-w-full bg-surface">
+            <thead class="bg-surface-warm text-left text-brand">
               <tr>
                 <th class="px-4 py-3 font-bold">Username</th>
                 <th class="px-4 py-3 font-bold">Email</th>
@@ -272,21 +272,21 @@ function filterRoleOption(
               </tr>
             </thead>
             <tbody>
-              <tr v-if="manageUserStore.loadingList" class="border-t border-[#F0E8E0]">
-                <td colspan="6" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="manageUserStore.loadingList" class="border-t border-row">
+                <td colspan="6" class="px-4 py-8 text-center text-muted">
                   Memuat data user...
                 </td>
               </tr>
 
-              <tr v-for="item in manageUserStore.users" :key="item.id" class="border-t border-[#F0E8E0]">
+              <tr v-for="item in manageUserStore.users" :key="item.id" class="border-t border-row">
                 <td class="px-4 py-3">{{ item.username }}</td>
                 <td class="px-4 py-3">{{ item.email }}</td>
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
                 <td class="px-4 py-3">{{ item.role?.nama ?? '' }}</td>
                 <td class="px-4 py-3">
-                  <span class="rounded-full px-3 py-1 text-xs font-semibold" :class="item.is_active
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-slate-200 text-slate-600'
+                  <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
+                    ? 'bg-success-lighter text-success'
+                    : 'bg-slate-muted text-slate-muted'
                     ">
                     {{ item.is_active ? "Aktif" : "Nonaktif" }}
                   </span>
@@ -294,11 +294,11 @@ function filterRoleOption(
                 <td class="px-4 py-3">
                   <div v-if="item.role?.nama !== 'superadmin'" class="flex items-center gap-2">
                     <button
-                      class="rounded-lg border border-[#DDD1C7] bg-[#FFF8F2] px-3 py-1.5 font-semibold text-[#4D392A]"
+                      class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
                       Edit
                     </button>
-                    <button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 font-semibold text-red-600"
+                    <button class="rounded-lg border border-error bg-error-light px-3 py-1.5 font-semibold text-error"
                       @click="openDeleteModal(item)">
                       Hapus
                     </button>
@@ -306,8 +306,8 @@ function filterRoleOption(
                 </td>
               </tr>
 
-              <tr v-if="!manageUserStore.loadingList && !manageUserStore.hasUsers" class="border-t border-[#F0E8E0]">
-                <td colspan="6" class="px-4 py-8 text-center text-[#8A817A]">
+              <tr v-if="!manageUserStore.loadingList && !manageUserStore.hasUsers" class="border-t border-row">
+                <td colspan="6" class="px-4 py-8 text-center text-muted">
                   Belum ada data user.
                 </td>
               </tr>
@@ -316,17 +316,17 @@ function filterRoleOption(
         </div>
 
         <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <p class="text-[#8A817A]">
-            Total: <span class="font-bold text-[#2E1F18]">{{ manageUserStore.totalData }}</span>
+          <p class="text-muted">
+            Total: <span class="font-bold text-content">{{ manageUserStore.totalData }}</span>
             data • Halaman
-            <span class="font-bold text-[#2E1F18]">{{ manageUserStore.page }}</span>
+            <span class="font-bold text-content">{{ manageUserStore.page }}</span>
             dari
-            <span class="font-bold text-[#2E1F18]">{{ manageUserStore.totalPage }}</span>
+            <span class="font-bold text-content">{{ manageUserStore.totalPage }}</span>
           </p>
 
           <div class="flex items-center gap-2">
-            <label class="text-[#8A817A]">Limit</label>
-            <select :value="manageUserStore.limit" class="h-10 rounded-lg border border-[#DDD1C7] bg-white px-2"
+            <label class="text-muted">Limit</label>
+            <select :value="manageUserStore.limit" class="h-10 rounded-lg border border-tan bg-surface px-2"
               @change="onLimitChange">
               <option :value="5">5</option>
               <option :value="10">10</option>
@@ -335,12 +335,12 @@ function filterRoleOption(
             </select>
 
             <button
-              class="rounded-lg border border-[#DDD1C7] bg-white px-3 py-2 font-semibold text-[#4D392A] disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-lg border border-tan bg-surface px-3 py-2 font-semibold text-brand disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!canGoPrev" @click="goPrev">
               Prev
             </button>
             <button
-              class="rounded-lg border border-[#DDD1C7] bg-white px-3 py-2 font-semibold text-[#4D392A] disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-lg border border-tan bg-surface px-3 py-2 font-semibold text-brand disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!canGoNext" @click="goNext">
               Next
             </button>
@@ -349,34 +349,34 @@ function filterRoleOption(
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-2xl rounded-2xl bg-white p-5">
+    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-2xl rounded-2xl bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-bold">{{ pageTitle }}</h3>
-          <button class="text-[#8A817A]" @click="closeFormModal">✕</button>
+          <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
+          <button class="text-muted" @click="closeFormModal">✕</button>
         </div>
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
-            <label class="mb-1 block text-[#6F645B]">Username</label>
+            <label class="mb-1 block text-label">Username</label>
             <input v-model="form.username" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">Email</label>
+            <label class="mb-1 block text-label">Email</label>
             <input v-model="form.email" required type="email"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-[#6F645B]">Nama Lengkap</label>
+            <label class="mb-1 block text-label">Nama Lengkap</label>
             <input v-model="form.nama_lengkap" required type="text"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">Role</label>
+            <label class="mb-1 block text-label">Role</label>
             <v-autocomplete v-model="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
               placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
               class="w-full custom-underlined-input" hide-details clearable :loading="manageUserStore.loadingRoles"
@@ -384,7 +384,7 @@ function filterRoleOption(
           </div>
 
           <div>
-            <label class="mb-1 block text-[#6F645B]">Status</label>
+            <label class="mb-1 block text-label">Status</label>
             <v-select :model-value="form.is_active" :items="[
               { label: 'Aktif', value: true },
               { label: 'Nonaktif', value: false }
@@ -393,20 +393,20 @@ function filterRoleOption(
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-[#6F645B]">
+            <label class="mb-1 block text-label">
               Password
             </label>
             <input v-model="form.password" :required="formMode === 'create'" type="password"
-              class="h-11 w-full rounded-xl border border-[#EEE6DE] px-3 outline-none" />
+              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
             <button type="button"
-              class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>
-            <button type="submit" class="rounded-xl bg-[#4D392A] px-4 py-2 font-semibold text-white disabled:opacity-50"
+            <button type="submit" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="submitLoading">
               {{ submitLoading ? "Menyimpan..." : "Simpan" }}
             </button>
@@ -415,20 +415,20 @@ function filterRoleOption(
       </div>
     </div>
 
-    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-5">
-        <h3 class="text-[18px] font-bold">Konfirmasi Hapus</h3>
-        <p class="mt-2 text-[#8A817A]">
+    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
+      <div class="w-full max-w-md rounded-2xl bg-surface p-5">
+        <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
+        <p class="mt-2 text-muted">
           Apakah Anda yakin ingin menghapus user ini?
         </p>
 
         <div class="mt-5 flex justify-end gap-2">
-          <button class="rounded-xl border border-[#DDD1C7] bg-[#FFF8F2] px-4 py-2 font-semibold text-[#4D392A]"
+          <button class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
             @click="closeDeleteModal">
             Batal
           </button>
           <button
-            class="rounded-xl border border-red-200 bg-red-50 px-4 py-2 font-semibold text-red-600 disabled:opacity-50"
+            class="rounded-xl border border-error bg-error-light px-4 py-2 font-semibold text-error disabled:opacity-50"
             :disabled="manageUserStore.loadingDelete" @click="confirmDelete">
             {{ manageUserStore.loadingDelete ? "Menghapus..." : "Hapus" }}
           </button>

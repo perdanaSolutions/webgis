@@ -1,4 +1,5 @@
 export default defineNuxtConfig({
+  css: ["~/src/styles/main.scss", "~/assets/css/index.css"],
   app: {
     head: {
       title: "GIS PWA",
@@ -29,6 +30,7 @@ export default defineNuxtConfig({
         "@vue/devtools-core",
         "@vue/devtools-kit",
         "vuetify",
+        "leaflet",
         "vuetify/components",
         "vuetify/directives",
         "vuetify/iconsets/mdi",
@@ -36,14 +38,6 @@ export default defineNuxtConfig({
     },
     ssr: {
       noExternal: ["vuetify"],
-    },
-    css: {
-      preprocessorOptions: {
-        scss: {
-          // Arahkan ke lokasi file SCSS Anda (misal: src/styles/main.scss)
-          additionalData: `@import "@/styles/main.scss";`,
-        },
-      },
     },
   },
   // Tambahkan konfigurasi tailwind di sini
