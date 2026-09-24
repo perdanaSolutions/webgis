@@ -42,11 +42,18 @@ dengan frontend yang sudah ada.
 
 import json
 import math
+from decimal import Decimal
 from typing import Callable, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import and_, desc, func, or_, text
 from sqlalchemy.orm import Session
+
+
+def _json_default(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 from app.api import deps
 from app.models.spatial import Afdeling, Area, Blok, Estate, GeoBlok, GeoTph, Perusahaan
@@ -470,7 +477,10 @@ def get_blocks_geojson(
         })
 
     geojson_response = {"type": "FeatureCollection", "features": features}
-    return Response(content=json.dumps(geojson_response), media_type="application/json")
+    return Response(
+        content=json.dumps(geojson_response, default=_json_default),
+        media_type="application/json",
+    )
 
 
 # =====================================================================
@@ -615,7 +625,10 @@ def get_tph_geojson(
         })
 
     geojson_response = {"type": "FeatureCollection", "features": features}
-    return Response(content=json.dumps(geojson_response), media_type="application/json")
+    return Response(
+        content=json.dumps(geojson_response, default=_json_default),
+        media_type="application/json",
+    )
 
 
 # =====================================================================
