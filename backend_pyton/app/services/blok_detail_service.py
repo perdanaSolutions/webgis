@@ -59,6 +59,14 @@ HISTORY_TABLE_REGISTRY = {
 }
 
 
+def list_history_tables() -> list:
+    """Daftar tabel/tema yang boleh dipakai di GET /history (untuk dropdown FE)."""
+    return [
+        {"table": table, "label": config["label"]}
+        for table, config in HISTORY_TABLE_REGISTRY.items()
+    ]
+
+
 # def get_history(db: Session, table: str, tahun: int, blok_id: Optional[str] = None) -> dict:
 #     """
 #     Ambil data mentah 1 tabel trx untuk 1 tahun (opsional difilter 1 blok),
