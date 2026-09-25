@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import 'leaflet/dist/leaflet.css'
 
 import { useMapStore } from '~/stores/mapStore'
@@ -18,6 +18,7 @@ type LeafletModule = typeof import('leaflet')
 type LeafletMap = import('leaflet').Map
 type LeafletGeoJson = import('leaflet').GeoJSON
 type LeafletLayer = import('leaflet').Layer
+type LeafletTileLayer = import('leaflet').TileLayer
 type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, any>>
 type Feature = GeoJSON.Feature<GeoJSON.Geometry, Record<string, any>>
 type FeatureProperties = Record<string, string | number | null | undefined>
@@ -29,20 +30,157 @@ type PopupCacheEntry = {
   popupData: BlokPopupData
 }
 
+type BasemapMode = {
+  id: string
+  label: string
+  group: string
+  url: string
+  attribution: string
+  maxZoom?: number
+  subdomains?: string | string[]
+}
+
+const BASEMAP_MODES: BasemapMode[] = [
+  {
+    id: 'osm',
+    label: 'OpenStreetMap',
+    group: 'Street',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  },
+  {
+    id: 'osm-hot',
+    label: 'OSM HOT',
+    group: 'Street',
+    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team',
+    maxZoom: 19,
+  },
+  {
+    id: 'esri-street',
+    label: 'Esri Street',
+    group: 'Street',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19,
+  },
+  {
+    id: 'esri-gray',
+    label: 'Esri Gray',
+    group: 'Light / Dark',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 16,
+  },
+  {
+    id: 'esri-imagery',
+    label: 'Esri Satellite',
+    group: 'Satellite / Terrain',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19,
+  },
+  {
+    id: 'esri-topo',
+    label: 'Esri Topo',
+    group: 'Satellite / Terrain',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19,
+  },
+  {
+    id: 'opentopomap',
+    label: 'OpenTopoMap',
+    group: 'Satellite / Terrain',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: 'Map data: &copy; OpenStreetMap, SRTM | Map style: &copy; OpenTopoMap',
+    maxZoom: 17,
+  },
+  {
+    id: 'cyclosm',
+    label: 'CyclOSM',
+    group: 'Special',
+    url: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors | CyclOSM',
+    maxZoom: 20,
+  },
+]
+
 const mapStore = useMapStore()
+
+const emit = defineEmits<{
+  mapClick: []
+}>()
 
 const mapContainer = shallowRef<HTMLElement | null>(null)
 const map = shallowRef<LeafletMap | null>(null)
 const geoJsonLayer = shallowRef<LeafletGeoJson | null>(null)
+const baseTileLayer = shallowRef<LeafletTileLayer | null>(null)
 const isMapReady = shallowRef(false)
 const isLayerUpdating = shallowRef(false)
 const leafletModule = shallowRef<LeafletModule | null>(null)
+const isBasemapMenuOpen = ref(false)
+const selectedBasemapId = ref('osm')
 
 const popupCacheByBlokId = new Map<string, PopupCacheEntry>()
 const loadSequenceByBlokId = new Map<string, number>()
 
 const defaultCenter: [number, number] = [-6.2088, 106.8456]
 const defaultZoom = 6
+
+const selectedBasemap = computed(
+  () => BASEMAP_MODES.find((item) => item.id === selectedBasemapId.value) ?? BASEMAP_MODES[0],
+)
+
+const basemapGroups = computed(() => {
+  const groups: Array<{ name: string; items: BasemapMode[] }> = []
+  for (const mode of BASEMAP_MODES) {
+    const existing = groups.find((group) => group.name === mode.group)
+    if (existing) {
+      existing.items.push(mode)
+    }
+    else {
+      groups.push({ name: mode.group, items: [mode] })
+    }
+  }
+  return groups
+})
+
+function createTileLayer(L: LeafletModule, mode: BasemapMode) {
+  return L.tileLayer(mode.url, {
+    attribution: mode.attribution,
+    maxZoom: mode.maxZoom ?? 19,
+    ...(mode.subdomains ? { subdomains: mode.subdomains } : {}),
+  })
+}
+
+function applyBasemap(modeId: string) {
+  const L = leafletModule.value
+  if (!L || !map.value)
+    return
+
+  const mode = BASEMAP_MODES.find((item) => item.id === modeId) ?? BASEMAP_MODES[0]
+  if (!mode)
+    return
+
+  selectedBasemapId.value = mode.id
+
+  if (baseTileLayer.value) {
+    map.value.removeLayer(baseTileLayer.value)
+    baseTileLayer.value = null
+  }
+
+  const nextLayer = createTileLayer(L, mode)
+  nextLayer.addTo(map.value)
+  nextLayer.bringToBack()
+  baseTileLayer.value = nextLayer
+  isBasemapMenuOpen.value = false
+}
+
+function toggleBasemapMenu() {
+  isBasemapMenuOpen.value = !isBasemapMenuOpen.value
+}
 
 function getStatusColor(status: string) {
   const normalizedStatus = status.toUpperCase()
@@ -361,6 +499,11 @@ function attachPopupHandlers(layer: LeafletLayer, feature: Feature) {
 
 function bindPopupInteractions(layer: LeafletLayer, feature: Feature) {
   layer.off('popupopen')
+  layer.off('click')
+
+  layer.on('click', () => {
+    emit('mapClick')
+  })
 
   layer.on('popupopen', () => {
     protectPopupInteractions(layer)
@@ -443,9 +586,15 @@ async function initializeMap() {
     closePopupOnClick: false,
   }).setView(defaultCenter, defaultZoom)
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map.value)
+  map.value.on('click', () => {
+    emit('mapClick')
+  })
+
+  const initialMode = BASEMAP_MODES.find((item) => item.id === selectedBasemapId.value) ?? BASEMAP_MODES[0]
+  if (initialMode) {
+    baseTileLayer.value = createTileLayer(L, initialMode)
+    baseTileLayer.value.addTo(map.value)
+  }
 
   isMapReady.value = true
 
@@ -469,6 +618,11 @@ onBeforeUnmount(() => {
   if (geoJsonLayer.value && map.value) {
     geoJsonLayer.value.removeFrom(map.value)
     geoJsonLayer.value = null
+  }
+
+  if (baseTileLayer.value && map.value) {
+    map.value.removeLayer(baseTileLayer.value)
+    baseTileLayer.value = null
   }
 
   if (map.value) {
@@ -506,6 +660,58 @@ watch(
         <p class="text-13 font-medium text-slate">
           Memuat data peta...
         </p>
+      </div>
+    </div>
+
+    <!-- Basemap mode switcher -->
+    <div class="absolute bottom-4 left-3 z-[1000] sm:left-4">
+      <div class="relative">
+        <button
+          type="button"
+          class="inline-flex h-10 items-center gap-2 rounded-xl border border-map-light bg-surface-90 px-3 text-13 font-semibold text-slate shadow-md backdrop-blur-md hover-bg-hover-slate"
+          :aria-expanded="isBasemapMenuOpen"
+          aria-label="Ganti mode tampilan peta"
+          @click="toggleBasemapMenu">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+          </svg>
+          <span class="max-w-[9rem] truncate">{{ selectedBasemap?.label }}</span>
+          <span class="text-12 text-gray-muted">{{ isBasemapMenuOpen ? '▴' : '▾' }}</span>
+        </button>
+
+        <div
+          v-if="isBasemapMenuOpen"
+          class="absolute bottom-full left-0 mb-2 w-72 max-h-[min(70vh,28rem)] overflow-y-auto rounded-xl border border-map-light bg-surface shadow-xl">
+          <div class="sticky top-0 z-10 border-b border-map-light bg-surface px-3 py-2">
+            <p class="text-11 font-semibold uppercase tracking-wide text-gray-muted">
+              Mode Tampilan Peta
+            </p>
+            <p class="text-11 text-gray-muted">
+              {{ BASEMAP_MODES.length }} mode tersedia
+            </p>
+          </div>
+          <div class="space-y-2 p-2">
+            <section v-for="group in basemapGroups" :key="group.name">
+              <p class="mb-0.5 px-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
+                {{ group.name }}
+              </p>
+              <div class="space-y-0.5">
+                <button
+                  v-for="mode in group.items"
+                  :key="mode.id"
+                  type="button"
+                  class="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-13 transition-colors"
+                  :class="selectedBasemapId === mode.id
+                    ? 'bg-blue-primary text-on-brand'
+                    : 'text-slate hover-bg-hover-slate'"
+                  @click="applyBasemap(mode.id)">
+                  <span class="font-medium">{{ mode.label }}</span>
+                  <span v-if="selectedBasemapId === mode.id" class="text-12">✓</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
 
