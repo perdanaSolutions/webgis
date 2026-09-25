@@ -487,15 +487,26 @@ def get_blocks_geojson(
 # DETAIL BLOK UNTUK POPUP & HISTORY TRX (dipakai FE saat blok diklik di peta)
 # =====================================================================
 
-@router.get("/blok/detail", summary="Atribut Popup Peta Blok lengkap (Master, KPI Yield, BJR, Kg/pkk, SPH)")
+@router.get(
+    "/blok/detail", 
+    summary="Atribut Popup Peta Blok lengkap (Master, KPI Yield, BJR, Kg/pkk, SPH)"
+)
 def get_blok_detail(
     blok_id: str = Query(..., description="ID Blok yang diklik pada peta (misal: PT_TELEN_E006_AFDI02_G018)"),
-    bulan: Optional[int] = Query(None, ge=1, le=12, description="Kosongkan untuk ambil periode terbaru"),
-    tahun: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk ambil periode terbaru"),
+    tahun_tanam: Optional[int] = Query(None, ge=1900, description="Kosongkan untuk ambil data terbaru (latest)"),
+    ownership: Optional[str] = Query(
+        None, 
+        description="Filter kepemilikan blok/tipe blok (misal: Inti atau Plasma)"
+    ),
     db: Session = Depends(deps.get_db),
     current_user = Depends(deps.get_current_user),
 ):
-    return blok_detail_service.get_blok_detail(db, blok_id, bulan, tahun)
+    return blok_detail_service.get_blok_detail(
+        db=db, 
+        blok_id=blok_id, 
+        tahun_tanam=tahun_tanam, 
+        ownership=ownership
+    )
 
 
 @router.get("/history/tables", summary="Daftar tabel/tema yang tersedia untuk GET /history")
@@ -512,7 +523,7 @@ def get_history_data(
         "trx_produksi_tbs", 
         description="Pilihan tabel: 'trx_produksi_tbs', 'trx_areal_statement', atau 'trx_rotasi_pusingan'"
     ),
-    tahun: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk akumulasi Tahunan (Multi-Year), isi untuk akumulasi Bulanan"),
+    tahun_tanam: Optional[int] = Query(None, ge=2000, description="Kosongkan untuk akumulasi Tahunan (Multi-Year), isi untuk akumulasi Bulanan"),
     area_id: Optional[str] = Query(None, description="Filter tingkat Area"),
     kode_pt: Optional[str] = Query(None, description="Filter tingkat PT"),
     kode_est: Optional[str] = Query(None, description="Filter tingkat Estate"),
@@ -528,7 +539,7 @@ def get_history_data(
     return blok_detail_service.get_history_aggregated(
         db=db,
         table=table,
-        tahun=tahun,
+        tahun=tahun_tanam,
         area_id=area_id,
         kode_pt=kode_pt,
         kode_est=kode_est,
