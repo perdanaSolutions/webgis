@@ -3,13 +3,8 @@ from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 
-# Import skema response & create dari akses.py
-from app.schemas.akses import (
-    LogAksesDataCreate, 
-    LogAksesMenuResponse, 
-    LogAksesDataResponse, 
-    LogAksesTransaksiResponse
-)
+from app.schemas.access import AksesDataResponse, AksesMenuResponse, AksesTransaksiResponse
+from app.schemas.akses import LogAksesDataCreate
 
 class RoleBase(BaseModel):
     nama: str
@@ -25,10 +20,10 @@ class RoleResponse(RoleBase):
     id: UUID
     created_at: datetime
     
-    # Menampilkan detail log akses yang aktif pada Role
-    akses_menu: List[LogAksesMenuResponse] = []
-    akses_data: List[LogAksesDataResponse] = []
-    akses_transaksi: List[LogAksesTransaksiResponse] = []
+    # Diisi dari auth.role_menus, auth.role_data_scopes, dan auth.role_permissions.
+    akses_menu: List[AksesMenuResponse] = []
+    akses_data: List[AksesDataResponse] = []
+    akses_transaksi: List[AksesTransaksiResponse] = []
 
     class Config:
         from_attributes = True

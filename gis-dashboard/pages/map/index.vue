@@ -113,31 +113,33 @@ onBeforeUnmount(() => mq?.removeEventListener("change", syncDesktop));
     <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
 
     <!-- PAGE HEADER -->
-    <div class="flex flex-wrap items-end justify-between gap-4 border-b border-[#eadfce] bg-white px-6 py-4 lg:px-8">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[#eadfce] bg-white px-4 py-1.5 lg:px-6">
       <div class="min-w-0">
-        <nav class="text-14 text-[#8a7a68]" aria-label="Breadcrumb">
+        <nav class="text-11 leading-none text-[#8a7a68]" aria-label="Breadcrumb">
           <NuxtLink to="/dashboard" class="hover:underline">Beranda</NuxtLink>
-          <span class="mx-1.5">/</span>
+          <span class="mx-1">/</span>
           <span>{{ pageTitle }}</span>
         </nav>
-        <h1 class="text-[30px] font-bold leading-tight tracking-tight text-[#2b2118]">{{ pageTitle }}</h1>
-        <p class="truncate text-14 text-[#8a7a68]">Tampilan peta layar penuh · scope: {{ store.scopeLabel }}</p>
+        <div class="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <h1 class="text-lg font-bold leading-none tracking-tight text-[#2b2118]">{{ pageTitle }}</h1>
+          <p class="truncate text-12 leading-none text-[#8a7a68]">Tampilan peta layar penuh · scope: {{ store.scopeLabel }}</p>
+        </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex flex-wrap items-center gap-1.5">
         <button type="button" class="bp-btn hidden lg:inline-flex" :aria-pressed="showPanels" @click="showPanels = !showPanels">
-          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M14 10l-2 2 2 2" />
           </svg>
           Panel
         </button>
         <button type="button" class="bp-btn" title="Unduh batas blok & layer aktif sebagai GeoJSON" @click="downloadGeoJSON">
-          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
           </svg>
           Unduh Peta
         </button>
         <NuxtLink to="/document" class="bp-btn bp-btn-primary">
-          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
           Tambah Blok
         </NuxtLink>
       </div>

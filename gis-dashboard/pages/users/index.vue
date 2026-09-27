@@ -19,6 +19,7 @@ const search = ref("");
 const showFormModal = ref(false);
 const formError = ref("");
 const showDeleteModal = ref(false);
+const deleteError = ref("");
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
 
@@ -106,6 +107,7 @@ function closeFormModal() {
 
 function openDeleteModal(user: UserItem) {
   selectedUserId.value = user.id;
+  deleteError.value = "";
   showDeleteModal.value = true;
 }
 
@@ -148,7 +150,13 @@ async function submitForm() {
 }
 
 async function confirmDelete() {
-  await manageUserStore.deleteUser(selectedUserId.value);
+  deleteError.value = "";
+  try {
+    await manageUserStore.deleteUser(selectedUserId.value);
+  } catch {
+    deleteError.value = manageUserStore.errorMessage || "Gagal menghapus user.";
+    return;
+  }
   showDeleteModal.value = false;
 
   if (
@@ -433,6 +441,9 @@ function filterRoleOption(
         <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
         <p class="mt-2 text-muted">
           Apakah Anda yakin ingin menghapus user ini?
+        </p>
+        <p v-if="deleteError" class="mt-3 rounded-xl bg-error-light px-4 py-3 text-error">
+          {{ deleteError }}
         </p>
 
         <div class="mt-5 flex justify-end gap-2">

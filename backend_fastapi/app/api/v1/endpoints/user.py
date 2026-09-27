@@ -7,7 +7,7 @@ from typing import Optional
 
 from app.api import deps
 from app.core import security
-from app.models.auth import User, Role
+from app.models.auth import User, Role, UserActivityLog
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.schemas.spatial import PaginatedResponse  # Menggunakan wrapper pagination kita sebelumnya
 
@@ -151,6 +151,27 @@ def delete_user(
 
     if user.username == "superadmin":
         raise HTTPException(status_code=400, detail="Akun 'superadmin' utama sistem tidak boleh dihapus.")
+
+    if current_user.id == user.id:
+        raise HTTPException(status_code=400, detail="Tidak bisa menghapus akun yang sedang dipakai login.")
+
+    # audit.user_activities append-only. FK ON DELETE SET NULL pun ditolak
+    # trigger deny_modification(), jadi user yang sudah punya log tidak boleh dihapus.
+    has_activity = (
+        db.query(UserActivityLog.id)
+        .filter(UserActivityLog.user_id == user.id)
+        .limit(1)
+        .first()
+    )
+    if has_activity:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "User sudah memiliki riwayat aktivitas. Log audit bersifat append-only "
+                "dan tidak boleh diubah atau dihapus. Nonaktifkan akun (is_active=false) "
+                "alih-alih menghapus."
+            ),
+        )
 
     db.delete(user)
     db.commit()

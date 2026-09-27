@@ -2,7 +2,6 @@ from sqlalchemy import Column, String, Text, DateTime, ForeignKey, text, BigInte
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
-from app.models.akses import LogAksesMenu, LogAksesData, LogAksesTransaksi
 
 AUTH_SCHEMA = "auth"
 
@@ -83,24 +82,6 @@ class Role(Base):
         back_populates="roles",
     )
 
-    akses_menu = relationship(
-        "LogAksesMenu",
-        primaryjoin="foreign(LogAksesMenu.role_id) == cast(Role.id, String)",
-        lazy="select",
-    )
-
-    akses_data = relationship(
-        "LogAksesData",
-        primaryjoin="foreign(LogAksesData.role_id) == cast(Role.id, String)",
-        lazy="select",
-    )
-
-    akses_transaksi = relationship(
-        "LogAksesTransaksi",
-        primaryjoin="foreign(LogAksesTransaksi.role_id) == cast(Role.id, String)",
-        lazy="select",
-    )
-
 
 # 3. Tabel permissions
 class Permission(Base):
@@ -156,10 +137,12 @@ class User(Base):
         back_populates="users",
         lazy="selectin",
     )
+    # Log audit append-only: jangan cascade delete/update. Trigger
+    # audit.deny_modification() menolak UPDATE dan DELETE pada tabel ini.
     activities = relationship(
         "UserActivityLog",
         back_populates="user",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @property
