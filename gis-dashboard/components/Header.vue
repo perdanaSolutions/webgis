@@ -133,8 +133,48 @@ onUnmounted(() => {
       </div>
 
       <div class="ml-auto flex items-center gap-2 sm:gap-3">
+        <nav
+          v-if="dashboardService.favoriteMenus.length"
+          aria-label="Menu favorit"
+          class="flex max-w-[42vw] items-center gap-1.5 overflow-x-auto sm:max-w-[28rem]"
+        >
+          <button
+            v-for="item in dashboardService.favoriteMenus"
+            :key="`favorite-menu-${item.id}`"
+            type="button"
+            class="flex h-10 shrink-0 items-center gap-2 rounded-full border border-header-soft bg-surface px-1.5 text-brand transition hover-bg-cream sm:h-12 sm:px-2.5"
+            :title="item.description || item.title"
+            @click="navigateTo(item.to)"
+          >
+            <span
+              class="flex h-7 w-7 items-center justify-center rounded-full sm:h-8 sm:w-8"
+              :class="item.bgClass"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-4 w-4"
+                :class="item.iconClass"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.7"
+                  :d="dashboardService.iconPath(item.icon)"
+                />
+              </svg>
+            </span>
+            <span class="hidden max-w-[6.5rem] truncate text-12 font-semibold sm:inline">
+              {{ item.title }}
+            </span>
+          </button>
+        </nav>
+
         <button
-          class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand sm:h-12 sm:w-12">
+          class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand sm:h-12 sm:w-12"
+          aria-label="Notifikasi">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
             stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -231,12 +271,13 @@ onUnmounted(() => {
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
       <div class="border-b border-menu bg-surface-warm px-4 py-4">
         <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-11 font-semibold uppercase tracking-wide text-label">
-              Navigasi
-            </p>
-            <h3 class="truncate text-16 font-bold text-brand">
-              Menu Modul
+          <div class="flex min-w-0 items-center gap-2.5">
+            <div
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface">
+              <div class="h-8 w-8 rounded-full border-4 border-gold border-t-green-accent" />
+            </div>
+            <h3 class="truncate text-16 font-bold leading-tight text-brand">
+              TPTS
             </h3>
           </div>
           <button @click="closeSidebar"

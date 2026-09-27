@@ -15,6 +15,14 @@ defineOptions({
 });
 
 const mapStore = useMapStore();
+const mapDashboardRef = ref<{
+  focusOnFilteredData: (padding?: {
+    top?: number;
+    right?: number;
+    bottom?: number;
+    left?: number;
+  }) => void;
+} | null>(null);
 
 type FilterKey =
   | "area"
@@ -116,6 +124,16 @@ function toggleInfoPanel() {
 function hideSidePanels() {
   isFilterOpen.value = false;
   isInfoPanelOpen.value = false;
+}
+
+function focusMapOnFilteredData() {
+  const isDesktop = window.innerWidth >= 1024;
+  mapDashboardRef.value?.focusOnFilteredData({
+    top: 72,
+    left: isDesktop && isFilterOpen.value ? 352 : 48,
+    right: isDesktop && isInfoPanelOpen.value ? 416 : 48,
+    bottom: !isDesktop && isInfoPanelOpen.value ? 280 : 48,
+  });
 }
 
 function getApiBaseUrl() {
@@ -345,13 +363,34 @@ function getSelectedLabelByKey(key: FilterKey): string {
   return option?.label ?? value;
 }
 
+function coerceNumericValue(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(trimmed)) return null;
+
+  const numeric = Number(trimmed.replace(",", "."));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function formatDisplayValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "";
-  if (typeof value === "number") {
-    return Number.isInteger(value)
-      ? String(value)
-      : value.toLocaleString("id-ID", { maximumFractionDigits: 2 });
-  }
+
+  const numeric = coerceNumericValue(value);
+  if (numeric === null) return String(value);
+
+  return numeric.toLocaleString("id-ID", {
+    minimumFractionDigits: Number.isInteger(numeric) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatPlainValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
   return String(value);
 }
 
@@ -499,12 +538,12 @@ function getBulanLabel(bulan: unknown): string {
 
 function getPeriodTitle(row: Record<string, unknown>): string {
   const bulanLabel = getBulanLabel(row.bulan);
-  const tahun = formatDisplayValue(row.tahun);
+  const tahun = formatPlainValue(row.tahun);
 
   if (bulanLabel && tahun) return `${bulanLabel} ${tahun}`;
   if (bulanLabel) return bulanLabel;
   if (tahun) return `Tahun ${tahun}`;
-  if (row.periode != null) return `Periode ${formatDisplayValue(row.periode)}`;
+  if (row.periode != null) return `Periode ${formatPlainValue(row.periode)}`;
   return "Periode";
 }
 
@@ -566,8 +605,10 @@ function buildArealGroupTags(groupKeys: Record<string, unknown> | null | undefin
       label: AREAL_GROUP_KEY_LABELS[key] || key.replace(/_/g, " "),
       value:
         key === "bulan_tanam"
-          ? getBulanLabel(value) || formatDisplayValue(value)
-          : formatDisplayValue(value),
+          ? getBulanLabel(value) || formatPlainValue(value)
+          : key === "tahun_tanam"
+            ? formatPlainValue(value)
+            : formatDisplayValue(value),
     }));
 }
 
@@ -589,7 +630,7 @@ const arealStatementPeriods = computed(() => {
     const item = row as Record<string, unknown>;
     const groups = Array.isArray(item.groups) ? item.groups : [];
     const title = getPeriodTitle(item);
-    const yearHint = formatDisplayValue(item.tahun) || selectedTahun.value;
+    const yearHint = formatPlainValue(item.tahun) || selectedTahun.value;
 
     return {
       id: `areal-${item.bulan ?? index}-${yearHint}`,
@@ -808,7 +849,7 @@ async function resetAllFilters() {
   <main class="relative h-dvh w-screen overflow-hidden bg-page-map text-14 text-dark">
     <!-- Full-screen map -->
     <div class="absolute inset-0 z-0">
-      <MapDashboard class="h-full w-full" @map-click="hideSidePanels" />
+      <MapDashboard ref="mapDashboardRef" class="h-full w-full" @map-click="hideSidePanels" />
     </div>
 
     <!-- Toggle filter sidebar (visible when closed) -->
@@ -824,7 +865,7 @@ async function resetAllFilters() {
     <aside
       class="absolute z-[1100] flex flex-col border-map-light bg-surface shadow-2xl transition-transform duration-300 ease-out
         left-3 right-3 top-[4.75rem] max-h-[42dvh] rounded-2xl border
-        lg:left-0 lg:right-auto lg:top-20 lg:h-[calc(100dvh-5rem)] lg:max-h-none lg:w-80 lg:rounded-none lg:border-0 lg:border-r"
+        lg:left-0 lg:right-auto lg:top-20 lg:h-[calc(100dvh-5rem)] lg:max-h-none lg:w-80 lg:rounded-lg lg:border-0 lg:border-r"
       :class="isFilterOpen ? 'translate-x-0 translate-y-0' : 'pointer-events-none max-lg:-translate-y-[120%] lg:translate-y-0 lg:-translate-x-full'"
       :aria-hidden="!isFilterOpen">
       <div class="flex shrink-0 items-center justify-between gap-2 border-b border-map-light px-3 py-3">
@@ -979,8 +1020,22 @@ async function resetAllFilters() {
       </div>
     </aside>
 
+    <!-- Recenter map on the current filtered data -->
+    <button
+      type="button"
+      class="absolute right-3 top-3 z-[1100] inline-flex h-10 w-10 items-center justify-center rounded-xl border border-map-light bg-surface-90 text-slate shadow-lg backdrop-blur-md hover-bg-hover-slate lg:right-4 lg:top-4"
+      title="Pusatkan ke data filter"
+      aria-label="Pusatkan ke data filter"
+      @click="focusMapOnFilteredData">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <circle cx="12" cy="12" r="3" stroke-width="1.8" />
+        <circle cx="12" cy="12" r="7.25" stroke-width="1.8" />
+        <path stroke-linecap="round" stroke-width="1.8" d="M12 2.25v2.5M12 19.25v2.5M2.25 12h2.5M19.25 12h2.5" />
+      </svg>
+    </button>
+
     <!-- Floating tema buttons (no card, clear of zoom controls) -->
-    <div class="absolute left-14 top-3 z-[1100] right-3 lg:top-4 lg:right-auto">
+    <div class="absolute left-14 top-3 z-[1100] right-16 lg:top-4 lg:right-auto">
       <div class="flex max-w-full items-center gap-2 overflow-x-auto py-0.5">
         <p v-if="isTemaDataLoading" class="rounded-xl bg-surface-90 px-3 py-2 text-13 text-gray-muted shadow-md">
           Memuat tema...
@@ -1016,7 +1071,7 @@ async function resetAllFilters() {
     <aside
       class="absolute z-[1050] flex flex-col overflow-hidden border-map-light bg-surface-90 shadow-xl backdrop-blur-md transition-transform duration-300 ease-out
         left-3 right-3 bottom-3 max-h-[40dvh] rounded-2xl border
-        lg:left-auto lg:right-0 lg:top-20 lg:bottom-auto lg:h-[calc(100dvh-5rem)] lg:max-h-none lg:w-96 lg:rounded-none lg:border-0 lg:border-l"
+        lg:left-auto lg:right-0 lg:top-20 lg:bottom-auto lg:h-[calc(100dvh-5rem)] lg:max-h-none lg:w-96 lg:rounded-lg lg:border-0 lg:border-l"
       :class="[
         isInfoPanelOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full',
         isFilterOpen ? 'max-lg:top-auto' : 'max-lg:top-[4.75rem] max-lg:max-h-[calc(100dvh-6rem)]',

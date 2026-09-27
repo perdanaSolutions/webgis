@@ -947,7 +947,9 @@ export const useMapStore = defineStore("map", () => {
     };
   }
 
-  function normalizeGeoJSONResponse(response: unknown): GeoJSONFeatureCollection {
+  function normalizeGeoJSONResponse(
+    response: unknown,
+  ): GeoJSONFeatureCollection {
     const data = (response as { data?: unknown })?.data ?? response;
 
     if (
@@ -974,7 +976,7 @@ export const useMapStore = defineStore("map", () => {
     query.set("table", selectedTable);
 
     if (selectedTahun) {
-      query.set("tahun", selectedTahun);
+      query.set("tahun_tanam", selectedTahun);
     }
     if (normalizedFilters.area) {
       query.set("area_id", normalizedFilters.area);
@@ -1103,10 +1105,6 @@ export const useMapStore = defineStore("map", () => {
         ownership: selectedOwnership.value,
       };
 
-      // GeoJSON butuh tahun periode data; kosong → tahun berjalan (fallback map)
-      const geojsonTahun =
-        selectedTahun || String(new Date().getFullYear());
-
       const baseUrl = getApiBaseUrl();
       const query = new URLSearchParams();
 
@@ -1114,7 +1112,7 @@ export const useMapStore = defineStore("map", () => {
       query.set("kode_est", normalizedFilters.estate || "");
       query.set("kode_afd", normalizedFilters.afdeling || "");
       query.set("kode_blok", normalizedFilters.blok || "");
-      query.set("tahun", geojsonTahun);
+      query.set("tahun", selectedTahun || String(new Date().getFullYear()));
 
       const [geoResult] = await Promise.all([
         $api(`${baseUrl}/v1/spatial/geojson?${query.toString()}`, {

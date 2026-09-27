@@ -558,22 +558,64 @@ function updateGeoJSONLayer(L: LeafletModule) {
     geoJsonLayer.value = layer
     geoJsonLayer.value.addTo(map.value)
 
-    const bounds = geoJsonLayer.value.getBounds()
-
-    if (bounds.isValid()) {
-      map.value.fitBounds(bounds, {
-        padding: [32, 32],
-        maxZoom: 16,
-      })
-    }
-    else {
-      map.value.setView(defaultCenter, defaultZoom)
-    }
+    fitMapToFilteredData()
   }
   finally {
     isLayerUpdating.value = false
   }
 }
+
+type FocusPadding = {
+  top?: number
+  right?: number
+  bottom?: number
+  left?: number
+}
+
+function fitMapToFilteredData(padding?: FocusPadding, animate = false) {
+  if (!map.value)
+    return
+
+  const bounds = geoJsonLayer.value?.getBounds()
+  const fitOptions = padding
+    ? {
+        paddingTopLeft: [padding.left ?? 32, padding.top ?? 32] as [number, number],
+        paddingBottomRight: [padding.right ?? 32, padding.bottom ?? 32] as [number, number],
+        maxZoom: 16,
+      }
+    : {
+        padding: [32, 32] as [number, number],
+        maxZoom: 16,
+      }
+
+  if (bounds?.isValid()) {
+    if (animate) {
+      map.value.flyToBounds(bounds, {
+        ...fitOptions,
+        duration: 0.6,
+      })
+      return
+    }
+
+    map.value.fitBounds(bounds, fitOptions)
+    return
+  }
+
+  if (animate) {
+    map.value.flyTo(defaultCenter, defaultZoom, { duration: 0.6 })
+    return
+  }
+
+  map.value.setView(defaultCenter, defaultZoom)
+}
+
+function focusOnFilteredData(padding?: FocusPadding) {
+  fitMapToFilteredData(padding, true)
+}
+
+defineExpose({
+  focusOnFilteredData,
+})
 
 async function initializeMap() {
   const L = await import('leaflet')

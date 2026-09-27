@@ -30,6 +30,8 @@ export type ModuleItem = {
   icon: string;
   level: number;
   parentId: string | null;
+  orderPosition: number;
+  isFavorite: boolean;
   children: ModuleItem[];
 };
 
@@ -119,6 +121,27 @@ export const dashboardStore = defineStore("dashboard", () => {
   const errorMessage = ref("");
   const moduleItems = ref<ModuleItem[]>([]);
   const flatModuleItems = computed(() => flattenMenuTree(moduleItems.value));
+  const favoriteMenus = computed(() => {
+    const user = authStore.user;
+    const isSuperAdmin = user?.role === "superadmin";
+    const allowedIds = isSuperAdmin
+      ? null
+      : new Set(Array.isArray(user?.akses_menu) ? user.akses_menu : []);
+
+    return flatModuleItems.value
+      .filter((item) => {
+        if (!item.isFavorite || !item.to) return false;
+        if (!allowedIds) return true;
+        return allowedIds.has(item.id);
+      })
+      .slice()
+      .sort((a, b) => {
+        if (a.orderPosition !== b.orderPosition) {
+          return a.orderPosition - b.orderPosition;
+        }
+        return a.title.localeCompare(b.title);
+      });
+  });
 
   function normalizeModule(raw: any): ModuleItem {
     const children = Array.isArray(raw?.children)
@@ -135,6 +158,8 @@ export const dashboardStore = defineStore("dashboard", () => {
       icon: String(raw?.icon ?? "report"),
       level: Number(raw?.level ?? 1),
       parentId: raw?.parentId ?? raw?.parent_id ?? null,
+      orderPosition: Number(raw?.order_position ?? raw?.orderPosition ?? 0),
+      isFavorite: Boolean(raw?.isFavorite ?? raw?.is_favorite ?? false),
       children,
     };
   }
@@ -237,6 +262,7 @@ export const dashboardStore = defineStore("dashboard", () => {
     errorMessage,
     moduleItems,
     flatModuleItems,
+    favoriteMenus,
     initDataMenu,
     iconPath,
   };

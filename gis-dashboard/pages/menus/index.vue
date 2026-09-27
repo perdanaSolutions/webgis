@@ -9,6 +9,7 @@ import {
   type UpdateMenuPayload,
 } from "~/stores/manageMenuStore";
 import { useAuthStore } from "~/stores/authStore";
+import { dashboardStore } from "~/stores/dashboardStore";
 import { menuIconPath } from "~/utils/menuThemeOptions";
 import { menuSubtreeDepth } from "~/utils/menuTree";
 
@@ -18,6 +19,7 @@ defineOptions({
 
 const manageMenuStore = useManageMenuStore();
 const authStore = useAuthStore();
+const dashboardService = dashboardStore();
 
 const search = ref("");
 const showFormModal = ref(false);
@@ -36,6 +38,7 @@ const form = reactive<MenuFormState>({
   icon: "report",
   order_position: 0,
   parent_id: "",
+  is_favorite: false,
 });
 
 const submitLoading = computed(
@@ -98,7 +101,8 @@ const filteredMenus = computed(() => {
       item.description.toLowerCase().includes(keyword) ||
       item.to.toLowerCase().includes(keyword) ||
       item.icon.toLowerCase().includes(keyword) ||
-      parentName.toLowerCase().includes(keyword)
+      parentName.toLowerCase().includes(keyword) ||
+      (item.is_favorite && keyword.length >= 3 && "favorit".includes(keyword))
     );
   });
 });
@@ -117,6 +121,7 @@ function resetForm() {
   form.icon = "report";
   form.order_position = 0;
   form.parent_id = "";
+  form.is_favorite = false;
 }
 
 function fillFormFromMenu(menu: MenuItem) {
@@ -129,6 +134,7 @@ function fillFormFromMenu(menu: MenuItem) {
   form.icon = menu.icon || "report";
   form.order_position = Number(menu.order_position ?? 0);
   form.parent_id = menu.parent_id ?? "";
+  form.is_favorite = Boolean(menu.is_favorite);
 }
 
 function openCreateModal(parentId: string | null = null) {
@@ -181,6 +187,7 @@ async function submitForm() {
     icon: form.icon,
     order_position: Number(form.order_position ?? 0),
     parent_id: form.parent_id || null,
+    is_favorite: Boolean(form.is_favorite),
   };
 
   try {
@@ -192,6 +199,7 @@ async function submitForm() {
 
     showFormModal.value = false;
     await manageMenuStore.fetchMenus();
+    await dashboardService.initDataMenu();
   } catch {
     // Pesan error sudah disimpan di store.
   }
@@ -204,6 +212,7 @@ async function confirmDelete() {
     await manageMenuStore.deleteMenu(selectedMenuId.value);
     showDeleteModal.value = false;
     await manageMenuStore.fetchMenus();
+    await dashboardService.initDataMenu();
   } catch {
     // Pesan error sudah disimpan di store.
   }
@@ -277,12 +286,13 @@ onMounted(async () => {
                 <th class="px-4 py-3 font-bold">Route</th>
                 <th class="px-4 py-3 font-bold">Icon</th>
                 <th class="px-4 py-3 font-bold">Urutan</th>
+                <th class="px-4 py-3 font-bold">Favorit</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="manageMenuStore.loadingList" class="border-t border-row">
-                <td colspan="7" class="px-4 py-8 text-center text-muted">
+                <td colspan="8" class="px-4 py-8 text-center text-muted">
                   Memuat data menu...
                 </td>
               </tr>
@@ -318,6 +328,15 @@ onMounted(async () => {
                 </td>
                 <td class="px-4 py-3">{{ item.order_position }}</td>
                 <td class="px-4 py-3">
+                  <span
+                    v-if="item.is_favorite"
+                    class="rounded-full bg-peach px-2.5 py-1 text-size-sm font-semibold text-brand"
+                  >
+                    Favorit
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </td>
+                <td class="px-4 py-3">
                   <div class="flex flex-wrap items-center gap-2">
                     <button v-if="item.level < 3"
                       class="rounded-lg border border-default bg-surface px-3 py-1.5 font-semibold text-brand"
@@ -338,13 +357,13 @@ onMounted(async () => {
 
               <tr v-if="!manageMenuStore.loadingList && manageMenuStore.hasMenus && !filteredMenus.length"
                 class="border-t border-row">
-                <td colspan="7" class="px-4 py-8 text-center text-muted">
+                <td colspan="8" class="px-4 py-8 text-center text-muted">
                   Tidak ada menu yang cocok dengan pencarian.
                 </td>
               </tr>
 
               <tr v-if="!manageMenuStore.loadingList && !manageMenuStore.hasMenus" class="border-t border-row">
-                <td colspan="7" class="px-4 py-8 text-center text-muted">
+                <td colspan="8" class="px-4 py-8 text-center text-muted">
                   Belum ada data menu.
                 </td>
               </tr>
@@ -453,6 +472,20 @@ onMounted(async () => {
             <label class="mb-1 block text-label">order_position</label>
             <input v-model.number="form.order_position" required type="number" min="0"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="flex items-start gap-3 rounded-2xl border border-default bg-page px-4 py-3">
+              <input v-model="form.is_favorite" type="checkbox"
+                class="mt-1 h-4 w-4 rounded border-default text-brand" />
+              <span>
+                <span class="block font-semibold text-brand">Menu favorit</span>
+                <span class="mt-1 block text-size-sm text-muted">
+                  Ditandai sekali oleh admin dan berlaku untuk semua user. Shortcut di samping lonceng hanya muncul
+                  jika menu punya route dan user memiliki akses sesuai role.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">

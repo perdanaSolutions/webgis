@@ -11,7 +11,7 @@ router = APIRouter()
 
 MENU_COLUMNS = """
     id, title, description, bg_class, icon_class, arrow_class, "to", icon,
-    order_position, parent_id, level
+    order_position, parent_id, level, is_favorite
 """
 
 ALLOWED_UPDATE_FIELDS = {
@@ -24,6 +24,7 @@ ALLOWED_UPDATE_FIELDS = {
     "icon",
     "order_position",
     "parent_id",
+    "is_favorite",
 }
 
 
@@ -174,15 +175,16 @@ def create_menu(
     data["level"] = level
     data["to"] = data.get("to") or ""
     data["order_position"] = data.get("order_position") or 0
+    data["is_favorite"] = bool(data.get("is_favorite"))
 
     query = f"""
         INSERT INTO menus (
             title, description, bg_class, icon_class, arrow_class, "to", icon,
-            order_position, parent_id, level
+            order_position, parent_id, level, is_favorite
         )
         VALUES (
             :title, :description, :bg_class, :icon_class, :arrow_class, :to, :icon,
-            :order_position, :parent_id, :level
+            :order_position, :parent_id, :level, :is_favorite
         )
         RETURNING {MENU_COLUMNS};
     """
@@ -236,6 +238,8 @@ def update_menu(
         raise HTTPException(status_code=404, detail="Menu tidak ditemukan")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "is_favorite" in update_data:
+        update_data["is_favorite"] = bool(update_data["is_favorite"])
     if not update_data:
         raise HTTPException(status_code=400, detail="Tidak ada data yang diubah")
 
