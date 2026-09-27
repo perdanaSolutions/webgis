@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.middleware import DropEmptyQueryParamsMiddleware
 from app.api.v1.api import api_router
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 
@@ -62,6 +63,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 # =================================================================
 # MIDDLEWARE & ROUTER
 # =================================================================
+app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

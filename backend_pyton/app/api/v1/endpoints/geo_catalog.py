@@ -47,9 +47,13 @@ BlokParam = Annotated[str | None, Query(description="Filter blok (ID/kode)")]
 
 @router.get("/catalog", summary="Katalog seluruh jenis data geo (LEGACY & GENERIC) beserta endpoint-nya")
 def catalog(db: DbSession, _: CurrentUser, search: Annotated[str | None, Query()] = None):
+    layers = catalog_service.list_layers(db, search)
+    if not layers and not (search and search.strip()):
+        catalog_service.seed_legacy(db)
+        layers = catalog_service.list_layers(db, search)
     return [
         {k: layer[k] for k in ("kode", "nama", "deskripsi", "geometry_type", "relasi_blok", "handler_type", "endpoints")}
-        for layer in catalog_service.list_layers(db, search)
+        for layer in layers
     ]
 
 

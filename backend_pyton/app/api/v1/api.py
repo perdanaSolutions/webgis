@@ -1,5 +1,19 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, role, permission, spatial, user, activity_log, menu, sawit, slope, landuse, jalan, jembatan, akses_data, database_tables, geo_dinamic, areal_statement, pokok_produksi, trx_rotasi_pusingan
+from app.api.v1.endpoints import (
+    akses_data,
+    activity_log,
+    areal_statement,
+    auth,
+    database_tables,
+    geo_catalog,
+    layers,
+    menu,
+    pokok_produksi,
+    role,
+    spatial,
+    trx_rotasi_pusingan,
+    user,
+)
 
 api_router = APIRouter()
 
@@ -23,26 +37,10 @@ api_router.include_router(akses_data.router, prefix="/akses-data", tags=["Akses 
 # # Router Permission Management (Baru)
 # api_router.include_router(permission.router, prefix="/permissions", tags=["Permission Management"])
 
-api_router.include_router(geo_dinamic.router, prefix="/spatial", tags=["Upload Dinamis"])
-
-# Router Blok Spasial
-# api_router.include_router(blok.router, prefix="/blocks", tags=["Blocks & Filters"])
+# Route literal (/area, /geojson, /blok/detail) didaftarkan sebelum /{kode}.
 api_router.include_router(spatial.router, prefix="/spatial", tags=["Spatial Data & Maps"])
-
-# Router Sawit
-api_router.include_router(sawit.router, prefix="/spatial/sawit", tags=["Spatial Sawit"])
-
-# slope
-api_router.include_router(slope.router, prefix="/spatial/slope", tags=["Spatial Slope"])
-
-# landuse
-api_router.include_router(landuse.router, prefix="/spatial/landuse", tags=["Spatial Landuse"])
-
-# jalan
-api_router.include_router(jalan.router, prefix="/spatial/jalan", tags=["Spatial Jalan"])
-
-# jembatan
-api_router.include_router(jembatan.router, prefix="/spatial/jembatan", tags=["Spatial Jembatan"])
+api_router.include_router(layers.router, prefix="/spatial")
+api_router.include_router(geo_catalog.router, prefix="/spatial", tags=["Katalog & Layer Dinamis"])
 
 api_router.include_router(areal_statement.router, prefix="/areal-statement", tags=["Areal Statement"])
 api_router.include_router(pokok_produksi.router, prefix="/pokok-produksi", tags=["Pokok Produksi"])

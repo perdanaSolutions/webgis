@@ -1,4 +1,4 @@
-from typing import Generator
+from typing import Annotated, Generator
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import decode, PyJWTError
@@ -72,3 +72,8 @@ class PermissionChecker:
             )
             
         return current_user
+
+
+DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
+CanUploadGeojson = Annotated[User, Depends(PermissionChecker("upload:geojson"))]
