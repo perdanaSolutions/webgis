@@ -17,6 +17,7 @@ const manageUserStore = useManageUserStore();
 
 const search = ref("");
 const showFormModal = ref(false);
+const formError = ref("");
 const showDeleteModal = ref(false);
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
@@ -113,6 +114,13 @@ function closeDeleteModal() {
 }
 
 async function submitForm() {
+  form.role_ids = [...new Set((form.role_ids ?? []).filter(Boolean))];
+  if (!form.role_ids.length) {
+    formError.value = "Pilih minimal satu role.";
+    return;
+  }
+  formError.value = "";
+
   if (formMode.value === "create") {
     await manageUserStore.createUser({
       username: form.username,
@@ -377,6 +385,7 @@ function filterRoleOption(
 
           <div>
             <label class="mb-1 block text-label">Role</label>
+            <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role digabung.</p>
             <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
               placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
               class="w-full custom-underlined-input" hide-details clearable multiple chips closable-chips
@@ -399,6 +408,10 @@ function filterRoleOption(
             <input v-model="form.password" :required="formMode === 'create'" type="password"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
+
+          <p v-if="formError" class="md:col-span-2 rounded-xl bg-error-light px-4 py-3 text-error">
+            {{ formError }}
+          </p>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
             <button type="button"

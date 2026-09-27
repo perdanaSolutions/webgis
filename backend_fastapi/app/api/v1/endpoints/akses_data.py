@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import Dict, List
 
 # Import dependensi database
 from app.api import deps  
@@ -10,6 +10,16 @@ from app.models import akses as models
 from app.schemas import akses as schemas
 
 router = APIRouter()
+
+
+def _first_or_create(db: Session, model, **filters):
+    """Baris yang sama (role + kunci akses) tidak dibuat dua kali."""
+    existing = db.query(model).filter_by(**filters).first()
+    if existing:
+        return existing
+    row = model(**filters)
+    db.add(row)
+    return row
 
 # ==========================================
 # 1. CRUD: LOG AKSES MENU
@@ -21,12 +31,10 @@ def create_akses_menu(
     db: Session = Depends(deps.get_db),
     current_user = Depends(deps.get_current_user)
 ):
-    """Tambah hak akses menu untuk role tertentu."""
-    db_akses = models.LogAksesMenu(
-        role_id=payload.role_id,
-        menu_id=payload.menu_id
+    """Tambah hak akses menu untuk role tertentu. Grant yang sama tidak diduplikasi."""
+    db_akses = _first_or_create(
+        db, models.LogAksesMenu, role_id=payload.role_id, menu_id=payload.menu_id,
     )
-    db.add(db_akses)
     db.commit()
     db.refresh(db_akses)
     return db_akses
@@ -171,27 +179,34 @@ def create_role_akses_data_tree(
 ):
     """Menambahkan data hak akses wilayah berjenjang secara eksplisit."""
     inserted_count = 0
+    seen: set[tuple] = set()
+
+    def add_scope(**fields) -> None:
+        nonlocal inserted_count
+        key = tuple(fields.get(name) for name in ("role_id", "kode_area", "kode_pt", "kode_est", "kode_afd"))
+        if key in seen:
+            return
+        seen.add(key)
+        before = db.query(models.LogAksesData).filter_by(**fields).first()
+        if before:
+            return
+        db.add(models.LogAksesData(**fields))
+        inserted_count += 1
 
     for area in payload:
         kode_area = area.id_area
-        
+
         # Skenario 1: Hanya level Area
         if not area.perusahaan:
-            db.add(models.LogAksesData(
-                role_id=role_id, kode_area=kode_area, kode_pt=None, kode_est=None, kode_afd=None
-            ))
-            inserted_count += 1
+            add_scope(role_id=role_id, kode_area=kode_area, kode_pt=None, kode_est=None, kode_afd=None)
             continue
 
         for pt in area.perusahaan:
             kode_pt = pt.id_perusahaan
-            
+
             # Skenario 2: Sampai level Perusahaan/PT
             if not pt.estate:
-                db.add(models.LogAksesData(
-                    role_id=role_id, kode_area=kode_area, kode_pt=kode_pt, kode_est=None, kode_afd=None
-                ))
-                inserted_count += 1
+                add_scope(role_id=role_id, kode_area=kode_area, kode_pt=kode_pt, kode_est=None, kode_afd=None)
                 continue
 
             for est in pt.estate:
@@ -199,18 +214,15 @@ def create_role_akses_data_tree(
 
                 # Skenario 3: Sampai level Estate
                 if not est.afdeling:
-                    db.add(models.LogAksesData(
-                        role_id=role_id, kode_area=kode_area, kode_pt=kode_pt, kode_est=kode_est, kode_afd=None
-                    ))
-                    inserted_count += 1
+                    add_scope(role_id=role_id, kode_area=kode_area, kode_pt=kode_pt, kode_est=kode_est, kode_afd=None)
                     continue
 
                 # Skenario 4: Sampai level Afdeling
                 for afd in est.afdeling:
-                    db.add(models.LogAksesData(
-                        role_id=role_id, kode_area=kode_area, kode_pt=kode_pt, kode_est=kode_est, kode_afd=afd.id_afdeling
-                    ))
-                    inserted_count += 1
+                    add_scope(
+                        role_id=role_id, kode_area=kode_area, kode_pt=kode_pt,
+                        kode_est=kode_est, kode_afd=afd.id_afdeling,
+                    )
 
     db.commit()
     return {"message": f"Berhasil menambahkan {inserted_count} record hak akses wilayah"}
@@ -259,12 +271,13 @@ def delete_akses_data(
 
 @router.post("/transaksi", response_model=schemas.LogAksesTransaksiResponse, status_code=status.HTTP_201_CREATED)
 def create_akses_transaksi(payload: schemas.LogAksesTransaksiCreate, db: Session = Depends(deps.get_db), current_user = Depends(deps.get_current_user)):
-    """Tambah hak akses tabel transaksi untuk role tertentu."""
-    db_akses = models.LogAksesTransaksi(
+    """Tambah hak akses tabel transaksi untuk role tertentu. Grant yang sama tidak diduplikasi."""
+    db_akses = _first_or_create(
+        db,
+        models.LogAksesTransaksi,
         role_id=payload.role_id,
-        nama_table_transaksi=payload.nama_table_transaksi
+        nama_table_transaksi=payload.nama_table_transaksi,
     )
-    db.add(db_akses)
     db.commit()
     db.refresh(db_akses)
     return db_akses

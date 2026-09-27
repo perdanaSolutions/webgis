@@ -10,7 +10,6 @@ import {
 } from "~/stores/manageMenuStore";
 import { useAuthStore } from "~/stores/authStore";
 import { dashboardStore } from "~/stores/dashboardStore";
-import { useAccessControl } from "~/composables/useAccessControl";
 import { menuIconPath } from "~/utils/menuThemeOptions";
 import { menuSubtreeDepth } from "~/utils/menuTree";
 
@@ -21,7 +20,6 @@ defineOptions({
 const manageMenuStore = useManageMenuStore();
 const authStore = useAuthStore();
 const dashboardService = dashboardStore();
-const { hasRole } = useAccessControl();
 
 const search = ref("");
 const showFormModal = ref(false);
@@ -225,7 +223,7 @@ async function gotoUsers() {
 }
 
 onMounted(async () => {
-  if (!hasRole("superadmin")) {
+  if (informasiUser.value?.role !== "superadmin") {
     await navigateTo("/dashboard");
     return;
   }
@@ -330,8 +328,10 @@ onMounted(async () => {
                 </td>
                 <td class="px-4 py-3">{{ item.order_position }}</td>
                 <td class="px-4 py-3">
-                  <span v-if="item.is_favorite"
-                    class="rounded-full bg-peach px-2.5 py-1 text-size-sm font-semibold text-brand">
+                  <span
+                    v-if="item.is_favorite"
+                    class="rounded-full bg-peach px-2.5 py-1 text-size-sm font-semibold text-brand"
+                  >
                     Favorit
                   </span>
                   <span v-else class="text-muted">-</span>
@@ -476,7 +476,8 @@ onMounted(async () => {
 
           <div class="md:col-span-2">
             <label class="flex items-start gap-3 rounded-2xl border border-default bg-page px-4 py-3">
-              <input v-model="form.is_favorite" type="checkbox" class="mt-1 h-4 w-4 rounded border-default text-brand" />
+              <input v-model="form.is_favorite" type="checkbox"
+                class="mt-1 h-4 w-4 rounded border-default text-brand" />
               <span>
                 <span class="block font-semibold text-brand">Menu favorit</span>
                 <span class="mt-1 block text-size-sm text-muted">

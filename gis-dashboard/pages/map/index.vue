@@ -99,6 +99,8 @@ onMounted(async () => {
     await navigateTo("/login");
     return;
   }
+  const session = await authStore.validateToken();
+  if (!session) return;
   if (!dashboardService.moduleItems.length) void dashboardService.initDataMenu();
   await Promise.all([store.init(), overlays.loadCatalog()]);
 });

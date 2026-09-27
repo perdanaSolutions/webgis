@@ -2,12 +2,9 @@
 import { onMounted, computed, ref, onUnmounted } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
-import { useAccessControl } from '~/composables/useAccessControl'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
-const { hasRole } = useAccessControl()
-const informasiUser = computed(() => authStore.user)
 
 onMounted(async () => {
   if (!authStore.token) {
@@ -51,7 +48,10 @@ const displayProfileName = computed(() => {
 })
 
 const displayProfileRole = computed(() => {
-  return props.profileRole || (authStore?.user?.roles ?? []).join(', ') || 'Operator'
+  if (props.profileRole) return props.profileRole
+  const names = (authStore.user?.roles ?? []).filter(Boolean)
+  if (names.length) return names.join(', ')
+  return authStore?.user?.role || 'Operator'
 })
 
 
@@ -158,7 +158,8 @@ onUnmounted(() => {
         <div v-if="dashboardService.favoriteMenus.length" class="favorite-menu-container relative">
           <button type="button" @click="toggleFavoriteMenu"
             class="flex h-10 w-10 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream sm:h-12 sm:w-12"
-            :aria-expanded="isFavoriteOpen" aria-label="Menu favorit">
+            :aria-expanded="isFavoriteOpen"
+            aria-label="Menu favorit">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
               stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -288,12 +289,13 @@ onUnmounted(() => {
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
       <div class="border-b border-menu bg-surface-warm px-4 py-4">
         <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-11 font-semibold uppercase tracking-wide text-label">
-              Navigasi
-            </p>
-            <h3 class="truncate text-16 font-bold text-brand">
-              Menu Modul
+          <div class="flex min-w-0 items-center gap-2.5">
+            <div
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface">
+              <div class="h-8 w-8 rounded-full border-4 border-gold border-t-green-accent" />
+            </div>
+            <h3 class="truncate text-16 font-bold leading-tight text-brand">
+              TPTS
             </h3>
           </div>
           <button @click="closeSidebar"
@@ -332,7 +334,7 @@ onUnmounted(() => {
               </div>
             </button>
 
-            <button v-if="hasRole('superadmin')" @click="navigateTo('/menus'); closeSidebar()"
+            <button v-if="authStore.isSuperAdmin" @click="navigateTo('/menus'); closeSidebar()"
               class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
               <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-menu-blue-light">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-menu-blue" fill="none" viewBox="0 0 24 24"

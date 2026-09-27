@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref } from "vue";
 import { dashboardStore, type ModuleItem } from "~/stores/dashboardStore";
 
 defineOptions({
@@ -26,6 +26,7 @@ function itemKey(item: ModuleItem, index: number) {
 }
 
 function isExpanded(item: ModuleItem, index: number) {
+  if (props.expandAll) return true;
   return Boolean(expanded.value[itemKey(item, index)]);
 }
 
@@ -42,32 +43,6 @@ async function openItem(item: ModuleItem) {
 function childCount(item: ModuleItem) {
   return item.children?.length ?? 0;
 }
-
-function expandMatchingGroups() {
-  const next: Record<string, boolean> = {};
-  props.items.forEach((item, index) => {
-    if (item.children?.length) next[itemKey(item, index)] = true;
-  });
-  expanded.value = next;
-}
-
-watch(
-  () => props.expandAll,
-  (open) => {
-    if (!open) {
-      expanded.value = {};
-      return;
-    }
-    expandMatchingGroups();
-  },
-);
-
-watch(
-  () => props.items,
-  () => {
-    if (props.expandAll) expandMatchingGroups();
-  },
-);
 </script>
 
 <template>

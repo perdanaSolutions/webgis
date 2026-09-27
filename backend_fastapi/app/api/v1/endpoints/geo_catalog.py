@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
 from app.api.params import Bulan, BulanWajib, Limit, Page, Tahun, TahunWajib, UploadedFile, read_upload
+from app.services import user_access
 from app.services.layers import catalog_service
 
 router = APIRouter(prefix="/geo")
@@ -46,13 +47,24 @@ BlokParam = Annotated[str | None, Query(description="Filter blok (ID/kode)")]
 
 
 @router.get("/catalog", summary="Katalog seluruh jenis data geo (LEGACY & GENERIC) beserta endpoint-nya")
-def catalog(db: DbSession, _: CurrentUser, search: Annotated[str | None, Query()] = None):
+def catalog(db: DbSession, user: CurrentUser, search: Annotated[str | None, Query()] = None):
     layers = catalog_service.list_layers(db, search)
     if not layers and not (search and search.strip()):
         catalog_service.seed_legacy(db)
         layers = catalog_service.list_layers(db, search)
+    allowed = user_access.transaction_keys(db, user)
+    if allowed is not None:
+        def granted(layer: dict) -> bool:
+            keys = {
+                str(layer.get("kode") or "").strip().lower(),
+                str(layer.get("table_name") or "").strip().lower(),
+            }
+            keys.discard("")
+            return bool(keys & allowed)
+
+        layers = [layer for layer in layers if granted(layer)]
     return [
-        {k: layer[k] for k in ("kode", "nama", "deskripsi", "geometry_type", "relasi_blok", "handler_type", "endpoints")}
+        {k: layer[k] for k in ("kode", "nama", "deskripsi", "table_name", "geometry_type", "relasi_blok", "handler_type", "endpoints")}
         for layer in layers
     ]
 
@@ -101,8 +113,9 @@ def generic_execute(kode: str, db: DbSession, user: CanUploadGeojson, bulan: Bul
 
 
 @router.get("/{kode}/geojson", summary="[GENERIC] GeoJSON FeatureCollection")
-def generic_geojson(kode: str, db: DbSession, _: CurrentUser, bulan: Bulan = None, tahun: Tahun = None,
+def generic_geojson(kode: str, db: DbSession, user: CurrentUser, bulan: Bulan = None, tahun: Tahun = None,
                     blok_id: BlokParam = None):
+    user_access.require_layer(db, user, kode)
     layer = catalog_service.get_generic_layer(db, kode)
     return catalog_service.generic_geojson(db, layer, bulan, tahun, blok_id)
 
@@ -114,7 +127,8 @@ def generic_cleanup(kode: str, db: DbSession, _: CanUploadGeojson, bulan: BulanW
 
 
 @router.get("/{kode}", summary="[GENERIC] Daftar data (tanpa geometry) dengan pagination")
-def generic_list(kode: str, db: DbSession, _: CurrentUser, page: Page = 1, limit: Limit = 10,
+def generic_list(kode: str, db: DbSession, user: CurrentUser, page: Page = 1, limit: Limit = 10,
                  bulan: Bulan = None, tahun: Tahun = None, blok_id: BlokParam = None):
+    user_access.require_layer(db, user, kode)
     layer = catalog_service.get_generic_layer(db, kode)
     return catalog_service.generic_list(db, layer, page, limit, bulan, tahun, blok_id)

@@ -4,40 +4,44 @@ import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import { dashboardStore, type ModuleItem } from '~/stores/dashboardStore'
 import { useAccessControl } from '~/composables/useAccessControl'
-import { flattenMenuTree } from '~/utils/menuTree'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
 const { hasRole } = useAccessControl()
-const searchQuery = ref('')
-const menuSection = ref<HTMLElement | null>(null)
 
-const searchKeyword = computed(() => searchQuery.value.trim().toLowerCase())
+const informasiUser = computed(() => authStore.user)
+const menuKeyword = ref('')
 
 function menuMatches(item: ModuleItem, keyword: string) {
-  return [item.title, item.description, item.to].some((value) =>
-    String(value ?? '').toLowerCase().includes(keyword),
-  )
+  return [item.title, item.description, item.to]
+    .join(' ')
+    .toLowerCase()
+    .includes(keyword)
 }
 
 function filterMenus(items: ModuleItem[], keyword: string): ModuleItem[] {
   return items.flatMap((item) => {
     const children = filterMenus(item.children ?? [], keyword)
-    if (menuMatches(item, keyword)) return [{ ...item }]
-    if (!children.length) return []
-    return [{ ...item, children }]
+    if (!menuMatches(item, keyword) && !children.length) return []
+    return [{
+      ...item,
+      children: menuMatches(item, keyword) ? item.children : children,
+    }]
   })
 }
 
-const filteredMenus = computed(() => {
-  if (!searchKeyword.value) return dashboardService.moduleItems
-  return filterMenus(dashboardService.moduleItems, searchKeyword.value)
+const appliedKeyword = computed(() => menuKeyword.value.trim().toLowerCase())
+
+const visibleMenus = computed(() => {
+  if (!appliedKeyword.value) return dashboardService.moduleItems
+  return filterMenus(dashboardService.moduleItems, appliedKeyword.value)
 })
 
-const filteredMenuCount = computed(() => flattenMenuTree(filteredMenus.value).length)
-
-function submitSearch() {
-  menuSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function searchMenus() {
+  document.getElementById('menu-modul')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  })
 }
 
 defineOptions({
@@ -71,9 +75,10 @@ onMounted(async () => {
         </div>
 
         <form class="flex items-center gap-3 rounded-full border border-default bg-surface p-3 shadow-sm"
-          @submit.prevent="submitSearch">
-          <input v-model="searchQuery" type="search" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
-            aria-label="Cari menu" class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder">
+          @submit.prevent="searchMenus">
+          <input v-model="menuKeyword" type="search" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
+            class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder"
+            aria-label="Cari menu">
           <button type="submit" class="rounded-full bg-brand px-8 py-3 text-14 font-semibold text-on-brand">
             {{ dashboardService.dashboardConfig.searchButtonLabel }}
           </button>
@@ -144,16 +149,13 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section ref="menuSection" class="mt-7 scroll-mt-6">
+      <section id="menu-modul" class="mt-7">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 class="text-20 font-bold">
               {{ dashboardService.dashboardConfig.moduleTitle }}
             </h3>
-            <p v-if="searchKeyword" class="mt-1 text-14 text-muted">
-              Menampilkan {{ filteredMenuCount }} menu untuk "{{ searchQuery.trim() }}".
-            </p>
-            <p v-else class="mt-1 text-14 text-muted">
+            <p class="mt-1 text-14 text-muted">
               Buka modul langsung, atau perluas kelompok menu untuk melihat submenu.
             </p>
           </div>
@@ -178,11 +180,11 @@ onMounted(async () => {
           </div>
         </div>
 
-        <p v-else-if="searchKeyword && !filteredMenus.length"
+        <p v-else-if="appliedKeyword && !visibleMenus.length"
           class="rounded-2xl border border-default bg-surface px-5 py-8 text-center text-14 text-muted">
-          Tidak ada menu yang cocok dengan "{{ searchQuery.trim() }}".
+          Tidak ada menu yang cocok dengan "{{ menuKeyword.trim() }}".
         </p>
-        <MenuDashboardCards v-else :items="filteredMenus" :expand-all="Boolean(searchKeyword)" />
+        <MenuDashboardCards v-else :items="visibleMenus" :expand-all="Boolean(appliedKeyword)" />
       </section>
     </div>
   </main>

@@ -82,25 +82,35 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const isSuperAdmin = computed(() => (authStore.user?.roles ?? []).some((r) => r === "superadmin"));
   const aksesData = computed(() => (authStore.user?.akses_data ?? []) as AksesData[]);
 
-  function allowedAreas(): Set<string> | null {
-    if (isSuperAdmin.value) return null;
-    return new Set(aksesData.value.map((row) => norm(row.kode_area)).filter(Boolean));
+  function scopeRows(): AksesData[] {
+    return Array.isArray(aksesData.value) ? aksesData.value : [];
   }
 
+  function allowedAreas(): Set<string> | null {
+    if (isSuperAdmin.value) return null;
+    return new Set(scopeRows().map((row) => norm(row.kode_area)).filter(Boolean));
+  }
+
+  /** Grant induk (area/PT/estate tanpa anak) mencakup level di bawahnya. Baris ganda diabaikan. */
   function isEstateAllowed(item: EstateItem): boolean {
     if (isSuperAdmin.value) return true;
-    return aksesData.value.some((row) =>
-      norm(row.kode_area) === norm(area.value)
-      && (row.kode_est ? norm(row.kode_est) === norm(item.kode_est) : norm(row.kode_pt) === norm(item.kode_pt)));
+    return scopeRows().some((row) => {
+      if (norm(row.kode_area) !== norm(area.value)) return false;
+      if (norm(row.kode_est)) return norm(row.kode_est) === norm(item.kode_est);
+      if (norm(row.kode_pt)) return norm(row.kode_pt) === norm(item.kode_pt);
+      return Boolean(norm(row.kode_area));
+    });
   }
 
   function isAfdelingAllowed(kodeAfd: string): boolean {
     if (isSuperAdmin.value) return true;
-    return aksesData.value.some((row) => {
+    const estatePt = estatesByCode.value.get(estate.value)?.kode_pt;
+    return scopeRows().some((row) => {
       if (norm(row.kode_area) !== norm(area.value)) return false;
-      if (!row.kode_est) return norm(row.kode_pt) === norm(estatesByCode.value.get(estate.value)?.kode_pt);
-      if (norm(row.kode_est) !== norm(estate.value)) return false;
-      return !row.kode_afd || norm(row.kode_afd) === norm(kodeAfd);
+      if (norm(row.kode_est) && norm(row.kode_est) !== norm(estate.value)) return false;
+      if (!norm(row.kode_est) && norm(row.kode_pt) && norm(row.kode_pt) !== norm(estatePt)) return false;
+      if (norm(row.kode_afd)) return norm(row.kode_afd) === norm(kodeAfd);
+      return true;
     });
   }
 

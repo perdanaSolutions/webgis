@@ -1,5 +1,6 @@
 import { computed, ref, watch, type Ref } from "vue";
 
+import { useAuthStore } from "~/stores/authStore";
 import { getOverlayLegend, getOverlayStyle, type LegendItem, type OverlayStyle } from "~/utils/mapLayers";
 
 /**
@@ -26,7 +27,13 @@ export type OverlayLayer = {
   data: GeoJSON.FeatureCollection | null;
 };
 
-type CatalogItem = { kode: string; nama: string; geometry_type: string; endpoints: Record<string, string> | null };
+type CatalogItem = {
+  kode: string;
+  nama: string;
+  table_name?: string;
+  geometry_type: string;
+  endpoints: Record<string, string> | null;
+};
 
 const ORDER = ["tph", "sawit", "kuning", "landuse", "slope", "jalan", "jembatan"];
 const LABELS: Record<string, string> = {
@@ -42,8 +49,20 @@ function rank(code: string) {
 }
 
 export function useMapOverlays(scopeParams: Ref<Record<string, string | undefined>>) {
+  const authStore = useAuthStore();
   const layers = ref<OverlayLayer[]>([]);
   const sequence = new Map<string, number>();
+
+  function transactionAllowed(item: CatalogItem) {
+    if (authStore.isSuperAdmin) return true;
+    const allowed = new Set(
+      (authStore.user?.akses_transaksi ?? []).map((value) => String(value).trim().toLowerCase()).filter(Boolean),
+    );
+    if (!allowed.size) return false;
+    return [item.kode, item.table_name, item.nama]
+      .map((value) => String(value ?? "").trim().toLowerCase())
+      .some((value) => value && allowed.has(value));
+  }
 
   function baseUrl() {
     return useRuntimeConfig().public.apiBaseUrlPython as string;
@@ -52,8 +71,15 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
   async function loadCatalog() {
     const { $api } = useNuxtApp();
     const catalog = await $api<CatalogItem[]>(`${baseUrl()}/v1/spatial/geo/catalog`).catch(() => []);
+    const seen = new Set<string>();
     const items: OverlayLayer[] = (Array.isArray(catalog) ? catalog : [])
-      .filter((item) => item.kode !== "blok" && item.endpoints?.geojson)
+      .filter((item) => {
+        const key = String(item.kode ?? "").trim().toLowerCase();
+        if (!key || key === "blok" || !item.endpoints?.geojson || seen.has(key)) return false;
+        if (!transactionAllowed(item)) return false;
+        seen.add(key);
+        return true;
+      })
       .map((item, index) => {
         const style = getOverlayStyle(item.kode, index);
         return {

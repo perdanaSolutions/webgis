@@ -3,7 +3,7 @@ from datetime import timedelta, datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy import bindparam, or_, text
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -11,6 +11,7 @@ from app.core import security
 from app.core.config import settings
 from app.models.auth import User, UserActivityLog
 from app.schemas.user import UserLoginRequest
+from app.services import user_access
 
 import jwt
 
@@ -46,72 +47,26 @@ def login_access_token_swagger(
     return process_user_login(db, input_identifier=form_data.username, input_password=form_data.password)
 
 
-def _role_ids(user: User) -> list:
-    return [role.id for role in user.roles]
-
-
-def _akses_menu(db: Session, role_ids: list) -> list[str]:
-    if not role_ids:
-        return []
-    stmt = text(
-        """
-        SELECT DISTINCT menu_id::text AS menu_id
-        FROM auth.role_menus
-        WHERE role_id::text IN :role_ids
-        """
-    ).bindparams(bindparam("role_ids", expanding=True))
-    rows = db.execute(stmt, {"role_ids": [str(role_id) for role_id in role_ids]}).all()
-    return [row.menu_id for row in rows]
-
-
-def _akses_data(db: Session, role_ids: list) -> list[dict]:
-    if not role_ids:
-        return []
-    stmt = text(
-        """
-        SELECT
-            a.code AS kode_area,
-            COALESCE(c_direct.code, c_via_estate.code, c_via_div.code) AS kode_pt,
-            COALESCE(e_direct.code, e_via_div.code) AS kode_est,
-            d.code AS kode_afd
-        FROM auth.role_data_scopes AS s
-        LEFT JOIN master.areas AS a ON a.id = s.area_id
-        LEFT JOIN master.companies AS c_direct ON c_direct.id = s.company_id
-        LEFT JOIN master.estates AS e_direct ON e_direct.id = s.estate_id
-        LEFT JOIN master.companies AS c_via_estate ON c_via_estate.id = e_direct.company_id
-        LEFT JOIN master.divisions AS d ON d.id = s.division_id
-        LEFT JOIN master.estates AS e_via_div ON e_via_div.id = d.estate_id
-        LEFT JOIN master.companies AS c_via_div ON c_via_div.id = e_via_div.company_id
-        WHERE s.role_id::text IN :role_ids
-        """
-    ).bindparams(bindparam("role_ids", expanding=True))
-    rows = db.execute(stmt, {"role_ids": [str(role_id) for role_id in role_ids]}).mappings().all()
-    return [
-        {
-            "kode_pt": row["kode_pt"],
-            "kode_est": row["kode_est"],
-            "kode_area": row["kode_area"],
-            "kode_afd": row["kode_afd"],
-        }
-        for row in rows
-    ]
-
-
 def _session_user(db: Session, user: User) -> dict:
-    role_ids = _role_ids(user)
-    role_names = [role.nama for role in user.roles]
-    primary_role = user.role
+    names: list[str] = []
+    seen: set[str] = set()
+    for role in user.roles or []:
+        name = (role.nama or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    primary = user.role
+    access = user_access.merged_access(db, user)
     return {
         "id": str(user.id),
         "username": user.username,
         "nama_lengkap": user.nama_lengkap,
         "email": user.email,
-        "roles": role_names,
-        "role": primary_role.nama if primary_role else None,
-        "role_id": str(primary_role.id) if primary_role else None,
-        "akses_menu": _akses_menu(db, role_ids),
-        "akses_data": _akses_data(db, role_ids),
-        "akses_transaksi": [],
+        "roles": names,
+        "role": primary.nama if primary else None,
+        "role_id": str(primary.id) if primary else None,
+        "role_ids": user_access.role_ids(user),
+        **access,
     }
 
 

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from app.api import deps
 from app.api.params import read_upload
 from app.schemas.spatial import PaginatedResponse
-from app.services import block_detail_service, block_upload_service, hierarchy_service, history_service, map_service
+from app.services import block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, user_access
 from app.services.block_filter import BlockFilter
 from app.services.layers.catalog_service import generic_tables
 from app.utils.period import as_of_period
@@ -180,7 +180,7 @@ def get_tph_geojson(
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
-    del current_user
+    user_access.require_layer(db, current_user, "tph")
     flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
     return map_service.tph_geojson(db, flt, kategori, bulan, tahun)
 

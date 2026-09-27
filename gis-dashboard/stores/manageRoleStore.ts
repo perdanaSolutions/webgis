@@ -279,8 +279,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
     try {
       const baseUrl = getApiBaseUrl();
-      // kerangka endpoint transaksi
-      const response = await $api<any[]>(`${baseUrl}/v1/database/tables`, {
+      const response = await $api<any[]>(`${baseUrl}/v1/spatial/geo/jenis`, {
         method: "GET",
         headers: getAuthHeaders(),
       });
@@ -289,7 +288,22 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         ? response
         : ((response as any)?.data ?? []);
 
-      allDataTransaksi.value = normalizedData as any;
+      const seen = new Set<string>();
+      allDataTransaksi.value = normalizedData.flatMap((item: any) => {
+        const kode = String(item?.kode ?? item?.code ?? "").trim();
+        const tableName = String(item?.table_name ?? "").trim();
+        const id = kode || tableName;
+        const key = id.toLowerCase();
+        if (!id || seen.has(key)) return [];
+        seen.add(key);
+        return [{
+          id,
+          kode,
+          table_name: tableName,
+          nama_table_transaksi: id,
+          title: String(item?.nama ?? item?.name ?? id),
+        }];
+      }) as any;
 
       return transactionItems.value;
     } catch (error: any) {
@@ -349,9 +363,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     const baseUrl = getApiBaseUrl();
 
     await Promise.all(
-      menusAkses
-        .filter((menuId) => !!menuId)
-        .map((menuId) =>
+      [...new Set(menusAkses.filter((menuId) => !!menuId))].map((menuId) =>
           $api(`${baseUrl}/v1/akses-data/menu`, {
             method: "POST",
             headers: getAuthHeaders(),
@@ -661,9 +673,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     const baseUrl = getApiBaseUrl();
 
     await Promise.all(
-      transaksiAkses
-        .filter((namaTable) => !!namaTable)
-        .map((namaTable) =>
+      [...new Set(transaksiAkses.map((namaTable) => String(namaTable).trim()).filter(Boolean))].map((namaTable) =>
           $api(`${baseUrl}/v1/akses-data/transaksi`, {
             method: "POST",
             headers: getAuthHeaders(),

@@ -13,6 +13,20 @@ from app.schemas.spatial import PaginatedResponse  # Menggunakan wrapper paginat
 
 router = APIRouter()
 
+
+def _roles_by_ids(db: Session, role_ids: list[UUID]) -> list[Role]:
+    """Ambil role sesuai id. Id yang sama hanya sekali, urutan payload dipertahankan."""
+    unique_ids: list[UUID] = []
+    for role_id in role_ids:
+        if role_id not in unique_ids:
+            unique_ids.append(role_id)
+    found = db.query(Role).filter(Role.id.in_(unique_ids)).all() if unique_ids else []
+    by_id = {role.id: role for role in found}
+    missing = [str(role_id) for role_id in unique_ids if role_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Role ID berikut tidak ditemukan: {', '.join(missing)}")
+    return [by_id[role_id] for role_id in unique_ids]
+
 # 1. READ ALL USERS (Dengan Server-Side Pagination & Search)
 @router.get("/", response_model=PaginatedResponse)
 def get_users_list(
@@ -72,9 +86,7 @@ def create_user(
     if db.query(User).filter(User.email == payload.email.lower()).first():
         raise HTTPException(status_code=400, detail="Email sudah terdaftar.")
 
-    role = db.query(Role).filter(Role.id == payload.role_id).first()
-    if not role:
-        raise HTTPException(status_code=404, detail="Role ID yang dipilih tidak ditemukan.")
+    roles = _roles_by_ids(db, payload.role_ids)
 
     new_user = User(
         username=payload.username.lower(),
@@ -82,7 +94,7 @@ def create_user(
         nama_lengkap=payload.nama_lengkap,
         hashed_password=security.get_password_hash(payload.password),
         is_active=payload.is_active,
-        roles=[role],
+        roles=roles,
     )
     db.add(new_user)
     db.commit()
@@ -114,11 +126,8 @@ def update_user(
         user.nama_lengkap = payload.nama_lengkap
     if payload.is_active is not None:
         user.is_active = payload.is_active
-    if payload.role_id:
-        role = db.query(Role).filter(Role.id == payload.role_id).first()
-        if not role:
-            raise HTTPException(status_code=404, detail="Role ID tidak ditemukan.")
-        user.roles = [role]
+    if payload.role_ids is not None:
+        user.roles = _roles_by_ids(db, payload.role_ids)
         
     # Jika frontend mengirimkan string password baru, lakukan hashing ulang
     if payload.password:

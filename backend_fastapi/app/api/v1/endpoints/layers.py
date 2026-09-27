@@ -12,6 +12,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
 from app.api.params import BlockFilterDep, Bulan, BulanWajib, Tahun, TahunWajib, UploadedFile, read_upload
+from app.services import user_access
 from app.services.layers import layer_service, sawit_service
 from app.services.layers.specs import LAYER_SPECS, SAWIT_LABEL, LayerSpec
 
@@ -30,10 +31,12 @@ def _layer_router(spec: LayerSpec, include_geojson: bool = True) -> APIRouter:
         return {"status": "success", "message": f"Proses upload spasial {spec.code} periode {bulan}-{tahun} selesai.",
                 "detail": stats}
 
-    def list_rows(db: DbSession, _: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
+    def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
+        user_access.require_layer(db, user, spec.code)
         return layer_service.list_rows(db, spec, bulan, tahun, blok_id)
 
-    def geojson(db: DbSession, _: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
+    def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
+        user_access.require_layer(db, user, spec.code)
         return layer_service.geojson(db, spec, flt, bulan, tahun)
 
     def cleanup(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib):
@@ -62,10 +65,12 @@ def _sawit_router() -> APIRouter:
         return {"status": "success", "message": f"Proses bulk upload spasial sawit periode {bulan}-{tahun} selesai.",
                 "detail": stats}
 
-    def list_rows(db: DbSession, _: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
+    def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
+        user_access.require_layer(db, user, "sawit")
         return sawit_service.list_rows(db, bulan, tahun, blok_id)
 
-    def geojson(db: DbSession, _: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
+    def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
+        user_access.require_layer(db, user, "sawit")
         return sawit_service.geojson(db, flt, bulan, tahun)
 
     def cleanup(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib):

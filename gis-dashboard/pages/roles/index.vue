@@ -216,9 +216,11 @@ async function fillForm(role) {
     .map((item) => String(item?.menu_id ?? ""))
     .filter((id) => !!id);
 
-  form.transaksi_ids = (existingAkses?.transaksi ?? [])
-    .map((item) => String(item?.nama_table_transaksi ?? ""))
-    .filter((id) => !!id);
+  form.transaksi_ids = [...new Set(
+    (existingAkses?.transaksi ?? [])
+      .map((item) => resolveTransaksiId(String(item?.nama_table_transaksi ?? "")))
+      .filter((id) => !!id),
+  )];
 
   form.area_ids = resolveAreaIdsForForm(
     result.area_ids,
@@ -358,6 +360,17 @@ const getAfdelingCode = (afdeling) =>
 
 const getTransaksiCode = (transaksi) =>
   String(transaksi?.id ?? transaksi?.nama_table_transaksi ?? transaksi ?? "");
+
+function resolveTransaksiId(saved) {
+  const key = String(saved ?? "").trim().toLowerCase();
+  if (!key) return "";
+  const match = (allDataTransaksi.value ?? []).find((item) =>
+    [item?.id, item?.kode, item?.table_name, item?.nama_table_transaksi]
+      .map((value) => String(value ?? "").trim().toLowerCase())
+      .includes(key),
+  );
+  return match ? getTransaksiCode(match) : String(saved);
+}
 
 const syncSelectedItemsFromIds = () => {
   const areaMapById = new Map(

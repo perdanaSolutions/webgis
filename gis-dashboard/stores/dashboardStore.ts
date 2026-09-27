@@ -123,7 +123,7 @@ export const dashboardStore = defineStore("dashboard", () => {
   const flatModuleItems = computed(() => flattenMenuTree(moduleItems.value));
   const favoriteMenus = computed(() => {
     const user = authStore.user;
-    const isSuperAdmin = (user?.roles ?? []).some((role) => role === "superadmin");
+    const isSuperAdmin = authStore.isSuperAdmin;
     const allowedIds = isSuperAdmin
       ? null
       : new Set(Array.isArray(user?.akses_menu) ? user.akses_menu : []);
@@ -136,7 +136,9 @@ export const dashboardStore = defineStore("dashboard", () => {
       })
       .slice()
       .sort((a, b) => {
-        if (a.orderPosition !== b.orderPosition) return a.orderPosition - b.orderPosition;
+        if (a.orderPosition !== b.orderPosition) {
+          return a.orderPosition - b.orderPosition;
+        }
         return a.title.localeCompare(b.title);
       });
   });
@@ -195,11 +197,8 @@ export const dashboardStore = defineStore("dashboard", () => {
       const menuTree = Array.isArray(response)
         ? response.map(normalizeModule)
         : [];
-      const isSuperAdmin = (informasiUser?.roles ?? []).some(
-        (r) => r === "superadmin",
-      );
 
-      if (isSuperAdmin) {
+      if (authStore.isSuperAdmin) {
         moduleItems.value = menuTree;
       } else if (
         informasiUser &&
