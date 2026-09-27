@@ -30,6 +30,8 @@ export type ModuleItem = {
   icon: string;
   level: number;
   parentId: string | null;
+  orderPosition: number;
+  isFavorite: boolean;
   children: ModuleItem[];
 };
 
@@ -115,24 +117,29 @@ export const dashboardStore = defineStore("dashboard", () => {
     },
   ];
 
-  const userManagementModule: ModuleItem = {
-    id: "static-user-management",
-    title: "User",
-    description: "Kelola Data User",
-    bgClass: "bg-brand",
-    iconClass: "text-on-brand",
-    arrowClass: "text-brand",
-    to: "/users",
-    icon: "pengguna",
-    level: 1,
-    parentId: null,
-    children: [],
-  };
-
   const loading = ref(false);
   const errorMessage = ref("");
   const moduleItems = ref<ModuleItem[]>([]);
   const flatModuleItems = computed(() => flattenMenuTree(moduleItems.value));
+  const favoriteMenus = computed(() => {
+    const user = authStore.user;
+    const isSuperAdmin = (user?.roles ?? []).some((role) => role === "superadmin");
+    const allowedIds = isSuperAdmin
+      ? null
+      : new Set(Array.isArray(user?.akses_menu) ? user.akses_menu : []);
+
+    return flatModuleItems.value
+      .filter((item) => {
+        if (!item.isFavorite || !item.to) return false;
+        if (!allowedIds) return true;
+        return allowedIds.has(item.id);
+      })
+      .slice()
+      .sort((a, b) => {
+        if (a.orderPosition !== b.orderPosition) return a.orderPosition - b.orderPosition;
+        return a.title.localeCompare(b.title);
+      });
+  });
 
   function normalizeModule(raw: any): ModuleItem {
     const children = Array.isArray(raw?.children)
@@ -149,6 +156,8 @@ export const dashboardStore = defineStore("dashboard", () => {
       icon: String(raw?.icon ?? "report"),
       level: Number(raw?.level ?? 1),
       parentId: raw?.parentId ?? raw?.parent_id ?? null,
+      orderPosition: Number(raw?.order_position ?? raw?.orderPosition ?? 0),
+      isFavorite: Boolean(raw?.isFavorite ?? raw?.is_favorite ?? false),
       children,
     };
   }
@@ -203,12 +212,6 @@ export const dashboardStore = defineStore("dashboard", () => {
       } else {
         moduleItems.value = [];
       }
-
-      // Management User bukan bagian dari auth.menus (tidak melalui akses_menu),
-      // jadi ditambahkan secara statis di FE, sama seperti gate "Management Menu".
-      if (isSuperAdmin) {
-        moduleItems.value = [...moduleItems.value, userManagementModule];
-      }
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(
@@ -260,6 +263,7 @@ export const dashboardStore = defineStore("dashboard", () => {
     errorMessage,
     moduleItems,
     flatModuleItems,
+    favoriteMenus,
     initDataMenu,
     iconPath,
   };

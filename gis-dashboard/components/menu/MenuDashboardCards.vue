@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { dashboardStore, type ModuleItem } from "~/stores/dashboardStore";
 
 defineOptions({
@@ -10,9 +10,11 @@ const props = withDefaults(
   defineProps<{
     items: ModuleItem[];
     depth?: number;
+    expandAll?: boolean;
   }>(),
   {
     depth: 1,
+    expandAll: false,
   },
 );
 
@@ -40,6 +42,32 @@ async function openItem(item: ModuleItem) {
 function childCount(item: ModuleItem) {
   return item.children?.length ?? 0;
 }
+
+function expandMatchingGroups() {
+  const next: Record<string, boolean> = {};
+  props.items.forEach((item, index) => {
+    if (item.children?.length) next[itemKey(item, index)] = true;
+  });
+  expanded.value = next;
+}
+
+watch(
+  () => props.expandAll,
+  (open) => {
+    if (!open) {
+      expanded.value = {};
+      return;
+    }
+    expandMatchingGroups();
+  },
+);
+
+watch(
+  () => props.items,
+  () => {
+    if (props.expandAll) expandMatchingGroups();
+  },
+);
 </script>
 
 <template>
@@ -153,7 +181,7 @@ function childCount(item: ModuleItem) {
               </span>
               <span class="h-px flex-1 bg-progress-track" />
             </div>
-            <MenuDashboardCards :items="item.children" :depth="props.depth + 1" />
+            <MenuDashboardCards :items="item.children" :depth="props.depth + 1" :expand-all="props.expandAll" />
           </div>
         </Transition>
       </div>

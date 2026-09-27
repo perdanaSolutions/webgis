@@ -8,8 +8,8 @@ from app.core.exceptions import bad_request, not_found
 from app.schemas.menu import MenuCreate, MenuUpdate
 
 MAX_LEVEL = 3
-_COLUMNS = "id, title, description, bg_class, icon_class, arrow_class, route, icon, order_position, parent_id, level"
-_UPDATABLE = {"title", "description", "bg_class", "icon_class", "arrow_class", "to", "icon", "order_position", "parent_id"}
+_COLUMNS = "id, title, description, bg_class, icon_class, arrow_class, route, icon, order_position, parent_id, level, is_favorite"
+_UPDATABLE = {"title", "description", "bg_class", "icon_class", "arrow_class", "to", "icon", "order_position", "parent_id", "is_favorite"}
 
 
 def to_response(row: dict, children: list | None = None) -> dict:
@@ -25,6 +25,7 @@ def to_response(row: dict, children: list | None = None) -> dict:
         "order_position": row["order_position"] or 0,
         "parentId": row["parent_id"],
         "level": row["level"] or 1,
+        "isFavorite": bool(row.get("is_favorite")),
         "children": children or [],
     }
 
@@ -136,11 +137,12 @@ def create_menu(db: Session, payload: MenuCreate) -> dict:
         "order_position": data["order_position"] or 0,
         "parent_id": str(data["parent_id"]) if data["parent_id"] else None,
         "level": _resolve_level(db, payload.parent_id),
+        "is_favorite": bool(data.get("is_favorite")),
     }
     row = db.execute(
         text(f"""
-            INSERT INTO auth.menus (title, description, bg_class, icon_class, arrow_class, route, icon, order_position, parent_id, level)
-            VALUES (:title, :description, :bg_class, :icon_class, :arrow_class, :route, :icon, :order_position, :parent_id, :level)
+            INSERT INTO auth.menus (title, description, bg_class, icon_class, arrow_class, route, icon, order_position, parent_id, level, is_favorite)
+            VALUES (:title, :description, :bg_class, :icon_class, :arrow_class, :route, :icon, :order_position, :parent_id, :level, :is_favorite)
             RETURNING {_COLUMNS}
         """),
         params,

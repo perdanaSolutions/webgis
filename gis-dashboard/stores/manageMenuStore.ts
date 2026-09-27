@@ -15,6 +15,7 @@ export type MenuItem = {
   order_position: number;
   parent_id: string | null;
   level: number;
+  is_favorite: boolean;
   children: MenuItem[];
 };
 
@@ -28,6 +29,7 @@ export type CreateMenuPayload = {
   icon: string;
   order_position: number;
   parent_id: string | null;
+  is_favorite: boolean;
 };
 
 export type MenuFormState = Omit<CreateMenuPayload, "parent_id"> & {
@@ -55,6 +57,7 @@ function normalizeMenu(raw: any): MenuItem {
     order_position: Number(raw?.order_position ?? 0),
     parent_id: raw?.parent_id ?? raw?.parentId ?? null,
     level: Number(raw?.level ?? 1),
+    is_favorite: Boolean(raw?.is_favorite ?? raw?.isFavorite ?? false),
     children,
   };
 }
