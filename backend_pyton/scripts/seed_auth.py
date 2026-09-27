@@ -91,12 +91,12 @@ def seed_data():
         if not admin_user:
             admin_user = User(
                 id=uuid4(),
-                role_id=superadmin_role.id,
                 nama_lengkap="Super Administrator",
                 username=seed_admin_username,
                 email=seed_admin_email,
-                hashed_password=get_password_hash(seed_admin_password), 
-                is_active=True
+                hashed_password=get_password_hash(seed_admin_password),
+                is_active=True,
+                roles=[superadmin_role],
             )
             db.add(admin_user)
             print(f"✓ User Akun Utama Berhasil Dibuat!")

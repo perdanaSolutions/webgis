@@ -9,8 +9,9 @@ from app.schemas.menu import MenuCreate, MenuUpdate, MenuResponse
 
 router = APIRouter()
 
+MENU_TABLE = "auth.menus"
 MENU_COLUMNS = """
-    id, title, description, bg_class, icon_class, arrow_class, "to", icon,
+    id, title, description, bg_class, icon_class, arrow_class, route AS "to", icon,
     order_position, parent_id, level
 """
 
@@ -29,7 +30,7 @@ ALLOWED_UPDATE_FIELDS = {
 
 def _fetch_menu(db: Session, menu_id: UUID):
     return db.execute(
-        text(f"SELECT {MENU_COLUMNS} FROM menus WHERE id = :id"),
+        text(f"SELECT {MENU_COLUMNS} FROM auth.menus WHERE id = :id"),
         {"id": menu_id},
     ).mappings().first()
 
@@ -40,11 +41,11 @@ def _subtree_depth(db: Session, menu_id: UUID) -> int:
             """
             WITH RECURSIVE tree AS (
                 SELECT id, 0 AS depth
-                FROM menus
+                FROM auth.menus
                 WHERE id = :root_id
                 UNION ALL
                 SELECT child.id, parent.depth + 1
-                FROM menus AS child
+                FROM auth.menus AS child
                 INNER JOIN tree AS parent ON child.parent_id = parent.id
             )
             SELECT COALESCE(MAX(depth), 0) AS max_depth
@@ -62,11 +63,11 @@ def _descendant_ids(db: Session, menu_id: UUID) -> set[str]:
             """
             WITH RECURSIVE tree AS (
                 SELECT id
-                FROM menus
+                FROM auth.menus
                 WHERE parent_id = :root_id
                 UNION ALL
                 SELECT child.id
-                FROM menus AS child
+                FROM auth.menus AS child
                 INNER JOIN tree AS parent ON child.parent_id = parent.id
             )
             SELECT id FROM tree
@@ -124,14 +125,14 @@ def _refresh_levels(db: Session, menu_id: UUID, root_level: int) -> None:
             """
             WITH RECURSIVE tree AS (
                 SELECT id, CAST(:root_level AS INTEGER) AS lvl
-                FROM menus
+                FROM auth.menus
                 WHERE id = :root_id
                 UNION ALL
                 SELECT child.id, parent.lvl + 1
-                FROM menus AS child
+                FROM auth.menus AS child
                 INNER JOIN tree AS parent ON child.parent_id = parent.id
             )
-            UPDATE menus AS target
+            UPDATE auth.menus AS target
             SET level = tree.lvl
             FROM tree
             WHERE target.id = tree.id
@@ -160,7 +161,7 @@ def _build_tree(rows) -> list[dict]:
 
 
 def _column_sql(key: str) -> str:
-    return '"to"' if key == "to" else key
+    return "route" if key == "to" else key
 
 
 @router.post("/", response_model=MenuResponse, status_code=status.HTTP_201_CREATED)
@@ -176,8 +177,8 @@ def create_menu(
     data["order_position"] = data.get("order_position") or 0
 
     query = f"""
-        INSERT INTO menus (
-            title, description, bg_class, icon_class, arrow_class, "to", icon,
+        INSERT INTO auth.menus (
+            title, description, bg_class, icon_class, arrow_class, route, icon,
             order_position, parent_id, level
         )
         VALUES (
@@ -201,7 +202,7 @@ def get_all_menus(
         text(
             f"""
             SELECT {MENU_COLUMNS}
-            FROM menus
+            FROM auth.menus
             ORDER BY level ASC, order_position ASC, title ASC
             """
         )
@@ -264,7 +265,7 @@ def update_menu(
     db.execute(
         text(
             f"""
-            UPDATE menus
+            UPDATE auth.menus
             SET {", ".join(set_clauses)}
             WHERE id = :id
             """
@@ -289,7 +290,7 @@ def delete_menu(
         raise HTTPException(status_code=404, detail="Menu tidak ditemukan")
 
     child = db.execute(
-        text("SELECT id FROM menus WHERE parent_id = :id LIMIT 1"),
+        text("SELECT id FROM auth.menus WHERE parent_id = :id LIMIT 1"),
         {"id": menu_id},
     ).first()
     if child:
@@ -298,6 +299,6 @@ def delete_menu(
             detail="Menu masih memiliki submenu. Hapus submenu terlebih dahulu.",
         )
 
-    db.execute(text("DELETE FROM menus WHERE id = :id"), {"id": menu_id})
+    db.execute(text("DELETE FROM auth.menus WHERE id = :id"), {"id": menu_id})
     db.commit()
     return {"message": "Menu berhasil dihapus dari sistem"}

@@ -3,7 +3,7 @@ from datetime import timedelta, datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy import or_
+from sqlalchemy import bindparam, or_, text
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -46,6 +46,75 @@ def login_access_token_swagger(
     return process_user_login(db, input_identifier=form_data.username, input_password=form_data.password)
 
 
+def _role_ids(user: User) -> list:
+    return [role.id for role in user.roles]
+
+
+def _akses_menu(db: Session, role_ids: list) -> list[str]:
+    if not role_ids:
+        return []
+    stmt = text(
+        """
+        SELECT DISTINCT menu_id::text AS menu_id
+        FROM auth.role_menus
+        WHERE role_id::text IN :role_ids
+        """
+    ).bindparams(bindparam("role_ids", expanding=True))
+    rows = db.execute(stmt, {"role_ids": [str(role_id) for role_id in role_ids]}).all()
+    return [row.menu_id for row in rows]
+
+
+def _akses_data(db: Session, role_ids: list) -> list[dict]:
+    if not role_ids:
+        return []
+    stmt = text(
+        """
+        SELECT
+            a.code AS kode_area,
+            COALESCE(c_direct.code, c_via_estate.code, c_via_div.code) AS kode_pt,
+            COALESCE(e_direct.code, e_via_div.code) AS kode_est,
+            d.code AS kode_afd
+        FROM auth.role_data_scopes AS s
+        LEFT JOIN master.areas AS a ON a.id = s.area_id
+        LEFT JOIN master.companies AS c_direct ON c_direct.id = s.company_id
+        LEFT JOIN master.estates AS e_direct ON e_direct.id = s.estate_id
+        LEFT JOIN master.companies AS c_via_estate ON c_via_estate.id = e_direct.company_id
+        LEFT JOIN master.divisions AS d ON d.id = s.division_id
+        LEFT JOIN master.estates AS e_via_div ON e_via_div.id = d.estate_id
+        LEFT JOIN master.companies AS c_via_div ON c_via_div.id = e_via_div.company_id
+        WHERE s.role_id::text IN :role_ids
+        """
+    ).bindparams(bindparam("role_ids", expanding=True))
+    rows = db.execute(stmt, {"role_ids": [str(role_id) for role_id in role_ids]}).mappings().all()
+    return [
+        {
+            "kode_pt": row["kode_pt"],
+            "kode_est": row["kode_est"],
+            "kode_area": row["kode_area"],
+            "kode_afd": row["kode_afd"],
+        }
+        for row in rows
+    ]
+
+
+def _session_user(db: Session, user: User) -> dict:
+    role_ids = _role_ids(user)
+    role_names = [role.nama for role in user.roles]
+    primary_role = user.role
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "nama_lengkap": user.nama_lengkap,
+        "email": user.email,
+        "roles": role_names,
+        "role": primary_role.nama if primary_role else None,
+        "role_id": str(primary_role.id) if primary_role else None,
+        "akses_menu": _akses_menu(db, role_ids),
+        "akses_data": _akses_data(db, role_ids),
+        "akses_transaksi": [],
+    }
+
+
 # =====================================================================
 # 3. FUNGSI LOGIKA LOGIN (Reusable Function)
 # =====================================================================
@@ -81,89 +150,36 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
     )
 
     # Catat log aktivitas sukses login
+    primary_role = user.role
     log_sukses = UserActivityLog(
         user_id=user.id,
         aksi="LOGIN",
         resource="auth",
         status="SUCCESS",
-        detail={"nama_lengkap": user.nama_lengkap, "role_id": str(user.role_id)}
+        detail={
+            "nama_lengkap": user.nama_lengkap,
+            "role_id": str(primary_role.id) if primary_role else None,
+        },
     )
     db.add(log_sukses)
     db.commit()
 
-    # list_permissions = [perm.kode for perm in user.role.permissions]
-    # list akses menu
-    list_akses_menu = [menu.menu_id for menu in user.role.akses_menu]
-
-    # list akses data
-    list_akses_data = [
-        {
-            "kode_pt": data.kode_pt,
-            "kode_est": data.kode_est,
-            "kode_area": data.kode_area,
-            "kode_afd": data.kode_afd
-        }
-        for data in user.role.akses_data
-    ]
-
-    # list akses transaksi
-    list_akses_transaksi = [tx.nama_table_transaksi for tx in user.role.akses_transaksi]
-
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": {
-            "id": str(user.id),
-            "username": user.username,
-            "nama_lengkap": user.nama_lengkap,
-            "email": user.email,
-            "role": user.role.nama,
-            "role_id": user.role.id,
-            "akses_menu": list_akses_menu,
-            "akses_data": list_akses_data,
-            "akses_transaksi": list_akses_transaksi
-        }
+        "user": _session_user(db, user),
     }
 
 @router.get("/me")
 def get_user_me(
-    current_user: User = Depends(deps.get_current_user)
+    current_user: User = Depends(deps.get_current_user),
+    db: Session = Depends(deps.get_db),
 ) -> Any:
     """
     Mengambil informasi profil user yang sedang aktif berdasarkan token JWT.
     Berguna untuk menjaga sesi login saat halaman web di-refresh.
     """
-    # # Ambil daftar kode permission yang dimiliki oleh role user ini
-    # list_permissions = [perm.kode for perm in current_user.role.permissions]
-
-    list_akses_menu = [menu.menu_id for menu in current_user.role.akses_menu]
-
-    # list akses data
-    list_akses_data = [
-        {
-            "kode_pt": data.kode_pt,
-            "kode_est": data.kode_est,
-            "kode_area": data.kode_area,
-            "kode_afd": data.kode_afd
-        }
-        for data in current_user.role.akses_data
-    ]
-
-    # list akses transaksi
-    list_akses_transaksi = [tx.nama_table_transaksi for tx in current_user.role.akses_transaksi]
-    
-    # Kembalikan data profile yang sama persis dengan response login
-    return {
-        "id": str(current_user.id),
-        "username": current_user.username,
-        "nama_lengkap": current_user.nama_lengkap,
-        "email": current_user.email,
-        "role": current_user.role.nama,
-        "role_id": current_user.role.id,
-        "akses_menu": list_akses_menu,
-        "akses_data": list_akses_data,
-        "akses_transaksi": list_akses_transaksi
-    }
+    return _session_user(db, current_user)
 
 @router.get("/check-token")
 def check_token_validity(

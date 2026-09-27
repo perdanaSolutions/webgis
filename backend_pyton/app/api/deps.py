@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models.auth import User, Permission
+from app.models.auth import User, Permission, Role
 
 # Mengatur endpoint mana yang dijadikan acuan Swagger untuk mengambil token JWT
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
@@ -54,15 +54,14 @@ class PermissionChecker:
         self.required_permission = required_permission
 
     def __call__(self, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
-        # 1. JALUR KHUSUS: Jika role-nya 'superadmin', langsung lolos tanpa cek permission
-        if current_user.role.nama == "superadmin":
+        # 1. JALUR KHUSUS: Jika salah satu role-nya 'superadmin', langsung lolos tanpa cek permission
+        if any(role.nama == "superadmin" for role in current_user.roles):
             return current_user
 
         # 2. JALUR BIASA: Cek apakah kode permission ada di dalam daftar permission milik role user ini
-        # Kita cek apakah ada relasi di role_permissions yang menyambungkan role user dengan permission terkait
         has_permission = db.query(User).filter(
             User.id == current_user.id
-        ).join(User.role).join(User.role.permissions).filter(
+        ).join(User.roles).join(Role.permissions).filter(
             Permission.kode == self.required_permission
         ).first()
 

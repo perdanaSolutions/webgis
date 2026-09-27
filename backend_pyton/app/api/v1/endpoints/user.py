@@ -27,13 +27,13 @@ def get_users_list(
     params = {}
 
     if search:
-        where_clauses.append("(nama_lengkap ILIKE :search OR username ILIKE :search OR email ILIKE :search)")
+        where_clauses.append("(full_name ILIKE :search OR username ILIKE :search OR email ILIKE :search)")
         params["search"] = f"%{search}%"
 
     where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     # Hitung total data
-    total_query = db.execute(text(f"SELECT COUNT(*) FROM users {where_str}"), params).scalar()
+    total_query = db.execute(text(f"SELECT COUNT(*) FROM auth.users {where_str}"), params).scalar()
     
     # Ambil data dari database ORM SQLAlchemy agar relasi role otomatis ikut terbaca rapi oleh schema
     query = db.query(User)
@@ -72,17 +72,17 @@ def create_user(
     if db.query(User).filter(User.email == payload.email.lower()).first():
         raise HTTPException(status_code=400, detail="Email sudah terdaftar.")
 
-    # Cek validitas role_id
-    if not db.query(Role).filter(Role.id == payload.role_id).first():
+    role = db.query(Role).filter(Role.id == payload.role_id).first()
+    if not role:
         raise HTTPException(status_code=404, detail="Role ID yang dipilih tidak ditemukan.")
 
     new_user = User(
         username=payload.username.lower(),
         email=payload.email.lower(),
         nama_lengkap=payload.nama_lengkap,
-        role_id=payload.role_id,
-        hashed_password=security.get_password_hash(payload.password), # Hashing password wajib!
-        is_active=payload.is_active
+        hashed_password=security.get_password_hash(payload.password),
+        is_active=payload.is_active,
+        roles=[role],
     )
     db.add(new_user)
     db.commit()
@@ -115,9 +115,10 @@ def update_user(
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.role_id:
-        if not db.query(Role).filter(Role.id == payload.role_id).first():
+        role = db.query(Role).filter(Role.id == payload.role_id).first()
+        if not role:
             raise HTTPException(status_code=404, detail="Role ID tidak ditemukan.")
-        user.role_id = payload.role_id
+        user.roles = [role]
         
     # Jika frontend mengirimkan string password baru, lakukan hashing ulang
     if payload.password:
