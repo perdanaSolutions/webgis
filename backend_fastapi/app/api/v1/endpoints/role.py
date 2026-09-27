@@ -5,9 +5,8 @@ from uuid import UUID
 from typing import List
 
 from app.api import deps
-from app.models.auth import Role, Permission
+from app.models.auth import Role
 from app.schemas.role import RoleCreate, RoleResponse
-from app.models.akses import LogAksesMenu, LogAksesData, LogAksesTransaksi
 from app.services import access_service
 
 router = APIRouter()
@@ -118,49 +117,12 @@ def create_role(
     db.add(new_role)
     db.flush() # Flush untuk mendapatkan new_role.id (UUID) sebelum di-commit
 
-    role_id_str = str(new_role.id)
-
-    # 3. Simpan Akses Menu (jika ada)
     if payload.akses_menu:
-        for menu_id in payload.akses_menu:
-            db.add(LogAksesMenu(role_id=role_id_str, menu_id=menu_id))
-
-    # 4. Simpan Akses Data GIS (jika ada)
+        access_service.replace_menus(db, new_role.id, payload.akses_menu)
     if payload.akses_data:
-        for item_data in payload.akses_data:
-            # Skenario jika frontend mengirimkan list afdeling/area di dalam item_data
-            if item_data.kode_afd:
-                base_area = item_data.kode_area[0] if (item_data.kode_area and len(item_data.kode_area) > 0) else None
-                for afd in item_data.kode_afd:
-                    db.add(LogAksesData(
-                        role_id=role_id_str,
-                        kode_pt=item_data.kode_pt,
-                        kode_est=item_data.kode_est,
-                        kode_area=base_area,
-                        kode_afd=afd
-                    ))
-            elif item_data.kode_area:
-                for area in item_data.kode_area:
-                    db.add(LogAksesData(
-                        role_id=role_id_str,
-                        kode_pt=item_data.kode_pt,
-                        kode_est=item_data.kode_est,
-                        kode_area=area,
-                        kode_afd=None
-                    ))
-            else:
-                db.add(LogAksesData(
-                    role_id=role_id_str,
-                    kode_pt=item_data.kode_pt,
-                    kode_est=item_data.kode_est,
-                    kode_area=None,
-                    kode_afd=None
-                ))
-
-    # 5. Simpan Akses Transaksi (jika ada)
+        access_service.add_scopes_from_legacy_payload(db, new_role.id, payload.akses_data)
     if payload.akses_transaksi:
-        for table_name in payload.akses_transaksi:
-            db.add(LogAksesTransaksi(role_id=role_id_str, nama_table_transaksi=table_name))
+        access_service.replace_transactions(db, new_role.id, payload.akses_transaksi)
 
     db.commit()
     db.refresh(new_role)
@@ -188,58 +150,18 @@ def update_role(
     role.nama = payload.nama.lower()
     role.deskripsi = payload.deskripsi
 
-    role_id_str = str(role.id)
-
-    # ------------------------------------------------------------------
-    # SINKRONISASI (Hapus akses lama lalu timpa dengan konfigurasi baru)
-    # ------------------------------------------------------------------
-    
     # Hanya sinkronkan akses yang benar-benar dikirim. Default kosong bukan perintah hapus.
     sent = payload.model_fields_set
 
-    # 1. Update Akses Menu
     if "akses_menu" in sent and payload.akses_menu is not None:
-        db.query(LogAksesMenu).filter(LogAksesMenu.role_id == role_id_str).delete(synchronize_session=False)
-        for menu_id in payload.akses_menu:
-            db.add(LogAksesMenu(role_id=role_id_str, menu_id=menu_id))
+        access_service.replace_menus(db, role.id, payload.akses_menu)
 
-    # 2. Update Akses Data GIS
     if "akses_data" in sent and payload.akses_data is not None:
-        db.query(LogAksesData).filter(LogAksesData.role_id == role_id_str).delete(synchronize_session=False)
-        for item_data in payload.akses_data:
-            if item_data.kode_afd:
-                base_area = item_data.kode_area[0] if (item_data.kode_area and len(item_data.kode_area) > 0) else None
-                for afd in item_data.kode_afd:
-                    db.add(LogAksesData(
-                        role_id=role_id_str,
-                        kode_pt=item_data.kode_pt,
-                        kode_est=item_data.kode_est,
-                        kode_area=base_area,
-                        kode_afd=afd
-                    ))
-            elif item_data.kode_area:
-                for area in item_data.kode_area:
-                    db.add(LogAksesData(
-                        role_id=role_id_str,
-                        kode_pt=item_data.kode_pt,
-                        kode_est=item_data.kode_est,
-                        kode_area=area,
-                        kode_afd=None
-                    ))
-            else:
-                db.add(LogAksesData(
-                    role_id=role_id_str,
-                    kode_pt=item_data.kode_pt,
-                    kode_est=item_data.kode_est,
-                    kode_area=None,
-                    kode_afd=None
-                ))
+        access_service.clear_scopes(db, role.id)
+        access_service.add_scopes_from_legacy_payload(db, role.id, payload.akses_data)
 
-    # 3. Update Akses Transaksi
     if "akses_transaksi" in sent and payload.akses_transaksi is not None:
-        db.query(LogAksesTransaksi).filter(LogAksesTransaksi.role_id == role_id_str).delete(synchronize_session=False)
-        for table_name in payload.akses_transaksi:
-            db.add(LogAksesTransaksi(role_id=role_id_str, nama_table_transaksi=table_name))
+        access_service.replace_transactions(db, role.id, payload.akses_transaksi)
 
     db.commit()
     db.refresh(role)

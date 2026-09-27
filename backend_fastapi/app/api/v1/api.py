@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.api.v1.endpoints import (
-    akses_data,
+    access,
     activity_log,
     areal_statement,
     auth,
@@ -32,7 +32,7 @@ api_router.include_router(menu.router, prefix="/menus", tags=["Menu Management"]
 # Daftarkan endpoint tables di bawah prefix /database
 api_router.include_router(database_tables.router, prefix="/database", tags=["Database Metadata"])
 
-api_router.include_router(akses_data.router, prefix="/akses-data", tags=["Akses Data GIS"])
+api_router.include_router(access.router, prefix="/akses-data", tags=["Akses Data GIS"])
 
 # # Router Permission Management (Baru)
 # api_router.include_router(permission.router, prefix="/permissions", tags=["Permission Management"])

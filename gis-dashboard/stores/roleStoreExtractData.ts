@@ -127,7 +127,7 @@ export function transformDataToForm(
         let kodePt = pt.nama_perusahaan;
         const sampleEstateId = pt.estate?.[0]?.id_estate;
 
-        if (sampleEstateId) {
+        if (sampleEstateId && /_E\d+/.test(sampleEstateId)) {
           kodePt = sampleEstateId.replace(/_E\d+.*$/, "");
         }
 

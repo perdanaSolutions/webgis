@@ -110,11 +110,17 @@ const groupedEstateByPerusahaan = computed(() => {
   });
 });
 
+const estateMatchesSelection = (estate, selectedIds) => {
+  const kode = String(getEstateCode(estate) ?? "");
+  const id = String(estate?.id ?? "");
+  return (kode && selectedIds.has(kode)) || (id && selectedIds.has(id));
+};
+
 const selectedEstateList = computed(() => {
   const selectedIds = new Set(form.estate_ids.map((id) => String(id)));
   return groupedEstateByPerusahaan.value
     .flatMap((group) => group.estates)
-    .filter((item) => selectedIds.has(String(getEstateCode(item))));
+    .filter((item) => estateMatchesSelection(item, selectedIds));
 });
 
 const groupedAfdelingByEstate = computed(() => {
@@ -323,10 +329,26 @@ const parseAfdelingSelectionKey = (key) => {
   return { kodeEst, kodeAfd };
 };
 
-const isAfdelingSelected = (estateCode, afdelingCode) =>
-  form.afdeling_ids.includes(
-    getAfdelingSelectionKey(estateCode, afdelingCode),
+const isEstateSelected = (estate) =>
+  estateMatchesSelection(
+    estate,
+    new Set(form.estate_ids.map((id) => String(id))),
   );
+
+const isAfdelingSelected = (estate, afdeling) => {
+  const estateCode = String(getEstateCode(estate) ?? "");
+  const estateId = String(estate?.id ?? "");
+  const kodeAfd = String(getAfdelingCode(afdeling) ?? "");
+  const afdelingId = String(afdeling?.id ?? "");
+  return [
+    getAfdelingSelectionKey(estateCode, kodeAfd),
+    getAfdelingSelectionKey(estateId, afdelingId),
+    getAfdelingSelectionKey(estateId, kodeAfd),
+    getAfdelingSelectionKey(estateCode, afdelingId),
+  ]
+    .filter(Boolean)
+    .some((key) => form.afdeling_ids.includes(key));
+};
 
 const normalizeAfdelingIds = (afdelingIds = [], selectedAfdelingItems = []) => {
   if (selectedAfdelingItems.length > 0) {
@@ -508,13 +530,48 @@ const loadHierarchyForEdit = async () => {
 
       for (const estate of estateList) {
         const estateCode = String(getEstateCode(estate));
-        if (!estateCode || !selectedEstateSet.has(estateCode)) continue;
+        if (!estateCode || !estateMatchesSelection(estate, selectedEstateSet)) continue;
         if (afdelingByEstateMap.value[estateCode]) continue;
 
         const afdelings = await manageRoleStore.initDataAfdelingByEstate(estateCode);
         afdelingByEstateMap.value[estateCode] = afdelings ?? [];
       }
     }
+
+    form.estate_ids = Array.from(new Set(
+      form.estate_ids
+        .map((value) => {
+          const raw = String(value ?? "");
+          for (const estates of Object.values(estateByPerusahaanMap.value)) {
+            const match = (estates ?? []).find(
+              (estate) => String(estate?.id ?? "") === raw || String(getEstateCode(estate)) === raw,
+            );
+            if (match) return String(getEstateCode(match));
+          }
+          return raw;
+        })
+        .filter(Boolean),
+    ));
+
+    form.afdeling_ids = Array.from(new Set(
+      form.afdeling_ids
+        .map((value) => {
+          const raw = String(value ?? "");
+          const { kodeEst, kodeAfd } = parseAfdelingSelectionKey(raw);
+          const estate = Object.values(estateByPerusahaanMap.value)
+            .flat()
+            .find(
+              (item) => String(getEstateCode(item)) === kodeEst || String(item?.id ?? "") === kodeEst,
+            );
+          const estateCode = estate ? String(getEstateCode(estate)) : kodeEst;
+          const afdeling = (afdelingByEstateMap.value[estateCode] ?? []).find(
+            (item) => String(getAfdelingCode(item)) === kodeAfd || String(item?.id ?? "") === kodeAfd,
+          );
+          const afdelingCode = afdeling ? String(getAfdelingCode(afdeling)) : kodeAfd;
+          return getAfdelingSelectionKey(estateCode, afdelingCode) || raw;
+        })
+        .filter(Boolean),
+    ));
 
     syncSelectedItemsFromIds();
     pruneDownstreamSelections();
@@ -610,18 +667,25 @@ const pruneDownstreamSelections = () => {
     }
   });
 
-  const availableEstateCodes = new Set();
+  const availableEstateKeys = new Set();
+  const selectedEstateCodes = new Set();
+  const keptEstateIds = new Set(form.estate_ids.map((id) => String(id)));
   Object.values(estateByPerusahaanMap.value).forEach((estates) => {
     (estates ?? []).forEach((estate) => {
-      availableEstateCodes.add(String(getEstateCode(estate)));
+      const code = String(getEstateCode(estate) ?? "");
+      const id = String(estate?.id ?? "");
+      if (code) availableEstateKeys.add(code);
+      if (id) availableEstateKeys.add(id);
+      if (estateMatchesSelection(estate, keptEstateIds) && code) {
+        selectedEstateCodes.add(code);
+      }
     });
   });
 
   form.estate_ids = form.estate_ids.filter((id) =>
-    availableEstateCodes.has(String(id)),
+    availableEstateKeys.has(String(id)),
   );
 
-  const selectedEstateCodes = new Set(form.estate_ids.map((id) => String(id)));
   Object.keys(afdelingByEstateMap.value).forEach((kodeEst) => {
     if (!selectedEstateCodes.has(String(kodeEst))) {
       delete afdelingByEstateMap.value[kodeEst];
@@ -630,12 +694,21 @@ const pruneDownstreamSelections = () => {
 
   const availableAfdelingKeys = new Set();
   Object.entries(afdelingByEstateMap.value).forEach(([estateCode, afdelings]) => {
+    const estate = Object.values(estateByPerusahaanMap.value)
+      .flat()
+      .find((item) => String(getEstateCode(item)) === String(estateCode));
+    const estateId = String(estate?.id ?? "");
     (afdelings ?? []).forEach((item) => {
-      const selectionKey = getAfdelingSelectionKey(
-        estateCode,
-        getAfdelingCode(item),
-      );
-      if (selectionKey) availableAfdelingKeys.add(selectionKey);
+      const kodeAfd = String(getAfdelingCode(item) ?? "");
+      const afdelingId = String(item?.id ?? "");
+      [
+        getAfdelingSelectionKey(estateCode, kodeAfd),
+        getAfdelingSelectionKey(estateId, afdelingId),
+        getAfdelingSelectionKey(estateId, kodeAfd),
+        getAfdelingSelectionKey(estateCode, afdelingId),
+      ]
+        .filter(Boolean)
+        .forEach((key) => availableAfdelingKeys.add(key));
     });
   });
 
@@ -880,8 +953,7 @@ onMounted(async () => {
                 <td class="px-4 py-3">{{ item.akses_data?.length ?? 0 }}</td>
                 <td class="px-4 py-3">{{ item.akses_transaksi?.length ?? 0 }}</td>
                 <td class="px-4 py-3">
-                  <button v-if="item.nama != 'superadmin'"
-                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
+                  <button class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                     @click="openEditModal(item)">
                     Edit
                   </button>
@@ -1039,7 +1111,7 @@ onMounted(async () => {
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="estate in group.estates" :key="getEstateCode(estate)"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="form.estate_ids.includes(getEstateCode(estate))" type="checkbox"
+                        <input :checked="isEstateSelected(estate)" type="checkbox"
                           class="h-4 w-4" @change="toggleEstate(estate)" />
                         <span>{{ estate.nama_estate ?? estate.nama ?? estate.title ?? getEstateCode(estate) }}</span>
                       </label>
@@ -1068,10 +1140,10 @@ onMounted(async () => {
                       <label v-for="afdeling in group.afdelings"
                         :key="getAfdelingSelectionKey(group.estateKey, getAfdelingCode(afdeling))"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="isAfdelingSelected(group.estateKey, getAfdelingCode(afdeling))" type="checkbox"
+                        <input :checked="isAfdelingSelected(group.estate, afdeling)" type="checkbox"
                           class="h-4 w-4" @change="toggleAfdeling(afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
-                        }}</span>
+                          }}</span>
                       </label>
                     </div>
                   </div>
