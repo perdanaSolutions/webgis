@@ -155,14 +155,6 @@ type SpatialHistoryResponse = {
   data?: Array<Record<string, unknown> | ArealStatementMonthItem>;
 };
 
-const HISTORY_TABLE_KEYS = [
-  "trx_produksi_tbs",
-  "trx_areal_statement",
-  "trx_rotasi_pusingan",
-] as const;
-
-type HistoryTableKey = (typeof HISTORY_TABLE_KEYS)[number];
-
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
   return config.public.apiBaseUrlPython;
@@ -195,9 +187,6 @@ export const useMapStore = defineStore("map", () => {
   const errorMessage = ref("");
   const filteredGeoJSON = ref<GeoJSONFeatureCollection | null>(null);
   const historyData = ref<SpatialHistoryResponse | null>(null);
-  const historyDataByTable = ref<
-    Partial<Record<HistoryTableKey, SpatialHistoryResponse | null>>
-  >({});
 
   const areaCodeAliases = ref<Map<string, Set<string>>>(new Map());
   const ptCodeAliases = ref<Map<string, Set<string>>>(new Map());
@@ -272,7 +261,7 @@ export const useMapStore = defineStore("map", () => {
   }
 
   function isSuperAdmin(): boolean {
-    return authStore.user?.role === "superadmin";
+    return (authStore.user?.roles ?? []).some((r) => r === "superadmin");
   }
 
   function getUserAksesData(): AksesDataItem[] {
@@ -947,9 +936,7 @@ export const useMapStore = defineStore("map", () => {
     };
   }
 
-  function normalizeGeoJSONResponse(
-    response: unknown,
-  ): GeoJSONFeatureCollection {
+  function normalizeGeoJSONResponse(response: unknown): GeoJSONFeatureCollection {
     const data = (response as { data?: unknown })?.data ?? response;
 
     if (
@@ -976,7 +963,7 @@ export const useMapStore = defineStore("map", () => {
     query.set("table", selectedTable);
 
     if (selectedTahun) {
-      query.set("tahun_tanam", selectedTahun);
+      query.set("tahun", selectedTahun);
     }
     if (normalizedFilters.area) {
       query.set("area_id", normalizedFilters.area);
@@ -1004,73 +991,33 @@ export const useMapStore = defineStore("map", () => {
     normalizedFilters: MapFilters,
     selectedTahun: string,
     selectedTable: string,
-  ): Promise<SpatialHistoryResponse | null> {
-    if (!selectedTable) {
-      return null;
-    }
-
-    const baseUrl = getApiBaseUrl();
-    const query = buildHistoryQuery(
-      normalizedFilters,
-      selectedTahun,
-      selectedTable,
-    );
-
-    const response = await $api<SpatialHistoryResponse>(
-      `${baseUrl}/v1/spatial/history?${query.toString()}`,
-      {
-        method: "GET",
-        headers: getAuthHeaders(),
-      },
-    );
-
-    return response && typeof response === "object" ? response : null;
-  }
-
-  function activateHistoryTable(selectedTable: string) {
+  ) {
     if (!selectedTable) {
       historyData.value = null;
       return;
     }
 
-    const cached =
-      historyDataByTable.value[selectedTable as HistoryTableKey] ?? null;
-    historyData.value = cached;
-  }
-
-  async function prefetchAllHistory(
-    normalizedFilters: MapFilters,
-    selectedTahun: string,
-    selectedTable = "",
-  ) {
     loadingHistory.value = true;
     try {
-      const results = await Promise.all(
-        HISTORY_TABLE_KEYS.map(async (table) => {
-          try {
-            const data = await fetchSpatialHistory(
-              normalizedFilters,
-              selectedTahun,
-              table,
-            );
-            return { table, data };
-          } catch {
-            return { table, data: null };
-          }
-        }),
+      const baseUrl = getApiBaseUrl();
+      const query = buildHistoryQuery(
+        normalizedFilters,
+        selectedTahun,
+        selectedTable,
       );
 
-      const nextCache: Partial<
-        Record<HistoryTableKey, SpatialHistoryResponse | null>
-      > = {};
-      for (const result of results) {
-        nextCache[result.table] = result.data;
-      }
-      historyDataByTable.value = nextCache;
+      const response = await $api<SpatialHistoryResponse>(
+        `${baseUrl}/v1/spatial/history?${query.toString()}`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
+      );
 
-      if (selectedTable) {
-        activateHistoryTable(selectedTable);
-      }
+      historyData.value =
+        response && typeof response === "object" ? response : null;
+    } catch {
+      historyData.value = null;
     } finally {
       loadingHistory.value = false;
     }
@@ -1112,15 +1059,14 @@ export const useMapStore = defineStore("map", () => {
       query.set("kode_est", normalizedFilters.estate || "");
       query.set("kode_afd", normalizedFilters.afdeling || "");
       query.set("kode_blok", normalizedFilters.blok || "");
-      query.set("tahun", selectedTahun || String(new Date().getFullYear()));
+      query.set("tahun", selectedTahun || "");
 
       const [geoResult] = await Promise.all([
         $api(`${baseUrl}/v1/spatial/geojson?${query.toString()}`, {
           method: "GET",
           headers: getAuthHeaders(),
         }),
-        // History: tahun kosong = akumulasi multi-year (sesuai API)
-        prefetchAllHistory(historyFilters, selectedTahun, selectedTable),
+        fetchSpatialHistory(historyFilters, selectedTahun, selectedTable),
       ]);
 
       filteredGeoJSON.value = normalizeGeoJSONResponse(geoResult);
@@ -1133,10 +1079,14 @@ export const useMapStore = defineStore("map", () => {
     }
   }
 
+  /** Muat ulang data informasi (tab tema) memakai filter yang sedang aktif, tanpa memuat ulang peta. */
+  async function refreshHistory(selectedTahun: string, selectedTable: string) {
+    await fetchSpatialHistory({ ...filters.value }, selectedTahun, selectedTable);
+  }
+
   async function resetFilters() {
     filteredGeoJSON.value = null;
     historyData.value = null;
-    historyDataByTable.value = {};
     selectedOwnership.value = "";
     await initDefaultSpatialSelection();
   }
@@ -1202,7 +1152,6 @@ export const useMapStore = defineStore("map", () => {
     loadingHistory,
     filteredGeoJSON,
     historyData,
-    historyDataByTable,
     errorMessage,
     hasArea,
     hasPt,
@@ -1228,8 +1177,7 @@ export const useMapStore = defineStore("map", () => {
     isLoading,
     loadGeoJSONData,
     applyFilters,
-    activateHistoryTable,
-    prefetchAllHistory,
+    refreshHistory,
     fetchBlokPopupData,
     getPopupHierarchyLabels,
   };

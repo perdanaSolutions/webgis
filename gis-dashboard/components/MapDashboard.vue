@@ -2,7 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import 'leaflet/dist/leaflet.css'
 
+import MapLayerPanel, { type OverlayListItem } from '~/components/map/MapLayerPanel.vue'
 import { useMapStore } from '~/stores/mapStore'
+import {
+  BASEMAPS,
+  type BasemapKey,
+  DEFAULT_BASEMAP,
+  getOverlayColor,
+  getOverlayLegend,
+  getOverlayStyle,
+  type OverlayStyle,
+} from '~/utils/mapLayers'
 import {
   buildBlokPopupHtml,
   buildBlokPopupSkeletonHtml,
@@ -18,7 +28,6 @@ type LeafletModule = typeof import('leaflet')
 type LeafletMap = import('leaflet').Map
 type LeafletGeoJson = import('leaflet').GeoJSON
 type LeafletLayer = import('leaflet').Layer
-type LeafletTileLayer = import('leaflet').TileLayer
 type FeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, any>>
 type Feature = GeoJSON.Feature<GeoJSON.Geometry, Record<string, any>>
 type FeatureProperties = Record<string, string | number | null | undefined>
@@ -30,157 +39,43 @@ type PopupCacheEntry = {
   popupData: BlokPopupData
 }
 
-type BasemapMode = {
-  id: string
-  label: string
-  group: string
-  url: string
-  attribution: string
-  maxZoom?: number
-  subdomains?: string | string[]
-}
-
-const BASEMAP_MODES: BasemapMode[] = [
-  {
-    id: 'osm',
-    label: 'OpenStreetMap',
-    group: 'Street',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  },
-  {
-    id: 'osm-hot',
-    label: 'OSM HOT',
-    group: 'Street',
-    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team',
-    maxZoom: 19,
-  },
-  {
-    id: 'esri-street',
-    label: 'Esri Street',
-    group: 'Street',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 19,
-  },
-  {
-    id: 'esri-gray',
-    label: 'Esri Gray',
-    group: 'Light / Dark',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 16,
-  },
-  {
-    id: 'esri-imagery',
-    label: 'Esri Satellite',
-    group: 'Satellite / Terrain',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 19,
-  },
-  {
-    id: 'esri-topo',
-    label: 'Esri Topo',
-    group: 'Satellite / Terrain',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 19,
-  },
-  {
-    id: 'opentopomap',
-    label: 'OpenTopoMap',
-    group: 'Satellite / Terrain',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: 'Map data: &copy; OpenStreetMap, SRTM | Map style: &copy; OpenTopoMap',
-    maxZoom: 17,
-  },
-  {
-    id: 'cyclosm',
-    label: 'CyclOSM',
-    group: 'Special',
-    url: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap contributors | CyclOSM',
-    maxZoom: 20,
-  },
-]
+const props = withDefaults(defineProps<{
+  /** Area peta yang tertutup panel (px) -> dipakai saat zoom-to-fit & posisi kontrol */
+  insets?: { top: number, right: number, bottom: number, left: number }
+}>(), {
+  insets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+})
 
 const mapStore = useMapStore()
 
-const emit = defineEmits<{
-  mapClick: []
-}>()
+// Urutan tumpukan: batas blok < poligon tematik < garis < titik
+const BLOCK_PANE = 'blocks'
+const POLYGON_PANE = 'overlay-polygons'
+const LINE_PANE = 'overlay-lines'
+const POINT_PANE = 'overlay-points'
+
+const OVERLAY_ORDER = ['sawit', 'tph', 'jalan', 'jembatan', 'landuse', 'slope']
+const OVERLAY_LABELS: Record<string, string> = {
+  sawit: 'Pokok Sawit',
+  tph: 'TPH',
+  jalan: 'Jalan',
+  jembatan: 'Jembatan',
+  landuse: 'Land Use',
+  slope: 'Kelerengan (Slope)',
+}
 
 const mapContainer = shallowRef<HTMLElement | null>(null)
 const map = shallowRef<LeafletMap | null>(null)
 const geoJsonLayer = shallowRef<LeafletGeoJson | null>(null)
-const baseTileLayer = shallowRef<LeafletTileLayer | null>(null)
 const isMapReady = shallowRef(false)
 const isLayerUpdating = shallowRef(false)
 const leafletModule = shallowRef<LeafletModule | null>(null)
-const isBasemapMenuOpen = ref(false)
-const selectedBasemapId = ref('osm')
 
 const popupCacheByBlokId = new Map<string, PopupCacheEntry>()
 const loadSequenceByBlokId = new Map<string, number>()
 
 const defaultCenter: [number, number] = [-6.2088, 106.8456]
 const defaultZoom = 6
-
-const selectedBasemap = computed(
-  () => BASEMAP_MODES.find((item) => item.id === selectedBasemapId.value) ?? BASEMAP_MODES[0],
-)
-
-const basemapGroups = computed(() => {
-  const groups: Array<{ name: string; items: BasemapMode[] }> = []
-  for (const mode of BASEMAP_MODES) {
-    const existing = groups.find((group) => group.name === mode.group)
-    if (existing) {
-      existing.items.push(mode)
-    }
-    else {
-      groups.push({ name: mode.group, items: [mode] })
-    }
-  }
-  return groups
-})
-
-function createTileLayer(L: LeafletModule, mode: BasemapMode) {
-  return L.tileLayer(mode.url, {
-    attribution: mode.attribution,
-    maxZoom: mode.maxZoom ?? 19,
-    ...(mode.subdomains ? { subdomains: mode.subdomains } : {}),
-  })
-}
-
-function applyBasemap(modeId: string) {
-  const L = leafletModule.value
-  if (!L || !map.value)
-    return
-
-  const mode = BASEMAP_MODES.find((item) => item.id === modeId) ?? BASEMAP_MODES[0]
-  if (!mode)
-    return
-
-  selectedBasemapId.value = mode.id
-
-  if (baseTileLayer.value) {
-    map.value.removeLayer(baseTileLayer.value)
-    baseTileLayer.value = null
-  }
-
-  const nextLayer = createTileLayer(L, mode)
-  nextLayer.addTo(map.value)
-  nextLayer.bringToBack()
-  baseTileLayer.value = nextLayer
-  isBasemapMenuOpen.value = false
-}
-
-function toggleBasemapMenu() {
-  isBasemapMenuOpen.value = !isBasemapMenuOpen.value
-}
 
 function getStatusColor(status: string) {
   const normalizedStatus = status.toUpperCase()
@@ -499,11 +394,6 @@ function attachPopupHandlers(layer: LeafletLayer, feature: Feature) {
 
 function bindPopupInteractions(layer: LeafletLayer, feature: Feature) {
   layer.off('popupopen')
-  layer.off('click')
-
-  layer.on('click', () => {
-    emit('mapClick')
-  })
 
   layer.on('popupopen', () => {
     protectPopupInteractions(layer)
@@ -522,6 +412,25 @@ function resolveFeatureStyle(feature?: Feature) {
     weight: 1,
     fillColor: getStatusColor(status),
     fillOpacity: 0.45,
+    pane: BLOCK_PANE,
+  }
+}
+
+/** Popup digeser (auto-pan) agar tidak tertutup panel filter/profil di sisi peta. */
+function popupPanPadding() {
+  const inset = props.insets
+  return {
+    autoPanPaddingTopLeft: [inset.left + 24, inset.top + 24] as [number, number],
+    autoPanPaddingBottomRight: [inset.right + 24, inset.bottom + 24] as [number, number],
+  }
+}
+
+function fitPaddingOptions() {
+  const inset = props.insets
+  return {
+    paddingTopLeft: [inset.left + 32, inset.top + 32] as [number, number],
+    paddingBottomRight: [inset.right + 32, inset.bottom + 32] as [number, number],
+    maxZoom: 16,
   }
 }
 
@@ -540,13 +449,14 @@ function updateGeoJSONLayer(L: LeafletModule) {
     const featureCollection = getRenderableFeatureCollection()
 
     const layer = L.geoJSON(featureCollection, {
+      pane: BLOCK_PANE,
       style: (feature) => resolveFeatureStyle(feature as Feature),
       onEachFeature: (feature, leafletLayer) => {
         const popupHtml = buildInitialPopupContent(feature as Feature)
         leafletLayer.bindPopup(popupHtml, {
           maxWidth: 340,
           minWidth: 320,
-          autoPanPadding: [24, 24],
+          ...popupPanPadding(),
           className: 'map-blok-popup-wrapper',
           closeOnClick: false,
           autoClose: true,
@@ -556,66 +466,283 @@ function updateGeoJSONLayer(L: LeafletModule) {
     })
 
     geoJsonLayer.value = layer
-    geoJsonLayer.value.addTo(map.value)
+    if (showBlocks.value)
+      geoJsonLayer.value.addTo(map.value)
 
-    fitMapToFilteredData()
+    const bounds = geoJsonLayer.value.getBounds()
+
+    if (bounds.isValid()) {
+      map.value.fitBounds(bounds, fitPaddingOptions())
+    }
+    else {
+      map.value.setView(defaultCenter, defaultZoom)
+    }
   }
   finally {
     isLayerUpdating.value = false
   }
 }
 
-type FocusPadding = {
-  top?: number
-  right?: number
-  bottom?: number
-  left?: number
+// ===========================================================================
+// PETA DASAR
+// ===========================================================================
+
+const BASEMAP_STORAGE_KEY = 'map-basemap'
+const basemap = shallowRef<BasemapKey>(DEFAULT_BASEMAP)
+let basemapLayers: import('leaflet').TileLayer[] = []
+
+function readSavedBasemap(): BasemapKey {
+  try {
+    const saved = localStorage.getItem(BASEMAP_STORAGE_KEY) as BasemapKey | null
+    return saved && BASEMAPS.some(option => option.key === saved) ? saved : DEFAULT_BASEMAP
+  }
+  catch {
+    return DEFAULT_BASEMAP
+  }
 }
 
-function fitMapToFilteredData(padding?: FocusPadding, animate = false) {
+function applyBasemap(key: BasemapKey) {
+  const L = leafletModule.value
+  if (!L || !map.value)
+    return
+  const option = BASEMAPS.find(item => item.key === key) ?? BASEMAPS[0]!
+  basemapLayers.forEach(layer => layer.removeFrom(map.value!))
+  basemapLayers = option.tiles.map(tile => L.tileLayer(tile.url, {
+    attribution: tile.attribution,
+    maxZoom: tile.maxZoom ?? 19,
+    ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
+  }).addTo(map.value!))
+  basemap.value = option.key
+  try {
+    localStorage.setItem(BASEMAP_STORAGE_KEY, option.key)
+  }
+  catch {
+    // penyimpanan lokal tidak tersedia (mode privat) -> abaikan
+  }
+}
+
+// ===========================================================================
+// LAYER DATA TAMBAHAN (dari katalog backend)
+// ===========================================================================
+
+type CatalogItem = {
+  kode: string
+  nama: string
+  geometry_type: string
+  handler_type: string
+  endpoints: Record<string, string> | null
+}
+
+type OverlayState = OverlayListItem & { endpoint: string, style: OverlayStyle }
+
+const overlays = ref<OverlayState[]>([])
+const overlayLayers = new Map<string, import('leaflet').Layer>()
+const overlaySequence = new Map<string, number>()
+let pointRenderer: import('leaflet').Canvas | null = null
+
+const overlayPanelItems = computed<OverlayListItem[]>(() => overlays.value.map(({ endpoint: _e, style: _s, ...item }) => item))
+
+function getApiBaseUrl() {
+  return useRuntimeConfig().public.apiBaseUrlPython as string
+}
+
+function overlayRank(code: string) {
+  const index = OVERLAY_ORDER.indexOf(code)
+  return index < 0 ? OVERLAY_ORDER.length : index // layer dinamis baru di akhir
+}
+
+async function loadCatalog() {
+  try {
+    const { $api } = useNuxtApp()
+    const catalog = await $api<CatalogItem[]>(`${getApiBaseUrl()}/v1/spatial/geo/catalog`)
+    overlays.value = (Array.isArray(catalog) ? catalog : [])
+      .filter(item => item.kode !== 'blok' && item.endpoints?.geojson)
+      .map((item, index) => {
+        const style = getOverlayStyle(item.kode, index)
+        return {
+          code: item.kode,
+          name: OVERLAY_LABELS[item.kode] ?? item.nama,
+          geometryType: item.geometry_type,
+          color: style.defaultColor,
+          enabled: false,
+          loading: false,
+          count: null,
+          period: '',
+          error: '',
+          legend: getOverlayLegend(style),
+          endpoint: item.endpoints!.geojson!,
+          style,
+        }
+      })
+      .sort((a, b) => overlayRank(a.code) - overlayRank(b.code))
+  }
+  catch {
+    overlays.value = []
+  }
+}
+
+function overlayQuery() {
+  const filters = mapStore.filters
+  const query = new URLSearchParams()
+  if (filters.pt) query.set('kode_pt', filters.pt)
+  if (filters.estate) query.set('kode_est', filters.estate)
+  if (filters.afdeling) query.set('kode_afd', filters.afdeling)
+  if (filters.blok) {
+    query.set('kode_blok', filters.blok)
+    query.set('blok_id', filters.blok) // endpoint layer dinamis memakai nama ini
+  }
+  return query.toString()
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[ch]!))
+}
+
+function formatValue(value: unknown) {
+  if (typeof value === 'number')
+    return Number.isInteger(value) ? String(value) : value.toLocaleString('id-ID', { maximumFractionDigits: 2 })
+  return escapeHtml(value)
+}
+
+function buildOverlayPopup(overlay: OverlayState, properties: Record<string, unknown>) {
+  const fields = overlay.style.popupFields.length
+    ? overlay.style.popupFields
+    : Object.keys(properties)
+        .filter(key => !['id', 'blok_id', 'bulan', 'tahun'].includes(key) && typeof properties[key] !== 'object')
+        .map(key => [key, key.replace(/_/g, ' ')] as [string, string])
+  const rows = fields
+    .filter(([key]) => properties[key] !== null && properties[key] !== undefined && properties[key] !== '')
+    .map(([key, label]) => `<tr><td class="ovl-k">${escapeHtml(label)}</td><td class="ovl-v">${formatValue(properties[key])}</td></tr>`)
+    .join('')
+  const period = properties.bulan && properties.tahun ? `<span class="ovl-period">${properties.bulan}-${properties.tahun}</span>` : ''
+  return `<div class="ovl-popup"><div class="ovl-title"><span class="ovl-dot" style="background:${overlay.color}"></span>${escapeHtml(overlay.name)}${period}</div><table>${rows}</table></div>`
+}
+
+function buildOverlayLayer(L: LeafletModule, overlay: OverlayState, data: FeatureCollection) {
+  const style = overlay.style
+  const pane = overlay.geometryType.includes('POINT') ? POINT_PANE : overlay.geometryType.includes('LINE') ? LINE_PANE : POLYGON_PANE
+  return L.geoJSON(data, {
+    pane,
+    style: feature => ({
+      color: overlay.geometryType.includes('LINE') ? getOverlayColor(style, feature?.properties) : '#1e293b',
+      weight: style.weight ?? 1,
+      fillColor: getOverlayColor(style, feature?.properties),
+      fillOpacity: style.fillOpacity ?? 0.5,
+      opacity: 0.95,
+    }),
+    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+      renderer: pointRenderer ?? undefined,
+      pane: POINT_PANE,
+      radius: style.radius ?? 5,
+      color: overlay.code === 'jembatan' ? '#0c4a6e' : '#ffffff',
+      weight: overlay.code === 'sawit' ? 0.4 : 1.2,
+      fillColor: getOverlayColor(style, feature.properties),
+      fillOpacity: 0.95,
+    }),
+    onEachFeature: (feature, layer) => {
+      layer.bindPopup(() => buildOverlayPopup(overlay, (feature.properties ?? {}) as Record<string, unknown>), {
+        className: 'map-overlay-popup',
+        maxWidth: 280,
+        ...popupPanPadding(),
+      })
+    },
+  })
+}
+
+async function loadOverlay(overlay: OverlayState) {
+  const L = leafletModule.value
+  if (!L || !map.value)
+    return
+  const sequence = (overlaySequence.get(overlay.code) ?? 0) + 1
+  overlaySequence.set(overlay.code, sequence)
+  overlay.loading = true
+  overlay.error = ''
+  try {
+    const { $api } = useNuxtApp()
+    const query = overlayQuery()
+    const data = await $api<FeatureCollection>(`${getApiBaseUrl()}/v1/spatial${overlay.endpoint}${query ? `?${query}` : ''}`)
+    if (overlaySequence.get(overlay.code) !== sequence || !overlay.enabled)
+      return
+    removeOverlayLayer(overlay.code)
+    const features = Array.isArray(data?.features) ? data.features : []
+    const layer = buildOverlayLayer(L, overlay, { type: 'FeatureCollection', features })
+    layer.addTo(map.value)
+    overlayLayers.set(overlay.code, layer)
+    overlay.count = features.length
+    const first = features[0]?.properties as Record<string, unknown> | undefined
+    overlay.period = first?.bulan && first?.tahun ? `${getBulanPopupLabel(String(first.bulan))} ${first.tahun}` : ''
+  }
+  catch (error) {
+    if (overlaySequence.get(overlay.code) !== sequence)
+      return
+    overlay.count = null
+    overlay.error = getErrorStatus(error) === 403 ? 'Tidak punya akses ke layer ini.' : 'Gagal memuat layer.'
+  }
+  finally {
+    if (overlaySequence.get(overlay.code) === sequence)
+      overlay.loading = false
+  }
+}
+
+function removeOverlayLayer(code: string) {
+  const existing = overlayLayers.get(code)
+  if (existing && map.value)
+    existing.removeFrom(map.value)
+  overlayLayers.delete(code)
+}
+
+function toggleOverlay(code: string) {
+  const overlay = overlays.value.find(item => item.code === code)
+  if (!overlay)
+    return
+  overlay.enabled = !overlay.enabled
+  if (overlay.enabled) {
+    void loadOverlay(overlay)
+  }
+  else {
+    overlaySequence.set(code, (overlaySequence.get(code) ?? 0) + 1) // batalkan request yang sedang jalan
+    overlay.loading = false
+    removeOverlayLayer(code)
+  }
+}
+
+function reloadEnabledOverlays() {
+  overlays.value.filter(item => item.enabled).forEach(item => void loadOverlay(item))
+}
+
+const showBlocks = shallowRef(true)
+
+function toggleBlocks() {
+  showBlocks.value = !showBlocks.value
+  if (!map.value || !geoJsonLayer.value)
+    return
+  if (showBlocks.value)
+    geoJsonLayer.value.addTo(map.value)
+  else
+    geoJsonLayer.value.removeFrom(map.value)
+}
+
+// ===========================================================================
+// INISIALISASI
+// ===========================================================================
+
+function createPanes() {
   if (!map.value)
     return
-
-  const bounds = geoJsonLayer.value?.getBounds()
-  const fitOptions = padding
-    ? {
-        paddingTopLeft: [padding.left ?? 32, padding.top ?? 32] as [number, number],
-        paddingBottomRight: [padding.right ?? 32, padding.bottom ?? 32] as [number, number],
-        maxZoom: 16,
-      }
-    : {
-        padding: [32, 32] as [number, number],
-        maxZoom: 16,
-      }
-
-  if (bounds?.isValid()) {
-    if (animate) {
-      map.value.flyToBounds(bounds, {
-        ...fitOptions,
-        duration: 0.6,
-      })
-      return
-    }
-
-    map.value.fitBounds(bounds, fitOptions)
-    return
+  const panes: Array<[string, number]> = [[BLOCK_PANE, 410], [POLYGON_PANE, 420], [LINE_PANE, 430], [POINT_PANE, 440]]
+  for (const [name, zIndex] of panes) {
+    const pane = map.value.createPane(name)
+    pane.style.zIndex = String(zIndex)
   }
-
-  if (animate) {
-    map.value.flyTo(defaultCenter, defaultZoom, { duration: 0.6 })
-    return
-  }
-
-  map.value.setView(defaultCenter, defaultZoom)
 }
 
-function focusOnFilteredData(padding?: FocusPadding) {
-  fitMapToFilteredData(padding, true)
+function applyInsets() {
+  // Atribusi peta harus tetap terlihat walau sudut kanan bawah tertutup panel profil.
+  const corner = mapContainer.value?.querySelector('.leaflet-bottom.leaflet-right') as HTMLElement | null
+  if (corner)
+    corner.style.marginRight = `${props.insets.right}px`
+  map.value?.invalidateSize()
 }
-
-defineExpose({
-  focusOnFilteredData,
-})
 
 async function initializeMap() {
   const L = await import('leaflet')
@@ -626,31 +753,32 @@ async function initializeMap() {
 
   map.value = L.map(mapContainer.value, {
     closePopupOnClick: false,
+    preferCanvas: false,
   }).setView(defaultCenter, defaultZoom)
 
-  map.value.on('click', () => {
-    emit('mapClick')
-  })
-
-  const initialMode = BASEMAP_MODES.find((item) => item.id === selectedBasemapId.value) ?? BASEMAP_MODES[0]
-  if (initialMode) {
-    baseTileLayer.value = createTileLayer(L, initialMode)
-    baseTileLayer.value.addTo(map.value)
-  }
+  createPanes()
+  pointRenderer = L.canvas({ pane: POINT_PANE, padding: 0.5 })
+  applyBasemap(readSavedBasemap())
+  L.control.scale({ position: 'bottomright', imperial: false }).addTo(map.value)
 
   isMapReady.value = true
 
   setTimeout(() => {
-    map.value?.invalidateSize()
+    applyInsets()
   }, 0)
 
   updateGeoJSONLayer(L)
+  await loadCatalog()
 }
 
 const featureCount = computed(() => {
   const data = getRenderableFeatureCollection()
   return data.features.length
 })
+
+const visibleCenterStyle = computed(() => ({
+  left: `calc(${props.insets.left}px + (100% - ${props.insets.left + props.insets.right}px) / 2)`,
+}))
 
 onMounted(async () => {
   await initializeMap()
@@ -661,11 +789,7 @@ onBeforeUnmount(() => {
     geoJsonLayer.value.removeFrom(map.value)
     geoJsonLayer.value = null
   }
-
-  if (baseTileLayer.value && map.value) {
-    map.value.removeLayer(baseTileLayer.value)
-    baseTileLayer.value = null
-  }
+  overlayLayers.forEach((_, code) => removeOverlayLayer(code))
 
   if (map.value) {
     map.value.remove()
@@ -686,14 +810,23 @@ watch(
     const L = leafletModule.value ?? await import('leaflet')
     leafletModule.value = L
     updateGeoJSONLayer(L)
+    reloadEnabledOverlays()
   },
   { deep: true },
 )
+
+watch(() => props.insets, () => applyInsets(), { deep: true })
 </script>
 
 <template>
   <div class="relative h-full w-full">
     <div ref="mapContainer" class="h-full w-full" />
+
+    <div class="pointer-events-none absolute top-3 z-[1000]" :style="{ right: `${insets.right + 12}px` }">
+      <MapLayerPanel :basemap="basemap" :overlays="overlayPanelItems" :block-count="featureCount"
+        :show-blocks="showBlocks" @update:basemap="applyBasemap" @toggle-overlay="toggleOverlay"
+        @toggle-blocks="toggleBlocks" />
+    </div>
 
     <div v-if="mapStore.loadingGeoJSON"
       class="absolute inset-0 z-[1100] flex items-center justify-center bg-surface-70 backdrop-blur-[1px]">
@@ -705,59 +838,8 @@ watch(
       </div>
     </div>
 
-    <!-- Basemap mode switcher -->
-    <div class="absolute bottom-4 left-3 z-[1000] sm:left-4">
-      <div class="relative">
-        <button
-          type="button"
-          class="inline-flex h-10 items-center gap-2 rounded-xl border border-map-light bg-surface-90 px-3 text-13 font-semibold text-slate shadow-md backdrop-blur-md hover-bg-hover-slate"
-          :aria-expanded="isBasemapMenuOpen"
-          aria-label="Ganti mode tampilan peta"
-          @click="toggleBasemapMenu">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
-          <span class="max-w-[9rem] truncate">{{ selectedBasemap?.label }}</span>
-          <span class="text-12 text-gray-muted">{{ isBasemapMenuOpen ? '▴' : '▾' }}</span>
-        </button>
-
-        <div
-          v-if="isBasemapMenuOpen"
-          class="absolute bottom-full left-0 mb-2 w-72 max-h-[min(70vh,28rem)] overflow-y-auto rounded-xl border border-map-light bg-surface shadow-xl">
-          <div class="sticky top-0 z-10 border-b border-map-light bg-surface px-3 py-2">
-            <p class="text-11 font-semibold uppercase tracking-wide text-gray-muted">
-              Mode Tampilan Peta
-            </p>
-            <p class="text-11 text-gray-muted">
-              {{ BASEMAP_MODES.length }} mode tersedia
-            </p>
-          </div>
-          <div class="space-y-2 p-2">
-            <section v-for="group in basemapGroups" :key="group.name">
-              <p class="mb-0.5 px-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
-                {{ group.name }}
-              </p>
-              <div class="space-y-0.5">
-                <button
-                  v-for="mode in group.items"
-                  :key="mode.id"
-                  type="button"
-                  class="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-13 transition-colors"
-                  :class="selectedBasemapId === mode.id
-                    ? 'bg-blue-primary text-on-brand'
-                    : 'text-slate hover-bg-hover-slate'"
-                  @click="applyBasemap(mode.id)">
-                  <span class="font-medium">{{ mode.label }}</span>
-                  <span v-if="selectedBasemapId === mode.id" class="text-12">✓</span>
-                </button>
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="absolute bottom-4 right-4 z-[1000] rounded-lg bg-surface-90 px-3 py-2 text-size-sm shadow-md">
+    <div class="absolute bottom-4 z-[1000] -translate-x-1/2 rounded-lg bg-surface-90 px-3 py-2 text-size-sm shadow-md"
+      :style="visibleCenterStyle">
       Menampilkan <strong>{{ featureCount }}</strong> blok
     </div>
   </div>
@@ -781,6 +863,62 @@ watch(
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip {
   background: #fff;
+}
+
+.leaflet-popup.map-overlay-popup .leaflet-popup-content-wrapper {
+  border-radius: 10px;
+}
+
+.leaflet-popup.map-overlay-popup .leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 12px;
+}
+
+.ovl-popup .ovl-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  padding-right: 18px; /* ruang untuk tombol tutup popup */
+}
+
+.ovl-popup .ovl-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.ovl-popup .ovl-period {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.ovl-popup table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ovl-popup td {
+  padding: 2px 0;
+  vertical-align: top;
+}
+
+.ovl-popup .ovl-k {
+  color: #6b7280;
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.ovl-popup .ovl-v {
+  color: #111827;
+  font-weight: 600;
+  text-align: right;
 }
 
 @keyframes map-blok-skeleton-shine {

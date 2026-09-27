@@ -2,9 +2,11 @@
 import { onMounted, computed, ref, onUnmounted } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
+import { useAccessControl } from '~/composables/useAccessControl'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
+const { hasRole } = useAccessControl()
 const informasiUser = computed(() => authStore.user)
 
 onMounted(async () => {
@@ -17,7 +19,6 @@ onMounted(async () => {
 })
 
 const isMenuOpen = ref(false)
-const isFavoriteOpen = ref(false)
 const isQuickMenuOpen = ref(false)
 const isSidebarOpen = ref(false)
 const menuItems = ref([
@@ -49,32 +50,16 @@ const displayProfileName = computed(() => {
 })
 
 const displayProfileRole = computed(() => {
-  return props.profileRole || authStore?.user?.role || 'Operator'
+  return props.profileRole || (authStore?.user?.roles ?? []).join(', ') || 'Operator'
 })
 
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value
-  if (isMenuOpen.value) isFavoriteOpen.value = false
 }
 
 const closeMenu = () => {
   isMenuOpen.value = false
-}
-
-const toggleFavoriteMenu = () => {
-  isFavoriteOpen.value = !isFavoriteOpen.value
-  if (isFavoriteOpen.value) isMenuOpen.value = false
-}
-
-const closeFavoriteMenu = () => {
-  isFavoriteOpen.value = false
-}
-
-const openFavoriteMenu = async (to: string) => {
-  closeFavoriteMenu()
-  if (!to) return
-  await navigateTo(to)
 }
 
 const toggleQuickMenu = () => {
@@ -104,9 +89,6 @@ const clickOutsideHandler = (event: MouseEvent) => {
   const target = event.target as HTMLElement
   if (!target.closest('.profile-dropdown-container')) {
     closeMenu()
-  }
-  if (!target.closest('.favorite-menu-container')) {
-    closeFavoriteMenu()
   }
   if (!target.closest('.quick-menu-container')) {
     closeQuickMenu()
@@ -153,44 +135,8 @@ onUnmounted(() => {
       </div>
 
       <div class="ml-auto flex items-center gap-2 sm:gap-3">
-        <div v-if="dashboardService.favoriteMenus.length" class="favorite-menu-container relative">
-          <button type="button" @click="toggleFavoriteMenu"
-            class="flex h-10 w-10 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream sm:h-12 sm:w-12"
-            :aria-expanded="isFavoriteOpen"
-            aria-label="Menu favorit">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
-            </svg>
-          </button>
-
-          <div v-if="isFavoriteOpen"
-            class="absolute right-0 z-[1500] mt-2 w-72 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl">
-            <p class="px-3 py-2 text-12 font-semibold uppercase tracking-wide text-label">
-              Menu favorit
-            </p>
-            <button v-for="item in dashboardService.favoriteMenus" :key="`favorite-menu-${item.id}`" type="button"
-              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
-              @click="openFavoriteMenu(item.to)">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" :class="item.bgClass">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="item.iconClass" fill="none"
-                  viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                    :d="dashboardService.iconPath(item.icon)" />
-                </svg>
-              </span>
-              <span class="min-w-0">
-                <span class="block truncate text-14 font-bold text-brand">{{ item.title }}</span>
-                <span class="block truncate text-12 text-muted-light">{{ item.description || item.to }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
-
         <button
-          class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand sm:h-12 sm:w-12"
-          aria-label="Notifikasi">
+          class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand sm:h-12 sm:w-12">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24"
             stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -287,13 +233,12 @@ onUnmounted(() => {
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
       <div class="border-b border-menu bg-surface-warm px-4 py-4">
         <div class="flex items-center justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-2.5">
-            <div
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface">
-              <div class="h-8 w-8 rounded-full border-4 border-gold border-t-green-accent" />
-            </div>
-            <h3 class="truncate text-16 font-bold leading-tight text-brand">
-              TPTS
+          <div class="min-w-0">
+            <p class="text-11 font-semibold uppercase tracking-wide text-label">
+              Navigasi
+            </p>
+            <h3 class="truncate text-16 font-bold text-brand">
+              Menu Modul
             </h3>
           </div>
           <button @click="closeSidebar"
@@ -332,7 +277,7 @@ onUnmounted(() => {
               </div>
             </button>
 
-            <button v-if="informasiUser?.role === 'superadmin'" @click="navigateTo('/menus'); closeSidebar()"
+            <button v-if="hasRole('superadmin')" @click="navigateTo('/menus'); closeSidebar()"
               class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
               <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-menu-blue-light">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-menu-blue" fill="none" viewBox="0 0 24 24"

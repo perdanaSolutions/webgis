@@ -35,6 +35,60 @@ def _json_safe(value: Any):
         return float(value)
     return value
 
+
+def safe_float(val, default: float = 0.0) -> float:
+    """Konversi nilai numerik DB ke float, aman terhadap None/Decimal."""
+    return float(val) if val is not None else default
+
+
+def safe_int(val, default: int = 0) -> int:
+    """Konversi nilai numerik DB ke int, aman terhadap None/Decimal."""
+    return int(val) if val is not None else default
+
+
+# Dipakai untuk menampilkan `bulan_tanam` (angka 1-12) sebagai singkatan nama
+# bulan di response JSON. Dipakai di >1 fungsi -> didefinisikan sekali di sini.
+MONTH_NAMES = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+}
+
+
+def _hierarchy_joins(base_alias: str) -> list:
+    """
+    Bangun chain JOIN blok -> afdeling -> estate -> perusahaan yang
+    dipakai berulang di beberapa query agregasi history (disamakan per
+    bulan+tahun). `base_alias` adalah alias tabel trx yang jadi titik awal
+    join (mis. "t" atau "ast").
+    """
+    return [
+        f"JOIN blok b ON {base_alias}.blok_id = b.blok_id "
+        f"AND {base_alias}.bulan = b.bulan AND {base_alias}.tahun = b.tahun",
+        "JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun",
+        "JOIN estate e ON af.est_id = e.est_id AND af.bulan = e.bulan AND af.tahun = e.tahun",
+        "JOIN perusahaan p ON e.pt_id = p.pt_id",
+    ]
+
+
+def _time_grouping(tahun: Optional[int], where_conditions: list, params: dict) -> tuple:
+    """
+    Pola akumulasi BULANAN vs TAHUNAN yang dipakai identik oleh cabang
+    trx_produksi_tbs dan trx_rotasi_pusingan di get_history_aggregated.
+    Menambahkan filter `t.tahun` ke `where_conditions`/`params` in-place
+    kalau `tahun` diisi, lalu mengembalikan klausa SQL yang relevan.
+    """
+    is_monthly = tahun is not None
+    if tahun:
+        where_conditions.append("t.tahun = :tahun")
+        params["tahun"] = tahun
+
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+    group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
+    select_time_clause = "t.tahun, t.bulan" if is_monthly else "t.tahun, NULL as bulan"
+    order_by_clause = "t.tahun ASC, t.bulan ASC" if is_monthly else "t.tahun ASC"
+    return is_monthly, where_clause, group_by_clause, select_time_clause, order_by_clause
+
+
 # Whitelist tabel yang boleh diakses lewat endpoint history generik, plus
 # daftar kolom yang boleh di-SELECT (juga whitelist -- bukan "SELECT *")
 # dan urutan sort-nya. Cuma tabel yang terdaftar di sini yang bisa diquery.
@@ -77,41 +131,6 @@ def list_history_tables() -> list:
     ]
 
 
-# def get_history(db: Session, table: str, tahun: int, blok_id: Optional[str] = None) -> dict:
-#     """
-#     Ambil data mentah 1 tabel trx untuk 1 tahun (opsional difilter 1 blok),
-#     dipakai untuk grafik/riwayat di dalam popup.
-#     """
-#     config = HISTORY_TABLE_REGISTRY.get(table)
-#     if config is None:
-#         raise HTTPException(
-#             status_code=400,
-#             detail=f"Tabel '{table}' tidak tersedia untuk endpoint history. Pilihan: {sorted(HISTORY_TABLE_REGISTRY)}.",
-#         )
-
-#     # Aman: `table` di titik ini sudah PASTI salah satu literal key
-#     # HISTORY_TABLE_REGISTRY (bukan string bebas dari request), begitu juga
-#     # `columns_sql` yang seluruhnya berasal dari whitelist di atas.
-#     columns_sql = ", ".join(config["columns"])
-#     sql = f"SELECT {columns_sql} FROM {table} WHERE tahun = :tahun"
-#     params = {"tahun": tahun}
-
-#     if blok_id:
-#         sql += " AND blok_id = :blok_id"
-#         params["blok_id"] = blok_id
-
-#     sql += f" ORDER BY {config['order_by']}"
-
-#     rows = db.execute(text(sql), params).fetchall()
-#     return {
-#         "table": table,
-#         "label": config["label"],
-#         "tahun": tahun,
-#         "blok_id": blok_id,
-#         "total_data": len(rows),
-#         "data": [dict(r._mapping) for r in rows],
-#     }
-
 def get_history_aggregated(
     db: Session,
     table: str = "trx_produksi_tbs",
@@ -139,20 +158,8 @@ def get_history_aggregated(
 
     ownership_clean = ownership.strip() if ownership else None
 
-    # Helper untuk format aman
-    def safe_float(val, default=0.0):
-        return float(val) if val is not None else default
-
-    def safe_int(val, default=0):
-        return int(val) if val is not None else default
-
     # Dynamic Joins & Where Clauses Dasar
-    joins = [
-        "JOIN blok b ON t.blok_id = b.blok_id AND t.bulan = b.bulan AND t.tahun = b.tahun",
-        "JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun",
-        "JOIN estate e ON af.est_id = e.est_id AND af.bulan = e.bulan AND af.tahun = e.tahun",
-        "JOIN perusahaan p ON e.pt_id = p.pt_id"
-    ]
+    joins = _hierarchy_joins("t")
 
     where_conditions = []
     params = {}
@@ -188,24 +195,13 @@ def get_history_aggregated(
     # CABANG 1: TABEL PRODUKSI TBS
     # =========================================================================
     if table == "trx_produksi_tbs":
-        is_monthly = tahun is not None
-        if tahun:
-            where_conditions.append("t.tahun = :tahun")
-            params["tahun"] = tahun
-
-        where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        is_monthly, where_clause, group_by_clause, select_time_clause, order_by_clause = (
+            _time_grouping(tahun, where_conditions, params)
+        )
         join_clause = " ".join(joins)
-        group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
-        select_time_clause = "t.tahun, t.bulan" if is_monthly else "t.tahun, NULL as bulan"
-        order_by_clause = "t.tahun ASC, t.bulan ASC" if is_monthly else "t.tahun ASC"
 
         # 1. Kueri Slope
-        ast_joins = [
-            "JOIN blok b ON ast.blok_id = b.blok_id AND ast.bulan = b.bulan AND ast.tahun = b.tahun",
-            "JOIN afdeling af ON b.afd_id = af.afd_id AND b.bulan = af.bulan AND b.tahun = af.tahun",
-            "JOIN estate e ON af.est_id = e.est_id AND af.bulan = e.bulan AND af.tahun = e.tahun",
-            "JOIN perusahaan p ON e.pt_id = p.pt_id"
-        ]
+        ast_joins = _hierarchy_joins("ast")
         ast_where_conditions = [c.replace("t.", "ast.") for c in where_conditions]
         ast_where_clause = " WHERE " + " AND ".join(ast_where_conditions) if ast_where_conditions else ""
 
@@ -289,16 +285,10 @@ def get_history_aggregated(
     # CABANG 2: TABEL ROTASI PUSINGAN
     # =========================================================================
     elif table == "trx_rotasi_pusingan":
-        is_monthly = tahun is not None
-        if tahun:
-            where_conditions.append("t.tahun = :tahun")
-            params["tahun"] = tahun
-
-        where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        is_monthly, where_clause, group_by_clause, select_time_clause, order_by_clause = (
+            _time_grouping(tahun, where_conditions, params)
+        )
         join_clause = " ".join(joins)
-        group_by_clause = "t.bulan, t.tahun" if is_monthly else "t.tahun"
-        select_time_clause = "t.tahun, t.bulan" if is_monthly else "t.tahun, NULL as bulan"
-        order_by_clause = "t.tahun ASC, t.bulan ASC" if is_monthly else "t.tahun ASC"
 
         sql = f"""
             SELECT 
@@ -456,11 +446,6 @@ def get_history_aggregated(
         """
         group_rows = db.execute(text(sql_groups), params).fetchall()
 
-        month_names = {
-            1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-            7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
-        }
-
         # 3. Restrukturisasi JSON Bersarang Berdasarkan TAHUN
         nested_data = defaultdict(list)
         for r in group_rows:
@@ -469,7 +454,7 @@ def get_history_aggregated(
 
             sub_keys = {
                 "status_tanam": row_dict.get("status_tanam"),
-                "bulan_tanam": month_names.get(row_dict.get("bulan_tanam"), row_dict.get("bulan_tanam")) if isinstance(row_dict.get("bulan_tanam"), int) else row_dict.get("bulan_tanam"),
+                "bulan_tanam": MONTH_NAMES.get(row_dict.get("bulan_tanam"), row_dict.get("bulan_tanam")) if isinstance(row_dict.get("bulan_tanam"), int) else row_dict.get("bulan_tanam"),
                 "tahun_tanam": row_dict.get("tahun_tanam"),
                 "jenis_bibit": row_dict.get("jenis_bibit"),
                 "jenis_topografi": row_dict.get("jenis_topografi"),
@@ -557,42 +542,33 @@ def get_blok_detail(
     - areal_statement mengembalikan struktur data akumulasi berdasarkan tahun terbaru
       yang memiliki kelompok data (groups) dan grand_total.
     """
-    def safe_float(val, default=0.0):
-        return float(val) if val is not None else default
-
-    def safe_int(val, default=0):
-        return int(val) if val is not None else default
-
     ownership_clean = ownership.strip() if ownership else None
 
-    # 1. Tentukan tahun_tanam jika dikosongi (ambil TERBARU / LATEST)
+    # 1. Tentukan tahun_tanam jika dikosongi (ambil TERBARU / LATEST).
+    # Sumber `blok` diprioritaskan di atas `trx_areal_statement` (fallback
+    # kalau `blok` tidak punya baris tahun_tanam) -- digabung jadi SATU query
+    # (UNION ALL + src_priority) alih-alih 2 query berurutan seperti semula.
     is_latest_fallback = tahun_tanam is None
     if is_latest_fallback:
-        sql_latest_tt = """
-            SELECT tahun_tanam 
-            FROM blok 
-            WHERE blok_id = :bid AND tahun_tanam IS NOT NULL 
+        ownership_filter = " AND LOWER(tipe_blok) = LOWER(:ownership)" if ownership_clean else ""
+        sql_latest_tt = f"""
+            SELECT tahun_tanam FROM (
+                SELECT tahun_tanam, 0 AS src_priority
+                FROM blok
+                WHERE blok_id = :bid AND tahun_tanam IS NOT NULL{ownership_filter}
+                UNION ALL
+                SELECT tahun_tanam, 1 AS src_priority
+                FROM trx_areal_statement
+                WHERE blok_id = :bid AND tahun_tanam IS NOT NULL{ownership_filter}
+            ) src
+            ORDER BY src_priority ASC, tahun_tanam DESC
+            LIMIT 1
         """
         tt_params = {"bid": blok_id}
         if ownership_clean:
-            sql_latest_tt += " AND LOWER(tipe_blok) = LOWER(:ownership)"
             tt_params["ownership"] = ownership_clean
 
-        sql_latest_tt += " ORDER BY tahun_tanam DESC LIMIT 1"
         res_tt = db.execute(text(sql_latest_tt), tt_params).fetchone()
-        
-        if not res_tt or res_tt.tahun_tanam is None:
-            sql_latest_tt_ast = """
-                SELECT tahun_tanam 
-                FROM trx_areal_statement 
-                WHERE blok_id = :bid AND tahun_tanam IS NOT NULL 
-            """
-            if ownership_clean:
-                sql_latest_tt_ast += " AND LOWER(tipe_blok) = LOWER(:ownership)"
-            
-            sql_latest_tt_ast += " ORDER BY tahun_tanam DESC LIMIT 1"
-            res_tt = db.execute(text(sql_latest_tt_ast), tt_params).fetchone()
-
         if res_tt and res_tt.tahun_tanam:
             tahun_tanam = res_tt.tahun_tanam
 
@@ -602,14 +578,12 @@ def get_blok_detail(
     if ownership_clean:
         trx_params["ownership"] = ownership_clean
 
-    # 2. Ambil Data Master Blok & Hierarki
-    where_master = ["b.blok_id = :bid"]
-    if tahun_tanam is not None:
-        where_master.append("b.tahun_tanam = :tt")
-    if ownership_clean:
-        where_master.append("LOWER(b.tipe_blok) = LOWER(:ownership)")
-
-    sql_master = f"""
+    # 2. Ambil Data Master Blok & Hierarki.
+    # Baris yang cocok dengan tahun_tanam/ownership diprioritaskan (skor 0),
+    # tapi kalau tidak ada yang cocok persis, tetap jatuh ke blok manapun
+    # milik blok_id ini (skor 1) -- jadi cukup SATU query dengan ORDER BY
+    # skor, menggantikan query utama + query fallback terpisah seperti semula.
+    sql_master = """
         SELECT 
             b.blok_id, b.nama_blok, b.kode_blok, b.tahun_tanam, b.tipe_blok,
             b.jenis_bibit, b.status_tanam, b.jenis_topografi, b.jenis_tanah,
@@ -622,135 +596,119 @@ def get_blok_detail(
         LEFT JOIN estate e ON af.est_id = e.est_id AND af.tahun = e.tahun
         LEFT JOIN perusahaan p ON e.pt_id = p.pt_id
         LEFT JOIN area ar ON p.area_id = ar.area_id
-        WHERE {" AND ".join(where_master)}
-        ORDER BY b.tahun DESC, b.bulan DESC
+        WHERE b.blok_id = :bid
+        ORDER BY
+            (CASE WHEN :tt IS NULL OR b.tahun_tanam = :tt THEN 0 ELSE 1 END)
+            + (CASE WHEN :ownership IS NULL OR LOWER(b.tipe_blok) = LOWER(:ownership) THEN 0 ELSE 1 END) ASC,
+            b.tahun DESC, b.bulan DESC
         LIMIT 1
     """
-    master_row = db.execute(text(sql_master), trx_params).fetchone()
-
-    # Fallback ke master blok jika tidak ditemukan dengan filter ketat
-    if not master_row:
-        master_row = db.execute(
-            text("""
-                SELECT 
-                    b.blok_id, b.nama_blok, b.kode_blok, b.tahun_tanam, b.tipe_blok,
-                    b.jenis_bibit, b.status_tanam, b.jenis_topografi, b.jenis_tanah,
-                    af.kode_afd, af.kode_afd AS nama_afd,
-                    e.kode_est, e.nama_estate,
-                    p.kode_pt, p.nama_pt,
-                    ar.area_id, ar.nama AS nama_area
-                FROM blok b
-                LEFT JOIN afdeling af ON b.afd_id = af.afd_id AND b.tahun = af.tahun
-                LEFT JOIN estate e ON af.est_id = e.est_id AND af.tahun = e.tahun
-                LEFT JOIN perusahaan p ON e.pt_id = p.pt_id
-                LEFT JOIN area ar ON p.area_id = ar.area_id
-                WHERE b.blok_id = :bid
-                ORDER BY b.tahun DESC, b.bulan DESC
-                LIMIT 1
-            """),
-            {"bid": blok_id}
-        ).fetchone()
+    master_row = db.execute(
+        text(sql_master),
+        {"bid": blok_id, "tt": tahun_tanam, "ownership": ownership_clean},
+    ).fetchone()
 
     if not master_row:
         raise HTTPException(status_code=404, detail=f"Blok ID '{blok_id}' tidak ditemukan di sistem.")
 
     master_data = dict(master_row._mapping)
 
-    # 3. Cari Tahun Terakhir (Latest Year) pada Areal Statement
+    # 3. Cari Tahun Terakhir (Latest Year) pada Areal Statement, LALU agregasi
+    # per grup pada tahun itu. Digabung jadi SATU query lewat CTE `latest`
+    # (menggantikan query MAX(tahun) terpisah + query agregasi seperti semula):
+    # kalau tidak ada baris ast sama sekali, CTE `latest` kosong -> JOIN tidak
+    # menghasilkan baris apa pun, persis seperti behaviour "latest_tahun is None".
     ast_where = ["ast.blok_id = :bid"]
     if tahun_tanam is not None:
         ast_where.append("ast.tahun_tanam = :tt")
     if ownership_clean:
         ast_where.append("LOWER(ast.tipe_blok) = LOWER(:ownership)")
+    ast_where_sql = " AND ".join(ast_where)
 
-    sql_latest_year = f"""
-        SELECT MAX(ast.tahun) AS latest_tahun 
-        FROM trx_areal_statement ast
-        WHERE {" AND ".join(ast_where)}
+    sql_ast_groups = f"""
+        WITH latest AS (
+            SELECT MAX(ast.tahun) AS latest_tahun
+            FROM trx_areal_statement ast
+            WHERE {ast_where_sql}
+        )
+        SELECT 
+            latest.latest_tahun,
+            COALESCE(ast.status_tanam, b.status_tanam) AS status_tanam,
+            ast.bulan_tanam,
+            COALESCE(ast.tahun_tanam, b.tahun_tanam) AS tahun_tanam,
+            COALESCE(ast.jenis_bibit, b.jenis_bibit) AS jenis_bibit,
+            COALESCE(ast.jenis_topografi, b.jenis_topografi) AS jenis_topografi,
+            COALESCE(ast.jenis_tanah, b.jenis_tanah) AS jenis_tanah,
+            
+            COUNT(*)::int AS count_records,
+            ROUND(SUM(COALESCE(ast.luas_tanam, 0))::numeric, 2) AS luas_tanam,
+            ROUND(SUM(COALESCE(ast.luas_tanah, 0))::numeric, 2) AS luas_tanah,
+            SUM(COALESCE(ast.total_pokok, 0))::int AS total_pokok,
+            
+            CASE 
+                WHEN SUM(COALESCE(ast.luas_tanam, 0)) > 0 
+                THEN ROUND((SUM(COALESCE(ast.total_pokok, 0)) / SUM(ast.luas_tanam))::numeric, 2)
+                ELSE 0.0 
+            END AS sph,
+            
+            ROUND(AVG(COALESCE(ast.pct_tanah_datar, 0))::numeric, 2) AS pct_tanah_datar,
+            ROUND(AVG(COALESCE(ast.pct_berbukit, 0))::numeric, 2) AS pct_berbukit,
+            ROUND(AVG(COALESCE(ast.pct_gelombang, 0))::numeric, 2) AS pct_gelombang,
+            ROUND(AVG(COALESCE(ast.pct_curam, 0))::numeric, 2) AS pct_curam
+        FROM latest
+        JOIN trx_areal_statement ast ON ast.tahun = latest.latest_tahun AND {ast_where_sql}
+        LEFT JOIN blok b ON ast.blok_id = b.blok_id AND ast.tahun = b.tahun AND ast.bulan = b.bulan
+        GROUP BY 
+            latest.latest_tahun,
+            COALESCE(ast.status_tanam, b.status_tanam),
+            ast.bulan_tanam,
+            COALESCE(ast.tahun_tanam, b.tahun_tanam),
+            COALESCE(ast.jenis_bibit, b.jenis_bibit),
+            COALESCE(ast.jenis_topografi, b.jenis_topografi),
+            COALESCE(ast.jenis_tanah, b.jenis_tanah)
     """
-    latest_year_row = db.execute(text(sql_latest_year), trx_params).fetchone()
-    latest_tahun = latest_year_row.latest_tahun if latest_year_row else None
-
-    month_names = {
-        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-        7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
-    }
+    ast_rows = db.execute(text(sql_ast_groups), trx_params).fetchall()
+    latest_tahun = ast_rows[0].latest_tahun if ast_rows else None
 
     areal_statement_response = None
     grand_total_pokok = 0
     grand_total_luas_tanam = 0.0
 
     if latest_tahun is not None:
-        # Menambahkan filter tahun terbaru ke kueri agregasi
-        ast_group_where = ast_where + ["ast.tahun = :latest_tahun"]
-        ast_params = {**trx_params, "latest_tahun": latest_tahun}
-
-        sql_ast_groups = f"""
-            SELECT 
-                COALESCE(ast.status_tanam, b.status_tanam) AS status_tanam,
-                ast.bulan_tanam,
-                COALESCE(ast.tahun_tanam, b.tahun_tanam) AS tahun_tanam,
-                COALESCE(ast.jenis_bibit, b.jenis_bibit) AS jenis_bibit,
-                COALESCE(ast.jenis_topografi, b.jenis_topografi) AS jenis_topografi,
-                COALESCE(ast.jenis_tanah, b.jenis_tanah) AS jenis_tanah,
-                
-                COUNT(*)::int AS count_records,
-                ROUND(SUM(COALESCE(ast.luas_tanam, 0))::numeric, 2) AS luas_tanam,
-                ROUND(SUM(COALESCE(ast.luas_tanah, 0))::numeric, 2) AS luas_tanah,
-                SUM(COALESCE(ast.total_pokok, 0))::int AS total_pokok,
-                
-                CASE 
-                    WHEN SUM(COALESCE(ast.luas_tanam, 0)) > 0 
-                    THEN ROUND((SUM(COALESCE(ast.total_pokok, 0)) / SUM(ast.luas_tanam))::numeric, 2)
-                    ELSE 0.0 
-                END AS sph,
-                
-                ROUND(AVG(COALESCE(ast.pct_tanah_datar, 0))::numeric, 2) AS pct_tanah_datar,
-                ROUND(AVG(COALESCE(ast.pct_berbukit, 0))::numeric, 2) AS pct_berbukit,
-                ROUND(AVG(COALESCE(ast.pct_gelombang, 0))::numeric, 2) AS pct_gelombang,
-                ROUND(AVG(COALESCE(ast.pct_curam, 0))::numeric, 2) AS pct_curam
-            FROM trx_areal_statement ast
-            LEFT JOIN blok b ON ast.blok_id = b.blok_id AND ast.tahun = b.tahun AND ast.bulan = b.bulan
-            WHERE {" AND ".join(ast_group_where)}
-            GROUP BY 
-                COALESCE(ast.status_tanam, b.status_tanam),
-                ast.bulan_tanam,
-                COALESCE(ast.tahun_tanam, b.tahun_tanam),
-                COALESCE(ast.jenis_bibit, b.jenis_bibit),
-                COALESCE(ast.jenis_topografi, b.jenis_topografi),
-                COALESCE(ast.jenis_tanah, b.jenis_tanah)
-        """
-        ast_rows = db.execute(text(sql_ast_groups), ast_params).fetchall()
-
         groups = []
         gt_count = 0
         gt_luas_tanam = 0.0
         gt_luas_tanah = 0.0
         gt_total_pokok = 0
-        gt_pct_datar = []
-        gt_pct_berbukit = []
-        gt_pct_gelombang = []
-        gt_pct_curam = []
+        n_groups = 0
+        gt_pct_datar_sum = 0.0
+        gt_pct_berbukit_sum = 0.0
+        gt_pct_gelombang_sum = 0.0
+        gt_pct_curam_sum = 0.0
 
         for row in ast_rows:
             d = dict(row._mapping)
             bln_tanam = d.get("bulan_tanam")
-            str_bln_tanam = month_names.get(bln_tanam, bln_tanam) if isinstance(bln_tanam, int) else bln_tanam
+            str_bln_tanam = MONTH_NAMES.get(bln_tanam, bln_tanam) if isinstance(bln_tanam, int) else bln_tanam
 
             c_rec = safe_int(d.get("count_records"))
             lt_nam = safe_float(d.get("luas_tanam"))
             lt_nah = safe_float(d.get("luas_tanah"))
             t_pkk = safe_int(d.get("total_pokok"))
+            pct_datar = safe_float(d.get("pct_tanah_datar"))
+            pct_berbukit = safe_float(d.get("pct_berbukit"))
+            pct_gelombang = safe_float(d.get("pct_gelombang"))
+            pct_curam = safe_float(d.get("pct_curam"))
 
             gt_count += c_rec
             gt_luas_tanam += lt_nam
             gt_luas_tanah += lt_nah
             gt_total_pokok += t_pkk
-
-            gt_pct_datar.append(safe_float(d.get("pct_tanah_datar")))
-            gt_pct_berbukit.append(safe_float(d.get("pct_berbukit")))
-            gt_pct_gelombang.append(safe_float(d.get("pct_gelombang")))
-            gt_pct_curam.append(safe_float(d.get("pct_curam")))
+            n_groups += 1
+            gt_pct_datar_sum += pct_datar
+            gt_pct_berbukit_sum += pct_berbukit
+            gt_pct_gelombang_sum += pct_gelombang
+            gt_pct_curam_sum += pct_curam
 
             groups.append({
                 "group_keys": {
@@ -767,19 +725,19 @@ def get_blok_detail(
                     "luas_tanah": lt_nah,
                     "total_pokok": t_pkk,
                     "sph": safe_float(d.get("sph")),
-                    "pct_tanah_datar": safe_float(d.get("pct_tanah_datar")),
-                    "pct_berbukit": safe_float(d.get("pct_berbukit")),
-                    "pct_gelombang": safe_float(d.get("pct_gelombang")),
-                    "pct_curam": safe_float(d.get("pct_curam"))
+                    "pct_tanah_datar": pct_datar,
+                    "pct_berbukit": pct_berbukit,
+                    "pct_gelombang": pct_gelombang,
+                    "pct_curam": pct_curam
                 }
             })
 
         # Menghitung agregasi Grand Total
         gt_sph = round(gt_total_pokok / gt_luas_tanam, 2) if gt_luas_tanam > 0 else 0.0
-        gt_avg_datar = round(sum(gt_pct_datar) / len(gt_pct_datar), 2) if gt_pct_datar else 0.0
-        gt_avg_berbukit = round(sum(gt_pct_berbukit) / len(gt_pct_berbukit), 2) if gt_pct_berbukit else 0.0
-        gt_avg_gelombang = round(sum(gt_pct_gelombang) / len(gt_pct_gelombang), 2) if gt_pct_gelombang else 0.0
-        gt_avg_curam = round(sum(gt_pct_curam) / len(gt_pct_curam), 2) if gt_pct_curam else 0.0
+        gt_avg_datar = round(gt_pct_datar_sum / n_groups, 2) if n_groups else 0.0
+        gt_avg_berbukit = round(gt_pct_berbukit_sum / n_groups, 2) if n_groups else 0.0
+        gt_avg_gelombang = round(gt_pct_gelombang_sum / n_groups, 2) if n_groups else 0.0
+        gt_avg_curam = round(gt_pct_curam_sum / n_groups, 2) if n_groups else 0.0
 
         grand_total_pokok = gt_total_pokok
         grand_total_luas_tanam = gt_luas_tanam

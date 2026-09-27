@@ -7,8 +7,7 @@ type UserInfo = {
   username: string;
   nama_lengkap: string;
   email: string;
-  role_id: string;
-  role: string;
+  roles: string[];
   akses_menu: string[];
   akses_data: Object[];
   akses_transaksi: string[];

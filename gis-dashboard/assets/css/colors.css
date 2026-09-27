@@ -23,6 +23,7 @@
 .bg-brand-hover { background-color: var(--color-brand-hover); }
 .bg-blue-primary { background-color: var(--color-blue-primary); }
 .bg-blue-primary-hover { background-color: var(--color-blue-primary-hover); }
+.text-blue-primary { color: var(--color-blue-primary); }
 .bg-blue-disabled { background-color: var(--color-blue-disabled); }
 .bg-blue-dark { background-color: var(--color-blue-dark); }
 .bg-blue-darker { background-color: var(--color-blue-darker); }

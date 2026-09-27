@@ -1,48 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
-import { dashboardStore, type ModuleItem } from '~/stores/dashboardStore'
-import { flattenMenuTree } from '~/utils/menuTree'
+import { dashboardStore } from '~/stores/dashboardStore'
+import { useAccessControl } from '~/composables/useAccessControl'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
-const searchQuery = ref('')
-const menuSection = ref<HTMLElement | null>(null)
+const { hasRole } = useAccessControl()
 
 const informasiUser = computed(() => authStore.user)
-const searchKeyword = computed(() => searchQuery.value.trim().toLowerCase())
-
-function menuMatches(item: ModuleItem, keyword: string) {
-  return [item.title, item.description, item.to].some((value) =>
-    String(value ?? '').toLowerCase().includes(keyword),
-  )
-}
-
-function filterMenus(items: ModuleItem[], keyword: string): ModuleItem[] {
-  return items.flatMap((item) => {
-    const children = filterMenus(item.children ?? [], keyword)
-    if (menuMatches(item, keyword)) return [{ ...item }]
-    if (!children.length) return []
-    return [{ ...item, children }]
-  })
-}
-
-const filteredMenus = computed(() => {
-  const keyword = searchKeyword.value
-  if (!keyword) return dashboardService.moduleItems
-  return filterMenus(dashboardService.moduleItems, keyword)
-})
-
-const filteredMenuCount = computed(() => flattenMenuTree(filteredMenus.value).length)
 
 defineOptions({
   name: 'DashboardPage',
 })
-
-function submitSearch() {
-  menuSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
 
 onMounted(async () => {
   if (!authStore.token) {
@@ -70,12 +41,13 @@ onMounted(async () => {
           </p>
         </div>
 
-        <form class="flex items-center gap-3 rounded-full border border-default bg-surface p-3 shadow-sm"
-          @submit.prevent="submitSearch">
-          <input v-model="searchQuery" type="search" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
-            aria-label="Cari menu"
+        <div class="flex items-center gap-3 rounded-full border border-default bg-surface p-3 shadow-sm">
+          <input type="text" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
             class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder">
-        </form>
+          <button class="rounded-full bg-brand px-8 py-3 text-14 font-semibold text-on-brand">
+            {{ dashboardService.dashboardConfig.searchButtonLabel }}
+          </button>
+        </div>
       </section>
 
       <section class="mt-6 grid grid-cols-1 gap-6">
@@ -142,21 +114,18 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section ref="menuSection" class="mt-7 scroll-mt-6">
+      <section class="mt-7">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 class="text-20 font-bold">
               {{ dashboardService.dashboardConfig.moduleTitle }}
             </h3>
-            <p v-if="searchKeyword" class="mt-1 text-14 text-muted">
-              Menampilkan {{ filteredMenuCount }} menu untuk "{{ searchQuery.trim() }}".
-            </p>
-            <p v-else class="mt-1 text-14 text-muted">
+            <p class="mt-1 text-14 text-muted">
               Buka modul langsung, atau perluas kelompok menu untuk melihat submenu.
             </p>
           </div>
 
-          <NuxtLink v-if="informasiUser?.role === 'superadmin'" to="/menus"
+          <NuxtLink v-if="hasRole('superadmin')" to="/menus"
             class="rounded-full border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
             Management Menu
           </NuxtLink>
@@ -176,11 +145,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <p v-else-if="searchKeyword && !filteredMenus.length"
-          class="rounded-2xl border border-default bg-surface px-5 py-8 text-center text-14 text-muted">
-          Tidak ada menu yang cocok dengan "{{ searchQuery.trim() }}".
-        </p>
-        <MenuDashboardCards v-else :items="filteredMenus" :expand-all="Boolean(searchKeyword)" />
+        <MenuDashboardCards v-else :items="dashboardService.moduleItems" />
       </section>
     </div>
   </main>

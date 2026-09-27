@@ -25,7 +25,7 @@ const form = reactive<CreateUserPayload>({
   username: "",
   email: "",
   nama_lengkap: "",
-  role_id: "",
+  role_ids: [],
   is_active: true,
   password: "",
 });
@@ -47,7 +47,7 @@ function resetForm() {
   form.username = "";
   form.email = "";
   form.nama_lengkap = "";
-  form.role_id = "";
+  form.role_ids = [];
   form.is_active = true;
   form.password = "";
 }
@@ -56,7 +56,7 @@ function fillFormFromUser(user: UserItem) {
   form.username = user.username ?? "";
   form.email = user.email ?? "";
   form.nama_lengkap = user.nama_lengkap ?? "";
-  form.role_id = user.role?.id ?? "";
+  form.role_ids = (user.roles ?? []).map((r) => r.id);
   form.is_active = Boolean(user.is_active);
   form.password = "";
 }
@@ -118,7 +118,7 @@ async function submitForm() {
       username: form.username,
       email: form.email,
       nama_lengkap: form.nama_lengkap,
-      role_id: form.role_id,
+      role_ids: form.role_ids,
       is_active: form.is_active,
       password: form.password,
     });
@@ -127,7 +127,7 @@ async function submitForm() {
       username: form.username,
       email: form.email,
       nama_lengkap: form.nama_lengkap,
-      role_id: form.role_id,
+      role_ids: form.role_ids,
       is_active: form.is_active,
       password: form.password,
     };
@@ -282,7 +282,7 @@ function filterRoleOption(
                 <td class="px-4 py-3">{{ item.username }}</td>
                 <td class="px-4 py-3">{{ item.email }}</td>
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
-                <td class="px-4 py-3">{{ item.role?.nama ?? '' }}</td>
+                <td class="px-4 py-3">{{ (item.roles ?? []).map((r) => r.nama).join(', ') }}</td>
                 <td class="px-4 py-3">
                   <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
                     ? 'bg-success-lighter text-success'
@@ -292,7 +292,7 @@ function filterRoleOption(
                   </span>
                 </td>
                 <td class="px-4 py-3">
-                  <div v-if="item.role?.nama !== 'superadmin'" class="flex items-center gap-2">
+                  <div v-if="!(item.roles ?? []).some((r) => r.nama === 'superadmin')" class="flex items-center gap-2">
                     <button
                       class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
@@ -377,10 +377,10 @@ function filterRoleOption(
 
           <div>
             <label class="mb-1 block text-label">Role</label>
-            <v-autocomplete v-model="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
+            <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
               placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
-              class="w-full custom-underlined-input" hide-details clearable :loading="manageUserStore.loadingRoles"
-              :custom-filter="filterRoleOption" />
+              class="w-full custom-underlined-input" hide-details clearable multiple chips closable-chips
+              :loading="manageUserStore.loadingRoles" :custom-filter="filterRoleOption" />
           </div>
 
           <div>

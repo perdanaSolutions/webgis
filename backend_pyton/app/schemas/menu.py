@@ -25,7 +25,6 @@ class MenuBase(BaseModel):
     icon: str
     order_position: Optional[int] = 0
     parent_id: Optional[UUID] = None
-    is_favorite: bool = False
 
     @field_validator("to", mode="before")
     @classmethod
@@ -52,7 +51,6 @@ class MenuUpdate(BaseModel):
     icon: Optional[str] = None
     order_position: Optional[int] = None
     parent_id: Optional[UUID] = None
-    is_favorite: Optional[bool] = None
 
     @field_validator("to", mode="before")
     @classmethod
@@ -79,7 +77,6 @@ class MenuResponse(BaseModel):
     order_position: int = 0
     parentId: Optional[UUID] = None
     level: int = 1
-    isFavorite: bool = False
     children: List["MenuResponse"] = []
 
     class Config:
@@ -107,7 +104,6 @@ class MenuResponse(BaseModel):
                 "order_position": data.get("order_position") or 0,
                 "parentId": data.get("parent_id"),
                 "level": data.get("level") or 1,
-                "isFavorite": bool(data.get("is_favorite") or data.get("isFavorite") or False),
                 "children": data.get("children") or [],
             }
         return data

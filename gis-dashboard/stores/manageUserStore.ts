@@ -7,7 +7,7 @@ export type UserItem = {
   username: string;
   email: string;
   nama_lengkap: string;
-  role: RoleItem;
+  roles: RoleItem[];
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -17,7 +17,7 @@ export type CreateUserPayload = {
   username: string;
   email: string;
   nama_lengkap: string;
-  role_id: string;
+  role_ids: string[];
   is_active: boolean;
   password: string;
 };
@@ -26,7 +26,7 @@ export type UpdateUserPayload = {
   username: string;
   email: string;
   nama_lengkap: string;
-  role_id: string;
+  role_ids: string[];
   password: string;
   is_active: boolean;
 };
