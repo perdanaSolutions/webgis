@@ -21,6 +21,7 @@ from app.schemas.common import MessageResponse
 from app.core.exceptions import not_found
 from app.models.auth import Role
 from app.services import access_service
+from app.services.user_activity import record_user_activity
 
 router = APIRouter()
 
@@ -36,17 +37,25 @@ def _require_role(db, role_id: UUID) -> Role:
 
 @router.post("/menu", response_model=AksesMenuResponse, status_code=status.HTTP_201_CREATED,
              summary="Beri akses menu ke role (idempoten)")
-def create_menu_access(payload: AksesMenuCreate, db: DbSession, _: CurrentUser):
+def create_menu_access(payload: AksesMenuCreate, db: DbSession, current_user: CurrentUser):
     row = access_service.add_menu(db, payload.role_id, payload.menu_id)
+    record_user_activity(
+        db, current_user, "GRANT_MENU", "roles", record_id=payload.role_id,
+        detail={"menu_id": payload.menu_id},
+    )
     db.commit()
     return row
 
 
 @router.put("/menu/{access_id}", response_model=AksesMenuResponse, summary="access_id = '<role_id>:<menu_id>'")
-def update_menu_access(access_id: str, payload: AksesMenuUpdate, db: DbSession, _: CurrentUser):
+def update_menu_access(access_id: str, payload: AksesMenuUpdate, db: DbSession, current_user: CurrentUser):
     role_id, menu_id = access_service.split_access_id(access_id)
     access_service.delete_menu(db, role_id, menu_id)
     row = access_service.add_menu(db, payload.role_id or role_id, payload.menu_id or menu_id)
+    record_user_activity(
+        db, current_user, "UPDATE_MENU", "roles", record_id=payload.role_id or role_id,
+        detail={"menu_id_sebelum": menu_id, "menu_id_sesudah": row["menu_id"]},
+    )
     db.commit()
     return row
 
@@ -57,8 +66,13 @@ def list_menu_access(role_id: UUID, db: DbSession, _: CurrentUser):
 
 
 @router.delete("/menu/{access_id}", response_model=MessageResponse)
-def delete_menu_access(access_id: str, db: DbSession, _: CurrentUser):
-    access_service.delete_menu(db, *access_service.split_access_id(access_id))
+def delete_menu_access(access_id: str, db: DbSession, current_user: CurrentUser):
+    role_id, menu_id = access_service.split_access_id(access_id)
+    access_service.delete_menu(db, role_id, menu_id)
+    record_user_activity(
+        db, current_user, "REVOKE_MENU", "roles", record_id=role_id,
+        detail={"menu_id": menu_id},
+    )
     db.commit()
     return {"message": f"Berhasil menghapus hak akses menu {access_id}"}
 
@@ -79,26 +93,38 @@ def get_data_access_rows(role_id: UUID, db: DbSession, _: CurrentUser):
 
 @router.post("/data/role/{role_id}", status_code=status.HTTP_201_CREATED,
              summary="Tambah hak akses wilayah; node terdalam yang dikirim menjadi scope (idempoten)")
-def add_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, _: CurrentUser):
+def add_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, current_user: CurrentUser):
     _require_role(db, role_id)
     result = access_service.add_scopes_from_tree(db, role_id, payload)
+    record_user_activity(
+        db, current_user, "GRANT_DATA", "roles", record_id=str(role_id),
+        detail={"jumlah_area": len(payload), "tersimpan": result["inserted"], "tidak_ditemukan": result["unresolved"]},
+    )
     db.commit()
     message = f"Berhasil menambahkan {result['inserted']} record hak akses wilayah"
     return {"message": message, "tidak_ditemukan": result["unresolved"]}
 
 
 @router.put("/data/role/{role_id}", response_model=list[AreaTreeSchema], summary="Ganti total hak akses wilayah role")
-def replace_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, _: CurrentUser):
+def replace_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, current_user: CurrentUser):
     _require_role(db, role_id)
     access_service.clear_scopes(db, role_id)
-    access_service.add_scopes_from_tree(db, role_id, payload)
+    result = access_service.add_scopes_from_tree(db, role_id, payload)
+    record_user_activity(
+        db, current_user, "REPLACE_DATA", "roles", record_id=str(role_id),
+        detail={"jumlah_area": len(payload), "tersimpan": result["inserted"], "tidak_ditemukan": result["unresolved"]},
+    )
     db.commit()
     return access_service.scopes_as_tree(access_service.expanded_scopes(db, [role_id]))
 
 
 @router.delete("/data/{scope_id}", response_model=MessageResponse)
-def delete_data_access(scope_id: int, db: DbSession, _: CurrentUser):
+def delete_data_access(scope_id: int, db: DbSession, current_user: CurrentUser):
     access_service.delete_scope(db, scope_id)
+    record_user_activity(
+        db, current_user, "REVOKE_DATA", "roles", record_id=str(scope_id),
+        detail={"scope_id": scope_id},
+    )
     db.commit()
     return {"message": f"Berhasil menghapus hak akses data ID {scope_id}"}
 
@@ -107,19 +133,27 @@ def delete_data_access(scope_id: int, db: DbSession, _: CurrentUser):
 
 @router.post("/transaksi", response_model=AksesTransaksiResponse, status_code=status.HTTP_201_CREATED,
              summary="Beri akses baca tabel transaksi ke role (idempoten)")
-def create_transaction_access(payload: AksesTransaksiCreate, db: DbSession, _: CurrentUser):
+def create_transaction_access(payload: AksesTransaksiCreate, db: DbSession, current_user: CurrentUser):
     row = access_service.add_transaction(db, payload.role_id, payload.nama_table_transaksi)
+    record_user_activity(
+        db, current_user, "GRANT_TRANSAKSI", "roles", record_id=payload.role_id,
+        detail={"nama_table_transaksi": payload.nama_table_transaksi},
+    )
     db.commit()
     return row
 
 
 @router.put("/transaksi/{access_id}", response_model=AksesTransaksiResponse, summary="access_id = '<role_id>:<permission_id>'")
-def update_transaction_access(access_id: str, payload: AksesTransaksiUpdate, db: DbSession, _: CurrentUser):
+def update_transaction_access(access_id: str, payload: AksesTransaksiUpdate, db: DbSession, current_user: CurrentUser):
     role_id, permission_id = access_service.split_access_id(access_id)
     current = next((r for r in access_service.role_transaction_rows(db, role_id) if r["id"] == access_id), None)
     access_service.delete_transaction(db, role_id, permission_id)
     table_name = payload.nama_table_transaksi or (current["nama_table_transaksi"] if current else None)
     row = access_service.add_transaction(db, payload.role_id or role_id, table_name or "")
+    record_user_activity(
+        db, current_user, "UPDATE_TRANSAKSI", "roles", record_id=payload.role_id or role_id,
+        detail={"nama_table_transaksi": row["nama_table_transaksi"]},
+    )
     db.commit()
     return row
 
@@ -130,7 +164,12 @@ def list_transaction_access(role_id: UUID, db: DbSession, _: CurrentUser):
 
 
 @router.delete("/transaksi/{access_id}", response_model=MessageResponse)
-def delete_transaction_access(access_id: str, db: DbSession, _: CurrentUser):
-    access_service.delete_transaction(db, *access_service.split_access_id(access_id))
+def delete_transaction_access(access_id: str, db: DbSession, current_user: CurrentUser):
+    role_id, permission_id = access_service.split_access_id(access_id)
+    access_service.delete_transaction(db, role_id, permission_id)
+    record_user_activity(
+        db, current_user, "REVOKE_TRANSAKSI", "roles", record_id=role_id,
+        detail={"permission_id": permission_id},
+    )
     db.commit()
     return {"message": f"Berhasil menghapus hak akses transaksi {access_id}"}

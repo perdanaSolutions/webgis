@@ -76,11 +76,23 @@ def test_role_with_access(client, auth, sample_block):
     client.delete(f"/api/v1/menus/{menu['id']}", headers=auth)
 
 
-def test_superadmin_role_protected(client, auth):
+def test_superadmin_role_can_be_edited(client, auth):
     roles = client.get("/api/v1/roles/", headers=auth).json()
     superadmin = next(r for r in roles if r["nama"] == "superadmin")
-    assert client.put(f"/api/v1/roles/{superadmin['id']}", headers=auth, json={"nama": "x"}).status_code == 400
-    assert client.delete(f"/api/v1/roles/{superadmin['id']}", headers=auth).status_code == 400
+    original = superadmin.get("deskripsi")
+    updated = client.put(
+        f"/api/v1/roles/{superadmin['id']}",
+        headers=auth,
+        json={"nama": "superadmin", "deskripsi": "diubah oleh test"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["nama"] == "superadmin"
+    restored = client.put(
+        f"/api/v1/roles/{superadmin['id']}",
+        headers=auth,
+        json={"nama": "superadmin", "deskripsi": original},
+    )
+    assert restored.status_code == 200
 
 
 def test_permissions_crud(client, auth):

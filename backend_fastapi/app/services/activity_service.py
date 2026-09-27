@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.audit import UserActivity
 from app.models.auth import User
 from app.schemas.activity_log import ActivityLogResponse
+from app.services.user_activity import insert_user_activity
 from app.utils.pagination import page_response
 
 
@@ -21,10 +22,16 @@ def log_activity(
     ip_address: str | None = None,
     commit: bool = True,
 ) -> None:
-    db.add(UserActivity(
-        user_id=user_id, action=action, resource=resource, status=status,
-        detail=detail, record_id=record_id, ip_address=ip_address,
-    ))
+    insert_user_activity(
+        db,
+        user_id=user_id,
+        action=action,
+        resource=resource,
+        status=status,
+        detail=detail,
+        record_id=record_id,
+        ip_address=ip_address,
+    )
     if commit:
         db.commit()
 

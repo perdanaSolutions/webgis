@@ -73,8 +73,6 @@ def create_role(db: Session, payload: RoleCreate) -> dict:
 
 def update_role(db: Session, role_id: UUID, payload: RoleUpdate) -> dict:
     role = get_role(db, role_id)
-    if role.name == settings.SUPERADMIN_ROLE:
-        raise bad_request(f"Role bawaan '{settings.SUPERADMIN_ROLE}' tidak boleh dimodifikasi")
 
     name = _normalize_name(payload.nama)
     _ensure_unique_name(db, name, exclude_id=role.id)

@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.core import security
 from app.core.config import settings
-from app.models.auth import User, UserActivityLog
+from app.models.auth import User
 from app.schemas.user import UserLoginRequest
 from app.services import user_access
+from app.services.user_activity import record_user_activity
 
 import jwt
 
@@ -104,19 +105,17 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
         subject=user.id, expires_delta=access_token_expires
     )
 
-    # Catat log aktivitas sukses login
     primary_role = user.role
-    log_sukses = UserActivityLog(
-        user_id=user.id,
-        aksi="LOGIN",
-        resource="auth",
-        status="SUCCESS",
+    record_user_activity(
+        db,
+        user,
+        "LOGIN",
+        "auth",
         detail={
             "nama_lengkap": user.nama_lengkap,
             "role_id": str(primary_role.id) if primary_role else None,
         },
     )
-    db.add(log_sukses)
     db.commit()
 
     return {
@@ -197,14 +196,13 @@ def logout(
     Endpoint Logout untuk mencatat log aktivitas keluar sistem.
     Frontend tetap harus menghapus token dari localStorage setelah menembak API ini.
     """
-    log_logout = UserActivityLog(
-        user_id=current_user.id,
-        aksi="LOGOUT",
-        resource="auth",
-        status="SUCCESS",
-        detail={"nama_lengkap": current_user.nama_lengkap}
+    record_user_activity(
+        db,
+        current_user,
+        "LOGOUT",
+        "auth",
+        detail={"nama_lengkap": current_user.nama_lengkap},
     )
-    db.add(log_logout)
     db.commit()
     
     return {"message": "Berhasil logout dari sistem, aktivitas telah dicatat."}

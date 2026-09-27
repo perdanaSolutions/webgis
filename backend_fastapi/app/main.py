@@ -1,15 +1,28 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import engine
 from app.core.middleware import DropEmptyQueryParamsMiddleware
+from app.core.client_ip import ClientIpMiddleware
+from app.db.ensure_activity_ip import ensure_activity_ip_required
 from app.api.v1.api import api_router
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    ensure_activity_ip_required(engine)
+    yield
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # =================================================================
@@ -64,6 +77,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 # MIDDLEWARE & ROUTER
 # =================================================================
 app.add_middleware(DropEmptyQueryParamsMiddleware)
+app.add_middleware(ClientIpMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

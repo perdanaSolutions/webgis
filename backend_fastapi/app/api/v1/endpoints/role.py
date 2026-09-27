@@ -8,6 +8,7 @@ from app.api import deps
 from app.models.auth import Role
 from app.schemas.role import RoleCreate, RoleResponse
 from app.services import access_service
+from app.services.user_activity import record_user_activity
 
 router = APIRouter()
 
@@ -124,6 +125,20 @@ def create_role(
     if payload.akses_transaksi:
         access_service.replace_transactions(db, new_role.id, payload.akses_transaksi)
 
+    record_user_activity(
+        db,
+        current_user,
+        "CREATE_ROLE",
+        "roles",
+        record_id=str(new_role.id),
+        detail={
+            "nama": new_role.nama,
+            "deskripsi": new_role.deskripsi,
+            "jumlah_menu": len(payload.akses_menu or []),
+            "jumlah_wilayah": len(payload.akses_data or []),
+            "jumlah_transaksi": len(payload.akses_transaksi or []),
+        },
+    )
     db.commit()
     db.refresh(new_role)
     return _serialize_roles(db, [new_role])[0]
@@ -144,9 +159,7 @@ def update_role(
     if not role:
         raise HTTPException(status_code=404, detail="Role tidak ditemukan")
 
-    if role.nama == "superadmin":
-        raise HTTPException(status_code=400, detail="Role bawaan 'superadmin' tidak boleh dimodifikasi")
-
+    before = {"nama": role.nama, "deskripsi": role.deskripsi}
     role.nama = payload.nama.lower()
     role.deskripsi = payload.deskripsi
 
@@ -163,6 +176,22 @@ def update_role(
     if "akses_transaksi" in sent and payload.akses_transaksi is not None:
         access_service.replace_transactions(db, role.id, payload.akses_transaksi)
 
+    record_user_activity(
+        db,
+        current_user,
+        "UPDATE_ROLE",
+        "roles",
+        record_id=str(role.id),
+        detail={
+            "nama_sebelum": before["nama"],
+            "nama_sesudah": role.nama,
+            "deskripsi_sebelum": before["deskripsi"],
+            "deskripsi_sesudah": role.deskripsi,
+            "akses_menu_diubah": "akses_menu" in sent,
+            "akses_data_diubah": "akses_data" in sent,
+            "akses_transaksi_diubah": "akses_transaksi" in sent,
+        },
+    )
     db.commit()
     db.refresh(role)
     return _serialize_roles(db, [role])[0]
