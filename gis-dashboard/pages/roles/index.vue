@@ -381,7 +381,13 @@ const getAfdelingCode = (afdeling) =>
   );
 
 const getTransaksiCode = (transaksi) =>
-  String(transaksi?.id ?? transaksi?.nama_table_transaksi ?? transaksi ?? "");
+  String(
+    transaksi?.nama_table_transaksi ||
+      transaksi?.table_name ||
+      transaksi?.id ||
+      transaksi ||
+      "",
+  );
 
 function resolveTransaksiId(saved) {
   const key = String(saved ?? "").trim().toLowerCase();

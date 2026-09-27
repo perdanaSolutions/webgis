@@ -273,35 +273,70 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  function resolveTransactionTableName(
+    kode: string,
+    tableName: string,
+    validTables: string[],
+  ) {
+    const validByLower = new Map(
+      validTables.map((name) => [name.toLowerCase(), name]),
+    );
+    const candidates = [tableName, kode].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const exact = validByLower.get(candidate.toLowerCase());
+      if (exact) return exact;
+    }
+
+    for (const candidate of candidates) {
+      const suffix = `.${candidate.toLowerCase()}`;
+      const match = validTables.find((name) => name.toLowerCase().endsWith(suffix));
+      if (match) return match;
+    }
+
+    // Endpoint daftar tabel gagal, tapi nama di katalog sudah schema.tabel.
+    if (tableName.includes(".")) return tableName;
+    return "";
+  }
+
   async function initDataTableTransaksi() {
     loadingTransaction.value = true;
     clearError();
 
     try {
       const baseUrl = getApiBaseUrl();
-      const response = await $api<any[]>(`${baseUrl}/v1/spatial/geo/jenis`, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      });
+      const [jenisResponse, tablesResponse] = await Promise.all([
+        $api<any[]>(`${baseUrl}/v1/spatial/geo/jenis`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        }),
+        $api<string[]>(`${baseUrl}/v1/database/tables`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        }).catch(() => [] as string[]),
+      ]);
 
-      const normalizedData = Array.isArray(response)
-        ? response
-        : ((response as any)?.data ?? []);
+      const normalizedData = Array.isArray(jenisResponse)
+        ? jenisResponse
+        : ((jenisResponse as any)?.data ?? []);
+      const validTables = (Array.isArray(tablesResponse) ? tablesResponse : [])
+        .map((name) => String(name ?? "").trim())
+        .filter(Boolean);
 
       const seen = new Set<string>();
       allDataTransaksi.value = normalizedData.flatMap((item: any) => {
         const kode = String(item?.kode ?? item?.code ?? "").trim();
         const tableName = String(item?.table_name ?? "").trim();
-        const id = kode || tableName;
-        const key = id.toLowerCase();
-        if (!id || seen.has(key)) return [];
+        const qualified = resolveTransactionTableName(kode, tableName, validTables);
+        const key = qualified.toLowerCase();
+        if (!qualified || seen.has(key)) return [];
         seen.add(key);
         return [{
-          id,
+          id: qualified,
           kode,
-          table_name: tableName,
-          nama_table_transaksi: id,
-          title: String(item?.nama ?? item?.name ?? id),
+          table_name: qualified,
+          nama_table_transaksi: qualified,
+          title: String(item?.nama ?? item?.name ?? kode || qualified),
         }];
       }) as any;
 
@@ -671,19 +706,41 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
 
     const baseUrl = getApiBaseUrl();
+    const tableNames = [
+      ...new Set(
+        transaksiAkses
+          .map((namaTable) => lookupTransactionTable(String(namaTable)))
+          .filter(Boolean),
+      ),
+    ];
 
     await Promise.all(
-      [...new Set(transaksiAkses.map((namaTable) => String(namaTable).trim()).filter(Boolean))].map((namaTable) =>
+      tableNames.map((namaTable) =>
           $api(`${baseUrl}/v1/akses-data/transaksi`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: {
               role_id: roleId,
-              nama_table_transaksi: String(namaTable),
+              nama_table_transaksi: namaTable,
             },
           }),
         ),
     );
+  }
+
+  function lookupTransactionTable(value: string) {
+    const key = value.trim().toLowerCase();
+    if (!key) return "";
+    const match = (allDataTransaksi.value as any[]).find((item) =>
+      [item?.id, item?.kode, item?.table_name, item?.nama_table_transaksi]
+        .map((field) => String(field ?? "").trim().toLowerCase())
+        .includes(key),
+    );
+    const resolved = String(
+      match?.nama_table_transaksi ?? match?.table_name ?? "",
+    ).trim();
+    if (resolved) return resolved;
+    return value.includes(".") ? value.trim() : "";
   }
 
   async function getExistingAksesByRole(roleId: string) {
