@@ -18,10 +18,18 @@ from app.schemas.access import (
     AreaTreeSchema,
 )
 from app.schemas.common import MessageResponse
+from app.core.exceptions import not_found
+from app.models.auth import Role
 from app.services import access_service
-from app.services.role_service import get_role
 
 router = APIRouter()
+
+
+def _require_role(db, role_id: UUID) -> Role:
+    role = db.get(Role, role_id)
+    if role is None:
+        raise not_found(f"Role dengan ID {role_id} tidak ditemukan")
+    return role
 
 
 # ---------------------------------------------------------------- menu
@@ -72,7 +80,7 @@ def get_data_access_rows(role_id: UUID, db: DbSession, _: CurrentUser):
 @router.post("/data/role/{role_id}", status_code=status.HTTP_201_CREATED,
              summary="Tambah hak akses wilayah; node terdalam yang dikirim menjadi scope (idempoten)")
 def add_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, _: CurrentUser):
-    get_role(db, role_id)
+    _require_role(db, role_id)
     result = access_service.add_scopes_from_tree(db, role_id, payload)
     db.commit()
     message = f"Berhasil menambahkan {result['inserted']} record hak akses wilayah"
@@ -81,7 +89,7 @@ def add_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession,
 
 @router.put("/data/role/{role_id}", response_model=list[AreaTreeSchema], summary="Ganti total hak akses wilayah role")
 def replace_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSession, _: CurrentUser):
-    get_role(db, role_id)
+    _require_role(db, role_id)
     access_service.clear_scopes(db, role_id)
     access_service.add_scopes_from_tree(db, role_id, payload)
     db.commit()

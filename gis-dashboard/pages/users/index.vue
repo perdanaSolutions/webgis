@@ -298,7 +298,7 @@ function filterRoleOption(
                 <td class="px-4 py-3">{{ item.username }}</td>
                 <td class="px-4 py-3">{{ item.email }}</td>
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
-                <td class="px-4 py-3">{{ (item.roles ?? []).map((r) => r.nama).join(', ') }}</td>
+                <td class="px-4 py-3">{{(item.roles ?? []).map((r) => r.nama).join(', ')}}</td>
                 <td class="px-4 py-3">
                   <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
                     ? 'bg-success-lighter text-success'
@@ -308,9 +308,8 @@ function filterRoleOption(
                   </span>
                 </td>
                 <td class="px-4 py-3">
-                  <div v-if="!(item.roles ?? []).some((r) => r.nama === 'superadmin')" class="flex items-center gap-2">
-                    <button
-                      class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
+                  <div class="flex items-center gap-2">
+                    <button class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
                       Edit
                     </button>
@@ -393,7 +392,8 @@ function filterRoleOption(
 
           <div>
             <label class="mb-1 block text-label">Role</label>
-            <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role digabung.</p>
+            <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role
+              digabung.</p>
             <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
               placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
               class="w-full custom-underlined-input" hide-details clearable multiple chips closable-chips
@@ -422,8 +422,7 @@ function filterRoleOption(
           </p>
 
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>

@@ -79,9 +79,6 @@ onMounted(async () => {
           <input v-model="menuKeyword" type="search" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
             class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder"
             aria-label="Cari menu">
-          <button type="submit" class="rounded-full bg-brand px-8 py-3 text-14 font-semibold text-on-brand">
-            {{ dashboardService.dashboardConfig.searchButtonLabel }}
-          </button>
         </form>
       </section>
 
