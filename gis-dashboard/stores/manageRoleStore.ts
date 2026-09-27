@@ -336,7 +336,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
           kode,
           table_name: qualified,
           nama_table_transaksi: qualified,
-          title: String(item?.nama ?? item?.name ?? kode || qualified),
+          title: String(item?.nama ?? item?.name ?? (kode || qualified)),
         }];
       }) as any;
 
@@ -352,380 +352,66 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  function saveErrorMessage(error: any, fallback: string) {
+    if (error?.data) return getErrorMessage(error, fallback);
+    return error?.message || fallback;
+  }
+
+  function toRoleBody(payload: any) {
+    const menuIds = uniqueStringArray(payload?.akses_menu ?? payload?.menu_ids ?? []);
+    const requestedTransaksi = uniqueStringArray(
+      payload?.akses_transaksi ?? payload?.transaksi_ids ?? [],
+    );
+    const transaksiIds = uniqueStringArray(
+      requestedTransaksi
+        .map((value) => lookupTransactionTable(String(value)))
+        .filter(Boolean),
+    );
+    const tree = Array.isArray(payload?.akses_data) ? payload.akses_data : [];
+    const wantsWilayah =
+      uniqueStringArray([
+        ...(payload?.area_ids ?? []),
+        ...(payload?.perusahaan_ids ?? []),
+        ...(payload?.estate_ids ?? []),
+        ...(payload?.afdeling_ids ?? []),
+      ]).length > 0;
+
+    if (wantsWilayah && tree.length === 0) {
+      throw new Error(
+        "Data wilayah belum siap disimpan. Tunggu pilihan area selesai dimuat, lalu simpan lagi.",
+      );
+    }
+    if (requestedTransaksi.length > 0 && transaksiIds.length === 0) {
+      throw new Error(
+        "Tabel transaksi tidak dikenali. Muat ulang daftar transaksi, lalu simpan lagi.",
+      );
+    }
+
+    return {
+      nama: String(payload?.nama ?? "").trim(),
+      deskripsi: payload?.deskripsi ?? "",
+      akses_menu: menuIds,
+      akses_data: tree,
+      akses_transaksi: transaksiIds,
+    };
+  }
+
   async function createRole(payload: any) {
-    // console.log(`data payload : ${JSON.stringify(payload)}`);
     loadingCreate.value = true;
     clearError();
     try {
       const baseUrl = getApiBaseUrl();
-      const response = await $api<RoleItem>(`${baseUrl}/v1/roles/`, {
+      return await $api<RoleItem>(`${baseUrl}/v1/roles/`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: payload,
+        body: toRoleBody(payload),
       });
-
-      // console.log(`hasil create role : ${JSON.stringify(response)}`);
-
-      var idResponseRole = response?.id ?? "";
-
-      if (idResponseRole) {
-        await createAksesMenu(idResponseRole, payload.menu_ids);
-        await createAksesData(
-          idResponseRole,
-          payload.perusahaan_ids ?? [],
-          payload.estate_ids ?? [],
-          payload.area_ids ?? [],
-          payload.afdeling_ids ?? [],
-          payload,
-        );
-        await createAksesTransaksi(idResponseRole, payload.transaksi_ids);
-      }
-
-      return response;
     } catch (error: any) {
-      errorMessage.value = getErrorMessage(error, "Gagal membuat role.");
+      errorMessage.value = saveErrorMessage(error, "Gagal membuat role.");
       throw error;
     } finally {
       loadingCreate.value = false;
     }
-  }
-
-  async function createAksesMenu(roleId: string, menusAkses: string[] = []) {
-    if (!roleId || !Array.isArray(menusAkses) || menusAkses.length === 0)
-      return;
-    createRole;
-
-    const baseUrl = getApiBaseUrl();
-
-    await Promise.all(
-      [...new Set(menusAkses.filter((menuId) => !!menuId))].map((menuId) =>
-          $api(`${baseUrl}/v1/akses-data/menu`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: {
-              role_id: roleId,
-              menu_id: menuId,
-            },
-          }),
-        ),
-    );
-  }
-
-  async function createAksesData(
-    roleId: string,
-    perusahaanIds: string[] = [],
-    estateAkses: string[] = [],
-    areaAkses: string[] = [],
-    afdelingAkses: string[] = [],
-    selectedHierarchy: any = {},
-  ) {
-    if (!roleId) return;
-
-    const uniqueAreaIds = uniqueStringArray(areaAkses);
-    const uniquePerusahaanIds = uniqueStringArray(perusahaanIds);
-    const uniqueEstateCodes = uniqueStringArray(estateAkses);
-    const uniqueAfdelingCodes = uniqueStringArray(afdelingAkses);
-
-    if (
-      uniqueAreaIds.length === 0 ||
-      uniquePerusahaanIds.length === 0 ||
-      uniqueEstateCodes.length === 0 ||
-      uniqueAfdelingCodes.length === 0
-    ) {
-      return;
-    }
-
-    const baseUrl = getApiBaseUrl();
-
-    const normalize = (v: any) => String(v ?? "").trim();
-
-    const areaList = (allDataArea.value ?? []) as any[];
-    const perusahaanList = (allDataPerusahaan.value ?? []) as any[];
-
-    const selectedAreaItems = Array.isArray(
-      selectedHierarchy?.selected_area_items,
-    )
-      ? selectedHierarchy.selected_area_items
-      : [];
-    const selectedPerusahaanItems = Array.isArray(
-      selectedHierarchy?.selected_perusahaan_items,
-    )
-      ? selectedHierarchy.selected_perusahaan_items
-      : [];
-    const selectedEstateItems = Array.isArray(
-      selectedHierarchy?.selected_estate_items,
-    )
-      ? selectedHierarchy.selected_estate_items
-      : [];
-    const selectedAfdelingItems = Array.isArray(
-      selectedHierarchy?.selected_afdeling_items,
-    )
-      ? selectedHierarchy.selected_afdeling_items
-      : [];
-
-    const selectedAreas =
-      selectedAreaItems.length > 0
-        ? selectedAreaItems.map((area: any) => ({
-            id: normalize(area?.id),
-            area_id: normalize(area?.area_id ?? area?.id),
-            nama_area: normalize(area?.nama_area ?? area?.nama ?? area?.id),
-          }))
-        : areaList
-            .filter((area: any) => uniqueAreaIds.includes(normalize(area?.id)))
-            .map((area) => ({
-              id: normalize(area?.id),
-              area_id: normalize(area?.area_id ?? area?.id),
-              nama_area: normalize(area?.nama_area ?? area?.nama ?? area?.id),
-            }));
-
-    const selectedPerusahaan =
-      selectedPerusahaanItems.length > 0
-        ? selectedPerusahaanItems.map((pt: any) => ({
-            id: normalize(pt?.id),
-            kode_pt: normalize(pt?.kode_pt ?? pt?.kode ?? pt?.id),
-            kode_area: normalize(
-              pt?.kode_area ?? pt?.area_id ?? pt?.area?.area_id,
-            ),
-            nama_pt: normalize(
-              pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? pt?.kode_pt,
-            ),
-          }))
-        : perusahaanList
-            .filter((pt) => {
-              const id = normalize(pt?.id);
-              const kodePt = normalize(pt?.kode_pt ?? pt?.kode);
-              return (
-                uniquePerusahaanIds.includes(id) ||
-                uniquePerusahaanIds.includes(kodePt)
-              );
-            })
-            .map((pt) => ({
-              id: normalize(pt?.id),
-              kode_pt: normalize(pt?.kode_pt ?? pt?.kode ?? pt?.id),
-              kode_area: normalize(
-                pt?.kode_area ?? pt?.area_id ?? pt?.area?.area_id,
-              ),
-              nama_pt: normalize(
-                pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? pt?.kode_pt,
-              ),
-            }));
-
-    const selectedEstateMap = new Map<
-      string,
-      { id: string; kode_est: string; kode_pt: string; nama_estate: string }
-    >();
-    if (selectedEstateItems.length > 0) {
-      selectedEstateItems.forEach((est: any) => {
-        const kodeEst = normalize(est?.kode_est ?? est?.id);
-        if (!kodeEst) return;
-        selectedEstateMap.set(kodeEst, {
-          id: normalize(est?.id ?? kodeEst),
-          kode_est: kodeEst,
-          kode_pt: normalize(est?.kode_pt),
-          nama_estate: normalize(est?.nama_estate ?? est?.nama ?? kodeEst),
-        });
-      });
-    }
-
-    const selectedAfdelingMap = new Map<
-      string,
-      { id: string; kode_afd: string; kode_est: string; nama_afdeling: string }
-    >();
-    if (selectedAfdelingItems.length > 0) {
-      selectedAfdelingItems.forEach((afd: any) => {
-        const kodeAfd = normalize(afd?.kode_afd ?? afd?.id);
-        const kodeEst = normalize(afd?.kode_est);
-        if (!kodeAfd || !kodeEst) return;
-        selectedAfdelingMap.set(`${kodeEst}::${kodeAfd}`, {
-          id: normalize(afd?.id ?? kodeAfd),
-          kode_afd: kodeAfd,
-          kode_est: kodeEst,
-          nama_afdeling: normalize(
-            afd?.nama_afdeling ?? afd?.nama ?? afd?.kode_afd ?? kodeAfd,
-          ),
-        });
-      });
-    }
-
-    const selectedAfdelingKeys = new Set(
-      uniqueAfdelingCodes
-        .map((code) => {
-          const normalizedCode = normalize(code);
-          if (normalizedCode.includes("::")) return normalizedCode;
-
-          return Array.from(selectedAfdelingMap.keys()).filter((key) =>
-            key.endsWith(`::${normalizedCode}`),
-          );
-        })
-        .flat(),
-    );
-
-    const areaNodes = selectedAreas.map((area: any) => {
-      const areaId = normalize(area?.area_id ?? area?.id);
-      const areaName = normalize(area?.nama_area ?? area?.nama ?? areaId);
-
-      return {
-        id_area: areaId,
-        nama_area: areaName,
-        perusahaan: [] as Array<{
-          id_perusahaan: string;
-          nama_perusahaan: string;
-          estate: Array<{
-            id_estate: string;
-            nama_estate: string;
-            afdeling: Array<{
-              id_afdeling: string;
-              nama_afdeling: string;
-            }>;
-          }>;
-        }>,
-      };
-    });
-
-    const areaMap = new Map<string, any>();
-    areaNodes.forEach((node: any) =>
-      areaMap.set(normalize(node.id_area), node),
-    );
-
-    for (const perusahaan of selectedPerusahaan) {
-      const ptAreaCode = normalize(perusahaan?.kode_area);
-      const ptCode = normalize(perusahaan?.kode_pt ?? perusahaan?.id);
-      const ptName = normalize(perusahaan?.nama_pt ?? ptCode);
-
-      const areaNode = areaMap.get(ptAreaCode);
-      if (!areaNode || !ptCode) continue;
-
-      const estatesResponse = await initDataEstate(ptCode);
-      const estates = (estatesResponse ?? []) as any[];
-
-      const estateNodes: Array<{
-        id_estate: string;
-        nama_estate: string;
-        afdeling: Array<{ id_afdeling: string; nama_afdeling: string }>;
-      }> = [];
-
-      for (const estate of estates) {
-        const kodeEst = normalize(estate?.kode_est ?? estate?.id);
-        if (!kodeEst || !uniqueEstateCodes.includes(kodeEst)) continue;
-
-        const selectedEstateMeta = selectedEstateMap.get(kodeEst);
-
-        const afdelingsResponse = await initDataAfdelingByEstate(kodeEst);
-        const afdelings = (afdelingsResponse ?? []) as any[];
-
-        const afdelingNodes = afdelings
-          .filter((afd) => {
-            const kodeAfd = normalize(
-              afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
-            );
-            if (!kodeAfd) return false;
-
-            const selectionKey = `${kodeEst}::${kodeAfd}`;
-            if (selectedAfdelingMap.size > 0) {
-              return selectedAfdelingMap.has(selectionKey);
-            }
-
-            return selectedAfdelingKeys.has(selectionKey);
-          })
-          .map((afd) => {
-            const kodeAfd = normalize(
-              afd?.kode_afd ?? afd?.kode_afdeling ?? afd?.kode ?? afd?.id,
-            );
-            const selectionKey = `${kodeEst}::${kodeAfd}`;
-
-            return {
-            id_afdeling: normalize(
-              selectedAfdelingMap.get(selectionKey)?.id ??
-                afd?.id ??
-                afd?.kode_afd ??
-                afd?.kode ??
-                "",
-            ),
-            nama_afdeling: normalize(
-              afd?.kode_afd ??
-                afd?.nama_afdeling ??
-                afd?.nama ??
-                afd?.kode ??
-                "",
-            ),
-          };
-          });
-
-        if (afdelingNodes.length === 0) continue;
-
-        estateNodes.push({
-          id_estate: normalize(
-            selectedEstateMeta?.id ?? estate?.id ?? estate?.kode_est ?? "",
-          ),
-          nama_estate: normalize(
-            selectedEstateMeta?.nama_estate ??
-              estate?.nama_estate ??
-              estate?.nama ??
-              estate?.kode_est ??
-              "",
-          ),
-          afdeling: afdelingNodes,
-        });
-      }
-
-      if (estateNodes.length === 0) continue;
-
-      areaNode.perusahaan.push({
-        id_perusahaan: normalize(perusahaan?.id ?? perusahaan?.kode_pt ?? ""),
-        nama_perusahaan: ptName,
-        estate: estateNodes,
-      });
-    }
-
-    const bodyPayload = areaNodes.filter(
-      (area: any) =>
-        Array.isArray(area.perusahaan) && area.perusahaan.length > 0,
-    );
-
-    if (bodyPayload.length === 0) return;
-
-    // console.log(`hasil body payload : ${JSON.stringify(bodyPayload)}`);
-
-    await $api(`${baseUrl}/v1/akses-data/data/role/${roleId}`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: bodyPayload,
-    });
-  }
-
-  async function createAksesTransaksi(
-    roleId: string,
-    transaksiAkses: string[] = [],
-  ) {
-    if (
-      !roleId ||
-      !Array.isArray(transaksiAkses) ||
-      transaksiAkses.length === 0
-    ) {
-      return;
-    }
-
-    const baseUrl = getApiBaseUrl();
-    const tableNames = [
-      ...new Set(
-        transaksiAkses
-          .map((namaTable) => lookupTransactionTable(String(namaTable)))
-          .filter(Boolean),
-      ),
-    ];
-
-    await Promise.all(
-      tableNames.map((namaTable) =>
-          $api(`${baseUrl}/v1/akses-data/transaksi`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: {
-              role_id: roleId,
-              nama_table_transaksi: namaTable,
-            },
-          }),
-        ),
-    );
   }
 
   function lookupTransactionTable(value: string) {
@@ -745,26 +431,15 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   async function getExistingAksesByRole(roleId: string) {
     const baseUrl = getApiBaseUrl();
-
-    const [menuAccess, dataAccess, transaksiAccess] = await Promise.all([
-      $api<any[]>(`${baseUrl}/v1/akses-data/menu/role/${roleId}`, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      }),
-      $api<any[]>(`${baseUrl}/v1/akses-data/data/role/${roleId}`, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      }),
-      $api<any[]>(`${baseUrl}/v1/akses-data/transaksi/role/${roleId}`, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      }),
-    ]);
+    const role = await $api<any>(`${baseUrl}/v1/roles/${roleId}`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
 
     return {
-      menu: Array.isArray(menuAccess) ? menuAccess : [],
-      data: Array.isArray(dataAccess) ? dataAccess : [],
-      transaksi: Array.isArray(transaksiAccess) ? transaksiAccess : [],
+      menu: Array.isArray(role?.akses_menu) ? role.akses_menu : [],
+      data: Array.isArray(role?.akses_wilayah) ? role.akses_wilayah : [],
+      transaksi: Array.isArray(role?.akses_transaksi) ? role.akses_transaksi : [],
     };
   }
 
@@ -778,105 +453,21 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     );
   }
 
-  async function deleteAksesMenuByLogIds(logIds: Array<string | number>) {
-    if (!Array.isArray(logIds) || logIds.length === 0) return;
-    const baseUrl = getApiBaseUrl();
-
-    await Promise.all(
-      logIds.map((logId) =>
-        $api(`${baseUrl}/v1/akses-data/menu/${logId}`, {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-        }),
-      ),
-    );
-  }
-
-  async function deleteAksesDataByLogIds(logIds: Array<string | number>) {
-    if (!Array.isArray(logIds) || logIds.length === 0) return;
-    const baseUrl = getApiBaseUrl();
-
-    await Promise.all(
-      logIds.map((logId) =>
-        $api(`${baseUrl}/v1/akses-data/data/${logId}`, {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-        }),
-      ),
-    );
-  }
-
-  async function deleteAksesTransaksiByLogIds(logIds: Array<string | number>) {
-    if (!Array.isArray(logIds) || logIds.length === 0) return;
-    const baseUrl = getApiBaseUrl();
-
-    await Promise.all(
-      logIds.map((logId) =>
-        $api(`${baseUrl}/v1/akses-data/transaksi/${logId}`, {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-        }),
-      ),
-    );
-  }
-
-  const hasArrayChanged = (arr1: string[], arr2: string[]): boolean => {
-    if (arr1.length !== arr2.length) return true;
-
-    const set1 = new Set(arr1);
-    const set2 = new Set(arr2);
-
-    if (set1.size !== set2.size) return true;
-
-    for (const item of set1) {
-      if (!set2.has(item)) return true;
-    }
-
-    return false;
-  };
-
   async function updateRole(roleId: string, payload: any) {
     loadingUpdate.value = true;
     clearError();
     try {
       const baseUrl = getApiBaseUrl();
-      const response = await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
+      return await $api<RoleItem>(`${baseUrl}/v1/roles/${roleId}`, {
         method: "PUT",
         headers: getAuthHeaders(),
-        body: {
-          nama: payload.nama,
-          deskripsi: payload.deskripsi,
-        },
+        body: toRoleBody(payload),
       });
-      // 5. Eksekusi DELETE + CREATE secara efisien (Gunakan Promise.all agar paralel)
-      if (roleId) {
-        // A. Update Akses Menu jika ada perubahan
-        if (payload.menu_ids.length > 0) {
-          await createAksesMenu(roleId, payload.menu_ids);
-        }
-
-        if (payload.area_ids.length > 0) {
-          await createAksesData(
-            roleId,
-            payload.perusahaan_ids ?? [],
-            payload.estate_ids ?? [],
-            payload.area_ids ?? [],
-            payload.afdeling_ids ?? [],
-            payload,
-          );
-        }
-
-        // C. Update Akses Transaksi jika ada perubahan
-        if (payload.transaksi_ids.length > 0) {
-          await createAksesTransaksi(roleId, payload.transaksi_ids);
-        }
-      }
-      loadingUpdate.value = false;
-      return response;
     } catch (error: any) {
-      errorMessage.value = getErrorMessage(error, "Gagal memperbarui role.");
-      loadingUpdate.value = false;
+      errorMessage.value = saveErrorMessage(error, "Gagal memperbarui role.");
       throw error;
+    } finally {
+      loadingUpdate.value = false;
     }
   }
 

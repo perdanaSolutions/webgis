@@ -76,6 +76,60 @@ def test_role_with_access(client, auth, sample_block):
     client.delete(f"/api/v1/menus/{menu['id']}", headers=auth)
 
 
+def test_role_bulk_access_one_request(client, auth, sample_block):
+    """Menu, wilayah, dan transaksi disimpan serta dibaca dalam satu request."""
+    suffix = uuid.uuid4().hex[:6]
+    menu = client.post("/api/v1/menus/", headers=auth, json={"title": f"Bulk {suffix}", "icon": "mdi-map"}).json()
+    estates = client.get("/api/v1/spatial/estate", headers=auth, params={"kode_est": sample_block["estate"]}).json()["data"]
+    divisions = client.get("/api/v1/spatial/afdeling", headers=auth,
+                           params={"kode_est": sample_block["estate"], "kode_afd": sample_block["division"]}).json()["data"]
+    tree = [{
+        "id_area": "BERAU", "nama_area": "BERAU",
+        "perusahaan": [{
+            "id_perusahaan": str(estates[0]["pt_id"]), "nama_perusahaan": "x",
+            "estate": [{"id_estate": str(estates[0]["id"]), "nama_estate": "x",
+                        "afdeling": [{"id_afdeling": str(divisions[0]["id"]), "nama_afdeling": "x"}]}],
+        }],
+    }]
+
+    created = client.post("/api/v1/roles/", headers=auth, json={
+        "nama": f"Bulk {suffix}", "deskripsi": "sekali request",
+        "akses_menu": [menu["id"]],
+        "akses_data": tree,
+        "akses_transaksi": ["trx.block_productions"],
+    })
+    assert created.status_code == 201, created.text
+    created = created.json()
+    assert created["akses_menu"][0]["menu_id"] == menu["id"]
+    assert created["akses_transaksi"][0]["nama_table_transaksi"] == "trx.block_productions"
+    assert created["akses_data"][0]["level"] == "division"
+    assert created["akses_wilayah"][0]["perusahaan"][0]["estate"][0]["afdeling"][0]["id_afdeling"] == str(divisions[0]["id"])
+
+    detail = client.get(f"/api/v1/roles/{created['id']}", headers=auth)
+    assert detail.status_code == 200
+    detail = detail.json()
+    assert len(detail["akses_menu"]) == 1
+    assert len(detail["akses_transaksi"]) == 1
+    assert detail["akses_wilayah"][0]["perusahaan"][0]["estate"][0]["afdeling"]
+
+    cleared = client.put(f"/api/v1/roles/{created['id']}", headers=auth, json={
+        "nama": f"Bulk {suffix}",
+        "deskripsi": "dikosongkan",
+        "akses_menu": [],
+        "akses_data": [],
+        "akses_transaksi": [],
+    })
+    assert cleared.status_code == 200, cleared.text
+    cleared = cleared.json()
+    assert cleared["akses_menu"] == []
+    assert cleared["akses_data"] == []
+    assert cleared["akses_wilayah"] == []
+    assert cleared["akses_transaksi"] == []
+
+    assert client.delete(f"/api/v1/roles/{created['id']}", headers=auth).status_code == 200
+    client.delete(f"/api/v1/menus/{menu['id']}", headers=auth)
+
+
 def test_superadmin_role_can_be_edited(client, auth):
     roles = client.get("/api/v1/roles/", headers=auth).json()
     superadmin = next(r for r in roles if r["nama"] == "superadmin")

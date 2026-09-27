@@ -25,7 +25,17 @@ const searchQueryEstate = ref("");
 const searchQueryAfdeling = ref("");
 
 const activePermissionTab = ref("menu");
-const loadingHierarchy = ref(false);
+const hierarchyLoadCount = ref(0);
+const loadingRoleData = ref(false);
+const loadingHierarchy = computed(() => hierarchyLoadCount.value > 0);
+
+const beginDataLoad = () => {
+  hierarchyLoadCount.value += 1;
+};
+
+const endDataLoad = () => {
+  hierarchyLoadCount.value = Math.max(0, hierarchyLoadCount.value - 1);
+};
 
 const form = reactive({
   nama: "",
@@ -61,6 +71,20 @@ const filteredRoles = computed(() => {
 const submitLoading = computed(
   () => manageRoleStore.loadingCreate || manageRoleStore.loadingUpdate,
 );
+
+const formDataLoading = computed(
+  () => loadingRoleData.value || loadingHierarchy.value,
+);
+
+const saveDisabled = computed(
+  () => submitLoading.value || formDataLoading.value,
+);
+
+const saveButtonLabel = computed(() => {
+  if (submitLoading.value) return "Menyimpan...";
+  if (formDataLoading.value) return "Memuat data...";
+  return "Simpan";
+});
 
 const allDataArea = computed(() => {
   const areas = manageRoleStore.allDataArea ?? [];
@@ -201,47 +225,53 @@ function resolveAreaIdsForForm(areaIds = [], selectedAreaItems = []) {
 }
 
 async function fillForm(role) {
+  loadingRoleData.value = true;
   perusahaanByAreaMap.value = {};
   estateByPerusahaanMap.value = {};
   afdelingByEstateMap.value = {};
 
-  const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
+  try {
+    const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
 
-  const result = transformDataToForm(existingAkses?.data ?? [], {
-    nama: "",
-    deskripsi: "",
-  });
+    const result = transformDataToForm(existingAkses?.data ?? [], {
+      nama: "",
+      deskripsi: "",
+    });
 
-  Object.assign(form, result);
+    Object.assign(form, result);
 
-  form.nama = String(role.nama ?? "").toUpperCase();
-  form.deskripsi = String(role.deskripsi ?? "").toUpperCase();
-  activePermissionTab.value = "menu";
+    form.nama = String(role.nama ?? "").toUpperCase();
+    form.deskripsi = String(role.deskripsi ?? "").toUpperCase();
+    activePermissionTab.value = "menu";
 
-  form.menu_ids = (existingAkses?.menu ?? [])
-    .map((item) => String(item?.menu_id ?? ""))
-    .filter((id) => !!id);
+    form.menu_ids = (existingAkses?.menu ?? [])
+      .map((item) => String(item?.menu_id ?? ""))
+      .filter((id) => !!id);
 
-  form.transaksi_ids = [...new Set(
-    (existingAkses?.transaksi ?? [])
-      .map((item) => resolveTransaksiId(String(item?.nama_table_transaksi ?? "")))
-      .filter((id) => !!id),
-  )];
+    form.transaksi_ids = [...new Set(
+      (existingAkses?.transaksi ?? [])
+        .map((item) => resolveTransaksiId(String(item?.nama_table_transaksi ?? "")))
+        .filter((id) => !!id),
+    )];
 
-  form.area_ids = resolveAreaIdsForForm(
-    result.area_ids,
-    result.selected_area_items,
-  );
+    form.area_ids = resolveAreaIdsForForm(
+      result.area_ids,
+      result.selected_area_items,
+    );
 
-  form.afdeling_ids = normalizeAfdelingIds(
-    result.afdeling_ids,
-    result.selected_afdeling_items,
-  );
+    form.afdeling_ids = normalizeAfdelingIds(
+      result.afdeling_ids,
+      result.selected_afdeling_items,
+    );
 
-  await loadHierarchyForEdit();
+    await loadHierarchyForEdit();
+  } finally {
+    loadingRoleData.value = false;
+  }
 }
 
 function openCreateModal() {
+  manageRoleStore.clearError();
   formMode.value = "create";
   selectedRoleId.value = "";
   resetForm();
@@ -249,6 +279,7 @@ function openCreateModal() {
 }
 
 async function openEditModal(role) {
+  manageRoleStore.clearError();
   formMode.value = "edit";
   selectedRoleId.value = role.id;
   showFormModal.value = true;
@@ -259,18 +290,83 @@ function closeFormModal() {
   showFormModal.value = false;
 }
 
+function buildAksesWilayahTree() {
+  const selectedAreaIds = new Set(form.area_ids.map((id) => String(id)));
+  const selectedPtIds = new Set(form.perusahaan_ids.map((id) => String(id)));
+  const selectedEstateIds = new Set(form.estate_ids.map((id) => String(id)));
+
+  return (manageRoleStore.allDataArea ?? [])
+    .filter((area) => selectedAreaIds.has(String(area?.id ?? "")))
+    .map((area) => {
+      const areaCode = String(getAreaId(area));
+      const perusahaan = (perusahaanByAreaMap.value[areaCode] ?? [])
+        .filter((pt) => selectedPtIds.has(String(pt?.id ?? "")))
+        .map((pt) => {
+          const ptCode = String(getPerusahaanCode(pt));
+          const estate = (estateByPerusahaanMap.value[ptCode] ?? [])
+            .filter((item) => estateMatchesSelection(item, selectedEstateIds))
+            .map((item) => {
+              const estateCode = String(getEstateCode(item));
+              const afdeling = (afdelingByEstateMap.value[estateCode] ?? [])
+                .filter((afd) => isAfdelingSelected(item, afd))
+                .map((afd) => ({
+                  id_afdeling: String(afd?.id ?? getAfdelingCode(afd)),
+                  nama_afdeling: String(
+                    afd?.nama_afdeling ?? afd?.nama ?? getAfdelingCode(afd),
+                  ),
+                }));
+              if (!afdeling.length) return null;
+              return {
+                id_estate: String(item?.id ?? estateCode),
+                nama_estate: String(item?.nama_estate ?? item?.nama ?? estateCode),
+                afdeling,
+              };
+            })
+            .filter(Boolean);
+          if (!estate.length) return null;
+          return {
+            id_perusahaan: String(pt?.id ?? ptCode),
+            nama_perusahaan: String(
+              pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? ptCode,
+            ),
+            estate,
+          };
+        })
+        .filter(Boolean);
+      if (!perusahaan.length) return null;
+      return {
+        id_area: areaCode,
+        nama_area: String(area?.nama_area ?? area?.nama ?? areaCode),
+        perusahaan,
+      };
+    })
+    .filter(Boolean);
+}
+
 async function submitForm() {
+  if (saveDisabled.value) return;
+
+  syncSelectedItemsFromIds();
   form.nama = String(form.nama ?? "").toUpperCase();
   form.deskripsi = String(form.deskripsi ?? "").toUpperCase();
 
-  if (formMode.value === "create") {
-    await manageRoleStore.createRole(form);
-  } else {
-    await manageRoleStore.updateRole(selectedRoleId.value, form);
-  }
+  const payload = {
+    ...form,
+    akses_data: buildAksesWilayahTree(),
+  };
 
-  showFormModal.value = false;
-  await manageRoleStore.fetchRoles();
+  try {
+    if (formMode.value === "create") {
+      await manageRoleStore.createRole(payload);
+    } else {
+      await manageRoleStore.updateRole(selectedRoleId.value, payload);
+    }
+
+    showFormModal.value = false;
+    await manageRoleStore.fetchRoles();
+  } catch {
+    // Pesan error ditampilkan di dalam modal.
+  }
 }
 
 function onNamaInput(event) {
@@ -487,19 +583,23 @@ const loadPerusahaanMapsForAreas = async (areaIds = []) => {
     selectedAreaSet.has(String(area?.id ?? "")),
   );
 
-  for (const area of selectedAreasLocal) {
-    const areaCode = String(getAreaId(area));
-    if (!areaCode || perusahaanByAreaMap.value[areaCode]) continue;
-
-    const data = await manageRoleStore.initDataPerusahaanByArea(areaCode);
-    perusahaanByAreaMap.value[areaCode] = data ?? [];
-  }
+  const areaCodes = [...new Set(
+    selectedAreasLocal
+      .map((area) => String(getAreaId(area)))
+      .filter((areaCode) => areaCode && !perusahaanByAreaMap.value[areaCode]),
+  )];
+  const perusahaanLists = await Promise.all(
+    areaCodes.map((areaCode) => manageRoleStore.initDataPerusahaanByArea(areaCode)),
+  );
+  areaCodes.forEach((areaCode, index) => {
+    perusahaanByAreaMap.value[areaCode] = perusahaanLists[index] ?? [];
+  });
 
   return selectedAreasLocal;
 };
 
 const loadHierarchyForEdit = async () => {
-  loadingHierarchy.value = true;
+  beginDataLoad();
   try {
     const selectedAreasLocal = await loadPerusahaanMapsForAreas(form.area_ids);
     const selectedPerusahaanIdSet = new Set(
@@ -523,14 +623,18 @@ const loadHierarchyForEdit = async () => {
       }
     }
 
-    for (const perusahaanCode of perusahaanCodesToLoad) {
-      if (estateByPerusahaanMap.value[perusahaanCode]) continue;
-
-      const estates = await manageRoleStore.initDataEstate(perusahaanCode);
-      estateByPerusahaanMap.value[perusahaanCode] = estates ?? [];
-    }
+    const perusahaanCodes = [...perusahaanCodesToLoad].filter(
+      (perusahaanCode) => perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode],
+    );
+    const estateLists = await Promise.all(
+      perusahaanCodes.map((perusahaanCode) => manageRoleStore.initDataEstate(perusahaanCode)),
+    );
+    perusahaanCodes.forEach((perusahaanCode, index) => {
+      estateByPerusahaanMap.value[perusahaanCode] = estateLists[index] ?? [];
+    });
 
     const selectedEstateSet = new Set(form.estate_ids.map((id) => String(id)));
+    const estateCodesToLoad = [];
     for (const perusahaanCode of perusahaanCodesToLoad) {
       const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
 
@@ -538,11 +642,17 @@ const loadHierarchyForEdit = async () => {
         const estateCode = String(getEstateCode(estate));
         if (!estateCode || !estateMatchesSelection(estate, selectedEstateSet)) continue;
         if (afdelingByEstateMap.value[estateCode]) continue;
-
-        const afdelings = await manageRoleStore.initDataAfdelingByEstate(estateCode);
-        afdelingByEstateMap.value[estateCode] = afdelings ?? [];
+        estateCodesToLoad.push(estateCode);
       }
     }
+
+    const uniqueEstateCodes = [...new Set(estateCodesToLoad)];
+    const afdelingLists = await Promise.all(
+      uniqueEstateCodes.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
+    );
+    uniqueEstateCodes.forEach((estateCode, index) => {
+      afdelingByEstateMap.value[estateCode] = afdelingLists[index] ?? [];
+    });
 
     form.estate_ids = Array.from(new Set(
       form.estate_ids
@@ -582,12 +692,12 @@ const loadHierarchyForEdit = async () => {
     syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   } finally {
-    loadingHierarchy.value = false;
+    endDataLoad();
   }
 };
 
 const autoSelectHierarchyFromAreas = async (areaIds = []) => {
-  loadingHierarchy.value = true;
+  beginDataLoad();
   try {
     const selectedAreasLocal = await loadPerusahaanMapsForAreas(areaIds);
 
@@ -602,30 +712,41 @@ const autoSelectHierarchyFromAreas = async (areaIds = []) => {
         const perusahaanCode = String(getPerusahaanCode(perusahaan));
         if (perusahaanId) perusahaanIds.push(perusahaanId);
         if (perusahaanCode) perusahaanCodes.push(perusahaanCode);
-
-        if (perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode]) {
-          const estates = await manageRoleStore.initDataEstate(perusahaanCode);
-          estateByPerusahaanMap.value[perusahaanCode] = estates ?? [];
-        }
       }
     }
+
+    const uniquePerusahaanCodes = [...new Set(perusahaanCodes)];
+    const missingEstateCodes = uniquePerusahaanCodes.filter(
+      (perusahaanCode) => perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode],
+    );
+    const estateLists = await Promise.all(
+      missingEstateCodes.map((perusahaanCode) => manageRoleStore.initDataEstate(perusahaanCode)),
+    );
+    missingEstateCodes.forEach((perusahaanCode, index) => {
+      estateByPerusahaanMap.value[perusahaanCode] = estateLists[index] ?? [];
+    });
 
     form.perusahaan_ids = Array.from(new Set(perusahaanIds));
 
     const estateCodes = [];
-    for (const perusahaanCode of Array.from(new Set(perusahaanCodes))) {
+    const missingAfdelingCodes = [];
+    for (const perusahaanCode of uniquePerusahaanCodes) {
       const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
       for (const estate of estateList) {
         const estateCode = String(getEstateCode(estate));
         if (!estateCode) continue;
         estateCodes.push(estateCode);
-
-        if (!afdelingByEstateMap.value[estateCode]) {
-          const afdelings = await manageRoleStore.initDataAfdelingByEstate(estateCode);
-          afdelingByEstateMap.value[estateCode] = afdelings ?? [];
-        }
+        if (!afdelingByEstateMap.value[estateCode]) missingAfdelingCodes.push(estateCode);
       }
     }
+
+    const uniqueAfdelingCodes = [...new Set(missingAfdelingCodes)];
+    const afdelingLists = await Promise.all(
+      uniqueAfdelingCodes.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
+    );
+    uniqueAfdelingCodes.forEach((estateCode, index) => {
+      afdelingByEstateMap.value[estateCode] = afdelingLists[index] ?? [];
+    });
 
     form.estate_ids = Array.from(new Set(estateCodes));
 
@@ -643,7 +764,7 @@ const autoSelectHierarchyFromAreas = async (areaIds = []) => {
     syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   } finally {
-    loadingHierarchy.value = false;
+    endDataLoad();
   }
 };
 
@@ -779,8 +900,13 @@ const togglePerusahaan = async (perusahaan) => {
       },
     ];
     if (!estateByPerusahaanMap.value[perusahaanCode]) {
-      const data = await manageRoleStore.initDataEstate(perusahaanCode);
-      estateByPerusahaanMap.value[perusahaanCode] = data ?? [];
+      beginDataLoad();
+      try {
+        const data = await manageRoleStore.initDataEstate(perusahaanCode);
+        estateByPerusahaanMap.value[perusahaanCode] = data ?? [];
+      } finally {
+        endDataLoad();
+      }
     }
     pruneDownstreamSelections();
   }
@@ -810,8 +936,13 @@ const toggleEstate = async (estate) => {
       },
     ];
     if (!afdelingByEstateMap.value[code]) {
-      const data = await manageRoleStore.initDataAfdelingByEstate(code);
-      afdelingByEstateMap.value[code] = data ?? [];
+      beginDataLoad();
+      try {
+        const data = await manageRoleStore.initDataAfdelingByEstate(code);
+        afdelingByEstateMap.value[code] = data ?? [];
+      } finally {
+        endDataLoad();
+      }
     }
     pruneDownstreamSelections();
   }
@@ -983,6 +1114,10 @@ onMounted(async () => {
           <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
           <button class="text-muted" @click="closeFormModal">✕</button>
         </div>
+
+        <p v-if="manageRoleStore.errorMessage" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
+          {{ manageRoleStore.errorMessage }}
+        </p>
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
@@ -1187,9 +1322,12 @@ onMounted(async () => {
               @click="closeFormModal">
               Batal
             </button>
-            <button type="submit" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
-              :disabled="submitLoading">
-              {{ submitLoading ? "Menyimpan..." : "Simpan" }}
+            <button type="submit"
+              class="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="saveDisabled">
+              <span v-if="saveDisabled"
+                class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              {{ saveButtonLabel }}
             </button>
           </div>
         </form>

@@ -9,6 +9,7 @@ Area tidak ada di hierarki master -- area sebuah company/estate/division
 diambil dari area statement terbaru blok-bloknya, sehingga satu scope bisa
 menghasilkan >1 baris kalau wilayahnya tersebar di beberapa area.
 """
+import json
 from collections import OrderedDict
 from uuid import UUID
 
@@ -155,40 +156,165 @@ def _insert_scope(db: Session, role_id: UUID, **ids: int | None) -> int:
     return result.rowcount
 
 
+def _lookup_keys(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(value).strip() for value in values if value and str(value).strip()))
+
+
+def _remember_id(mapping: dict[str, int], id_text: str, code_key: str | None, row_id: int) -> None:
+    if code_key:
+        mapping.setdefault(code_key, row_id)
+    mapping[id_text] = row_id
+
+
+def _lookup_id(mapping: dict[str, int], raw: str | None) -> int | None:
+    key = str(raw or "").strip()
+    if not key:
+        return None
+    found = mapping.get(key)
+    if found is not None:
+        return found
+    return mapping.get(key.upper())
+
+
+def _id_maps(db: Session, table: str, values: list[str]) -> dict[str, int]:
+    """Satu query untuk mencocokkan banyak id atau kode master."""
+    keys = _lookup_keys(values)
+    if not keys or table not in {"areas", "companies", "estates"}:
+        return {}
+    rows = db.execute(
+        text(f"""
+            SELECT id, id::text AS id_text, upper(code) AS code_key
+            FROM master.{table}
+            WHERE id::text = ANY(CAST(:vals AS text[]))
+               OR upper(code) = ANY(CAST(:uppers AS text[]))
+        """),
+        {"vals": keys, "uppers": [key.upper() for key in keys]},
+    ).mappings()
+    mapping: dict[str, int] = {}
+    for row in rows:
+        _remember_id(mapping, row["id_text"], row["code_key"], row["id"])
+    return mapping
+
+
+def _division_maps(db: Session, pairs: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
+    payload = [
+        {"estate_id": estate_id, "raw": str(raw).strip()}
+        for estate_id, raw in pairs
+        if raw and str(raw).strip()
+    ]
+    if not payload:
+        return {}
+    rows = db.execute(
+        text("""
+            SELECT d.id, d.estate_id, d.id::text AS id_text, upper(d.code) AS code_key
+            FROM master.divisions d
+            JOIN jsonb_to_recordset(CAST(:pairs AS jsonb)) AS p(estate_id bigint, raw text)
+              ON d.estate_id = p.estate_id
+             AND (d.id::text = p.raw OR upper(d.code) = upper(p.raw))
+        """),
+        {"pairs": json.dumps(payload)},
+    ).mappings()
+    mapping: dict[tuple[int, str], int] = {}
+    for row in rows:
+        estate_id = row["estate_id"]
+        if row["code_key"]:
+            mapping.setdefault((estate_id, row["code_key"]), row["id"])
+        mapping[(estate_id, row["id_text"])] = row["id"]
+    return mapping
+
+
+def _lookup_division(mapping: dict[tuple[int, str], int], estate_id: int, raw: str) -> int | None:
+    key = str(raw).strip()
+    found = mapping.get((estate_id, key))
+    if found is not None:
+        return found
+    return mapping.get((estate_id, key.upper()))
+
+
+def _insert_scopes_bulk(db: Session, role_id: UUID, rows: list[dict]) -> int:
+    unique, seen = [], set()
+    for row in rows:
+        key = (row["area_id"], row["company_id"], row["estate_id"], row["division_id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    if not unique:
+        return 0
+    result = db.execute(
+        text("""
+            INSERT INTO auth.role_data_scopes (role_id, area_id, company_id, estate_id, division_id)
+            SELECT :role_id, v.area_id, v.company_id, v.estate_id, v.division_id
+            FROM jsonb_to_recordset(CAST(:rows AS jsonb)) AS v(
+                area_id bigint, company_id bigint, estate_id bigint, division_id bigint
+            )
+            ON CONFLICT DO NOTHING
+        """),
+        {"role_id": str(role_id), "rows": json.dumps(unique)},
+    )
+    return result.rowcount or 0
+
+
 def add_scopes_from_tree(db: Session, role_id: UUID, tree: list[AreaTreeSchema]) -> dict:
-    """Setiap daun pohon (node terdalam yang dipilih) menjadi satu scope."""
-    inserted, unresolved = 0, []
+    """Setiap daun pohon (node terdalam yang dipilih) menjadi satu scope, disimpan sekaligus."""
+    area_keys, company_keys, estate_keys = [], [], []
     for area in tree:
         if not area.perusahaan:
-            area_id = _resolve_id(db, "areas", area.id_area)
+            area_keys.append(area.id_area)
+            continue
+        for pt in area.perusahaan:
+            company_keys.append(pt.id_perusahaan)
+            for est in pt.estate:
+                estate_keys.append(est.id_estate)
+
+    area_map = _id_maps(db, "areas", area_keys)
+    company_map = _id_maps(db, "companies", company_keys)
+    estate_map = _id_maps(db, "estates", estate_keys)
+
+    division_pairs: list[tuple[int, str]] = []
+    for area in tree:
+        for pt in area.perusahaan:
+            for est in pt.estate:
+                estate_id = _lookup_id(estate_map, est.id_estate)
+                if estate_id is None:
+                    continue
+                for afd in est.afdeling:
+                    division_pairs.append((estate_id, afd.id_afdeling))
+    division_map = _division_maps(db, division_pairs)
+
+    rows, unresolved = [], []
+    for area in tree:
+        if not area.perusahaan:
+            area_id = _lookup_id(area_map, area.id_area)
             if area_id is None:
                 unresolved.append(f"area:{area.id_area}")
             else:
-                inserted += _insert_scope(db, role_id, area_id=area_id)
+                rows.append({"area_id": area_id, "company_id": None, "estate_id": None, "division_id": None})
             continue
         for pt in area.perusahaan:
-            company_id = _resolve_id(db, "companies", pt.id_perusahaan)
+            company_id = _lookup_id(company_map, pt.id_perusahaan)
             if company_id is None:
                 unresolved.append(f"pt:{pt.id_perusahaan}")
                 continue
             if not pt.estate:
-                inserted += _insert_scope(db, role_id, company_id=company_id)
+                rows.append({"area_id": None, "company_id": company_id, "estate_id": None, "division_id": None})
                 continue
             for est in pt.estate:
-                estate_id = _resolve_id(db, "estates", est.id_estate)
+                estate_id = _lookup_id(estate_map, est.id_estate)
                 if estate_id is None:
                     unresolved.append(f"estate:{est.id_estate}")
                     continue
                 if not est.afdeling:
-                    inserted += _insert_scope(db, role_id, estate_id=estate_id)
+                    rows.append({"area_id": None, "company_id": None, "estate_id": estate_id, "division_id": None})
                     continue
                 for afd in est.afdeling:
-                    division_id = _resolve_id(db, "divisions", afd.id_afdeling, "AND estate_id = :e", {"e": estate_id})
+                    division_id = _lookup_division(division_map, estate_id, afd.id_afdeling)
                     if division_id is None:
                         unresolved.append(f"afdeling:{afd.id_afdeling}")
                         continue
-                    inserted += _insert_scope(db, role_id, division_id=division_id)
-    return {"inserted": inserted, "unresolved": unresolved}
+                    rows.append({"area_id": None, "company_id": None, "estate_id": None, "division_id": division_id})
+
+    return {"inserted": _insert_scopes_bulk(db, role_id, rows), "unresolved": unresolved}
 
 
 def add_scopes_from_legacy_payload(db: Session, role_id: UUID, items: list[AksesDataInput]) -> None:
@@ -246,16 +372,36 @@ def split_access_id(access_id: str) -> tuple[str, str]:
     return role_id, other_id
 
 
+def _menu_row(row) -> dict:
+    return {
+        "id": menu_access_id(row["role_id"], row["menu_id"]),
+        "role_id": str(row["role_id"]),
+        "menu_id": str(row["menu_id"]),
+        "created_date": row["created_at"],
+        "update_date": row["created_at"],
+    }
+
+
 def role_menu_rows(db: Session, role_id: UUID | str) -> list[dict]:
+    return role_menu_rows_by_role(db, [role_id]).get(str(role_id), [])
+
+
+def role_menu_rows_by_role(db: Session, role_ids: list[UUID | str]) -> dict[str, list[dict]]:
+    if not role_ids:
+        return {}
     rows = db.execute(
-        text("SELECT role_id, menu_id, created_at FROM auth.role_menus WHERE role_id = :r ORDER BY created_at"),
-        {"r": str(role_id)},
+        text("""
+            SELECT role_id, menu_id, created_at
+            FROM auth.role_menus
+            WHERE role_id = ANY(CAST(:ids AS uuid[]))
+            ORDER BY created_at
+        """),
+        {"ids": [str(role_id) for role_id in role_ids]},
     ).mappings()
-    return [
-        {"id": menu_access_id(r["role_id"], r["menu_id"]), "role_id": str(r["role_id"]), "menu_id": str(r["menu_id"]),
-         "created_date": r["created_at"], "update_date": r["created_at"]}
-        for r in rows
-    ]
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["role_id"]), []).append(_menu_row(row))
+    return grouped
 
 
 def role_menu_rows_for_roles(db: Session, role_ids: list[UUID]) -> list[dict]:
@@ -293,9 +439,34 @@ def delete_menu(db: Session, role_id: str, menu_id: str) -> None:
 
 
 def replace_menus(db: Session, role_id: UUID, menu_ids: list[str]) -> None:
+    ids = list(dict.fromkeys(str(menu_id).strip() for menu_id in menu_ids if menu_id and str(menu_id).strip()))
+    for menu_id in ids:
+        try:
+            UUID(menu_id)
+        except ValueError:
+            raise bad_request(f"Menu id '{menu_id}' bukan UUID yang valid.") from None
     db.execute(text("DELETE FROM auth.role_menus WHERE role_id = :r"), {"r": str(role_id)})
-    for menu_id in dict.fromkeys(m for m in menu_ids if m):
-        add_menu(db, str(role_id), menu_id)
+    if not ids:
+        return
+    found = {
+        str(menu_id).lower()
+        for menu_id in db.execute(
+            text("SELECT id FROM auth.menus WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": ids},
+        ).scalars()
+    }
+    missing = [menu_id for menu_id in ids if menu_id.lower() not in found]
+    if missing:
+        raise not_found(f"Menu dengan id {missing[0]} tidak ditemukan")
+    db.execute(
+        text("""
+            INSERT INTO auth.role_menus (role_id, menu_id)
+            SELECT :role_id, menu_id
+            FROM unnest(CAST(:ids AS uuid[])) AS menu_id
+            ON CONFLICT DO NOTHING
+        """),
+        {"role_id": str(role_id), "ids": ids},
+    )
 
 
 # =====================================================================
@@ -315,21 +486,36 @@ def transaction_tables(db: Session) -> list[str]:
     return [name for name in rows if name not in NON_TRANSACTION_TABLES]
 
 
+def _transaction_row(row) -> dict:
+    return {
+        "id": menu_access_id(row["role_id"], row["permission_id"]),
+        "role_id": str(row["role_id"]),
+        "nama_table_transaksi": row["resource"],
+        "created_date": row["created_at"],
+        "update_date": row["created_at"],
+    }
+
+
 def role_transaction_rows(db: Session, role_id: UUID | str) -> list[dict]:
+    return role_transaction_rows_by_role(db, [role_id]).get(str(role_id), [])
+
+
+def role_transaction_rows_by_role(db: Session, role_ids: list[UUID | str]) -> dict[str, list[dict]]:
+    if not role_ids:
+        return {}
     rows = db.execute(
         text("""
             SELECT rp.role_id, p.id AS permission_id, p.resource, rp.created_at
             FROM auth.role_permissions rp JOIN auth.permissions p ON p.id = rp.permission_id
-            WHERE rp.role_id = :r AND p.action = :a AND p.resource LIKE '%.%'
+            WHERE rp.role_id = ANY(CAST(:ids AS uuid[])) AND p.action = :a AND p.resource LIKE '%.%'
             ORDER BY p.resource
         """),
-        {"r": str(role_id), "a": TRX_ACTION},
+        {"ids": [str(role_id) for role_id in role_ids], "a": TRX_ACTION},
     ).mappings()
-    return [
-        {"id": menu_access_id(r["role_id"], r["permission_id"]), "role_id": str(r["role_id"]),
-         "nama_table_transaksi": r["resource"], "created_date": r["created_at"], "update_date": r["created_at"]}
-        for r in rows
-    ]
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["role_id"]), []).append(_transaction_row(row))
+    return grouped
 
 
 def role_transaction_rows_for_roles(db: Session, role_ids: list[UUID]) -> list[dict]:
@@ -382,6 +568,7 @@ def delete_transaction(db: Session, role_id: str, permission_id: str) -> None:
 
 
 def replace_transactions(db: Session, role_id: UUID, tables: list[str]) -> None:
+    names = list(dict.fromkeys(str(table).strip() for table in tables if table and str(table).strip()))
     db.execute(
         text("""
             DELETE FROM auth.role_permissions rp USING auth.permissions p
@@ -389,8 +576,33 @@ def replace_transactions(db: Session, role_id: UUID, tables: list[str]) -> None:
         """),
         {"r": str(role_id), "a": TRX_ACTION},
     )
-    for table_name in dict.fromkeys(t for t in tables if t):
-        add_transaction(db, str(role_id), table_name)
+    if not names:
+        return
+    unknown = [name for name in names if name not in set(transaction_tables(db))]
+    if unknown:
+        raise bad_request(
+            f"Tabel transaksi '{unknown[0]}' tidak dikenal. Lihat GET /database/tables.",
+            field="akses_transaksi",
+        )
+    db.execute(
+        text("""
+            INSERT INTO auth.permissions (code, resource, action, description)
+            SELECT t || ':' || :act, t, :act, 'Akses baca tabel ' || t
+            FROM unnest(CAST(:tables AS text[])) AS t
+            ON CONFLICT (code) DO NOTHING
+        """),
+        {"tables": names, "act": TRX_ACTION},
+    )
+    db.execute(
+        text("""
+            INSERT INTO auth.role_permissions (role_id, permission_id)
+            SELECT CAST(:role_id AS uuid), p.id
+            FROM auth.permissions p
+            WHERE p.action = :act AND p.resource = ANY(CAST(:tables AS text[]))
+            ON CONFLICT DO NOTHING
+        """),
+        {"role_id": str(role_id), "act": TRX_ACTION, "tables": names},
+    )
 
 
 def _ensure_exists(db: Session, table: str, row_id: str, label: str) -> None:

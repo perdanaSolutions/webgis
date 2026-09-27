@@ -20,15 +20,16 @@ def get_role(role_id: UUID, db: DbSession, _: CurrentUser):
     return role_service.role_responses(db, [role_service.get_role(db, role_id)])[0]
 
 
-@router.post("/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
-def create_role(payload: RoleCreate, db: DbSession, _: CurrentUser):
-    return role_service.create_role(db, payload)
+@router.post("/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED,
+             summary="Buat role beserta akses menu, wilayah, dan transaksi dalam satu payload")
+def create_role(payload: RoleCreate, db: DbSession, current_user: CurrentUser):
+    return role_service.create_role(db, payload, current_user)
 
 
 @router.put("/{role_id}", response_model=RoleResponse,
-            summary="Ubah role; akses_* yang tidak dikirim tidak diubah, list kosong = kosongkan")
-def update_role(role_id: UUID, payload: RoleUpdate, db: DbSession, _: CurrentUser):
-    return role_service.update_role(db, role_id, payload)
+            summary="Ubah role; akses menu, wilayah, dan transaksi dikirim sekaligus. Yang tidak dikirim tidak diubah")
+def update_role(role_id: UUID, payload: RoleUpdate, db: DbSession, current_user: CurrentUser):
+    return role_service.update_role(db, role_id, payload, current_user)
 
 
 @router.delete("/{role_id}", response_model=MessageResponse)
