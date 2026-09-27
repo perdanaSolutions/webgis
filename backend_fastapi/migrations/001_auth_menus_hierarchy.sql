@@ -4,6 +4,7 @@
 
 ALTER TABLE auth.menus ADD COLUMN IF NOT EXISTS parent_id uuid;
 ALTER TABLE auth.menus ADD COLUMN IF NOT EXISTS level integer NOT NULL DEFAULT 1;
+ALTER TABLE auth.menus ADD COLUMN IF NOT EXISTS is_favorite boolean NOT NULL DEFAULT false;
 
 DO $$
 BEGIN
