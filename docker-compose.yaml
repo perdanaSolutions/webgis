@@ -5,11 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: gis-backend-python
     restart: unless-stopped
+    network_mode: host
     env_file:
       - path: ./backend_fastapi/.env
         required: false
-    ports:
-      - "127.0.0.1:8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
 
   gis-dashboard:
     build:
@@ -17,12 +17,12 @@ services:
       dockerfile: Dockerfile
     container_name: gis-dashboard-nuxt
     restart: unless-stopped
+    network_mode: host
     env_file:
       - path: ./gis-dashboard/.env
         required: false
     environment:
-      NUXT_API_BASE_URL_PYTHON_SERVER: http://gis-backend-python:8000/api
-    ports:
-      - "127.0.0.1:3000:3000"
+      NUXT_API_BASE_URL_PYTHON_SERVER: http://127.0.0.1:8000/api
+    command: ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "3000"]
     depends_on:
       - backend_fastapi
