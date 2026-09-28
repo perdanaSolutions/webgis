@@ -47,7 +47,7 @@ from typing import Callable, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import and_, desc, func, or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 
 def _json_default(obj):
@@ -72,6 +72,14 @@ def _apply_period_filter(db: Session, query, model, bulan: Optional[int], tahun:
     """
     Terapkan filter bulan/tahun pada query. Jika keduanya kosong, otomatis
     pakai periode (bulan, tahun) paling terbaru yang ada di tabel `model`.
+
+    OPTIMASI: sebelumnya "cari periode terbaru" adalah query TERPISAH
+    (round-trip sendiri ke DB) sebelum query utama dijalankan. Di sini
+    dipakai correlated scalar subquery langsung di WHERE query utama, jadi
+    "cari terbaru" + "filter by situ" jadi SATU statement SQL (DB umumnya
+    cukup mengevaluasi subquery non-korelasi semacam ini sekali, bukan per
+    baris). Kalau tabel kosong, subquery bernilai NULL -> filter otomatis
+    tidak match apa pun, sama seperti perilaku lama saat tabel kosong.
     """
     if bulan is not None or tahun is not None:
         if bulan is not None:
@@ -80,22 +88,41 @@ def _apply_period_filter(db: Session, query, model, bulan: Optional[int], tahun:
             query = query.filter(model.tahun == tahun)
         return query
 
-    latest_period = (
-        db.query(model.tahun, model.bulan)
-        .order_by(desc(model.tahun), desc(model.bulan))
-        .first()
-    )
-    if latest_period:
-        latest_tahun, latest_bulan = latest_period
-        query = query.filter(model.tahun == latest_tahun, model.bulan == latest_bulan)
-    return query
+    latest_order = (desc(model.tahun), desc(model.bulan))
+    latest_tahun_sq = db.query(model.tahun).order_by(*latest_order).limit(1).scalar_subquery()
+    latest_bulan_sq = db.query(model.bulan).order_by(*latest_order).limit(1).scalar_subquery()
+
+    return query.filter(model.tahun == latest_tahun_sq, model.bulan == latest_bulan_sq)
 
 
 def _paginate(query, order_col, page: int, limit: int, formatter: Callable) -> dict:
-    """Jalankan query dengan pagination lalu bentuk response standar PaginatedResponse."""
+    """
+    Jalankan query dengan pagination lalu bentuk response standar PaginatedResponse.
+
+    OPTIMASI: `total_data` dan baris halaman sebelumnya diambil lewat 2
+    query terpisah (`query.count()` lalu `.limit().offset().all()`). Di
+    sini digabung jadi SATU query pakai window function `COUNT(*) OVER()`
+    yang dihitung dari seluruh baris yang match filter (sebelum LIMIT
+    diterapkan), sehingga hanya perlu 1 round-trip pada kasus umum. Kalau
+    halaman yang diminta di luar jangkauan data (0 baris balik), window
+    function tidak mengembalikan apa-apa -> baru fallback ke count()
+    terpisah supaya total_data tetap akurat.
+    """
     offset = (page - 1) * limit
-    total_query = query.count()
-    data_orm = query.order_by(order_col).limit(limit).offset(offset).all()
+    rows_with_count = (
+        query.order_by(order_col)
+        .add_columns(func.count().over().label("_total_count"))
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    if rows_with_count:
+        total_query = rows_with_count[0][-1]
+        data_orm = [row[0] for row in rows_with_count]
+    else:
+        total_query = query.count()
+        data_orm = []
 
     return {
         "total_data": total_query,
@@ -104,6 +131,48 @@ def _paginate(query, order_col, page: int, limit: int, formatter: Callable) -> d
         "total_page": math.ceil(total_query / limit) if total_query > 0 else 1,
         "data": [formatter(row) for row in data_orm],
     }
+
+
+def _apply_blok_hierarchy_filters(
+    query,
+    kode_pt: Optional[str] = None,
+    kode_est: Optional[str] = None,
+    kode_afd: Optional[str] = None,
+):
+    """
+    Terapkan filter hierarki PT -> Estate -> Afdeling pada query yang basis
+    tabelnya sudah Blok (dipakai bersama oleh /blok, /geojson, /tph/geojson
+    yang sebelumnya masing-masing menduplikasi blok if/join yang sama
+    persis). JOIN afdeling/estate hanya ditambahkan sekali walau beberapa
+    filter dipakai bersamaan.
+    """
+    joined_afdeling = False
+    joined_estate = False
+
+    if kode_pt:
+        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
+        query = query.filter(Perusahaan.kode_pt == kode_pt)
+        joined_afdeling = True
+        joined_estate = True
+
+    if kode_est:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        if not joined_estate:
+            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
+            joined_estate = True
+        query = query.filter(Estate.kode_est == kode_est)
+
+    if kode_afd:
+        if not joined_afdeling:
+            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
+            joined_afdeling = True
+        query = query.filter(Afdeling.kode_afd == kode_afd)
+
+    return query
 
 
 # =====================================================================
@@ -166,7 +235,10 @@ def get_pt_list(
     db: Session = Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
-    query = db.query(Perusahaan)
+    # joinedload: formatter di bawah mengakses `row.area.nama` per baris.
+    # Tanpa ini, tiap baris memicu 1 query lazy-load terpisah ke tabel area
+    # (N+1: bisa sampai `limit` query tambahan per halaman).
+    query = db.query(Perusahaan).options(joinedload(Perusahaan.area))
 
     if kode_pt:
         query = query.filter(Perusahaan.kode_pt == kode_pt)
@@ -327,32 +399,7 @@ def get_blok_list(
     current_user=Depends(deps.get_current_user),
 ):
     query = db.query(Blok)
-
-    joined_afdeling = False
-    joined_estate = False
-
-    if kode_pt:
-        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
-        query = query.filter(Perusahaan.kode_pt == kode_pt)
-        joined_afdeling = True
-        joined_estate = True
-
-    if kode_est:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        if not joined_estate:
-            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-            joined_estate = True
-        query = query.filter(Estate.kode_est == kode_est)
-
-    if kode_afd:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        query = query.filter(Afdeling.kode_afd == kode_afd)
+    query = _apply_blok_hierarchy_filters(query, kode_pt, kode_est, kode_afd)
 
     if kode_blok:
         query = query.filter(Blok.kode_blok == kode_blok)
@@ -410,31 +457,7 @@ def get_blocks_geojson(
         func.ST_AsGeoJSON(GeoBlok.geom_polygon).label("geojson_geom"),
     ).join(GeoBlok, Blok.blok_id == GeoBlok.blok_id)
 
-    joined_afdeling = False
-    joined_estate = False
-
-    if kode_pt:
-        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
-        query = query.filter(Perusahaan.kode_pt == kode_pt)
-        joined_afdeling = True
-        joined_estate = True
-
-    if kode_est:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        if not joined_estate:
-            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-            joined_estate = True
-        query = query.filter(Estate.kode_est == kode_est)
-
-    if kode_afd:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        query = query.filter(Afdeling.kode_afd == kode_afd)
+    query = _apply_blok_hierarchy_filters(query, kode_pt, kode_est, kode_afd)
 
     if kode_blok:
         query = query.filter(Blok.kode_blok == kode_blok)
@@ -577,31 +600,7 @@ def get_tph_geojson(
         func.ST_AsGeoJSON(GeoTph.geom_point).label("geojson_geom"),
     ).join(Blok, GeoTph.blok_id == Blok.blok_id)
 
-    joined_afdeling = False
-    joined_estate = False
-
-    if kode_pt:
-        query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-        query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-        query = query.join(Perusahaan, Estate.pt_id == Perusahaan.pt_id)
-        query = query.filter(Perusahaan.kode_pt == kode_pt)
-        joined_afdeling = True
-        joined_estate = True
-
-    if kode_est:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        if not joined_estate:
-            query = query.join(Estate, Afdeling.est_id == Estate.est_id)
-            joined_estate = True
-        query = query.filter(Estate.kode_est == kode_est)
-
-    if kode_afd:
-        if not joined_afdeling:
-            query = query.join(Afdeling, Blok.afd_id == Afdeling.afd_id)
-            joined_afdeling = True
-        query = query.filter(Afdeling.kode_afd == kode_afd)
+    query = _apply_blok_hierarchy_filters(query, kode_pt, kode_est, kode_afd)
 
     if kode_blok:
         query = query.filter(Blok.kode_blok == kode_blok)
