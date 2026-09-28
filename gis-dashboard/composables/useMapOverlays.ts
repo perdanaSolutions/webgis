@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue";
 
 import { useAuthStore } from "~/stores/authStore";
+import { expandTransactionGrants } from "~/utils/accessGrants";
 import { getOverlayLegend, getOverlayStyle, type LegendItem, type OverlayStyle } from "~/utils/mapLayers";
 
 /**
@@ -55,9 +56,7 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
 
   function transactionAllowed(item: CatalogItem) {
     if (authStore.isSuperAdmin) return true;
-    const allowed = new Set(
-      (authStore.user?.akses_transaksi ?? []).map((value) => String(value).trim().toLowerCase()).filter(Boolean),
-    );
+    const allowed = expandTransactionGrants(authStore.user?.akses_transaksi);
     if (!allowed.size) return false;
     return [item.kode, item.table_name, item.nama]
       .map((value) => String(value ?? "").trim().toLowerCase())

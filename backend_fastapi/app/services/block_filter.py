@@ -74,6 +74,8 @@ class BlockFilter:
     ownership: str | None = None
     extra_where: list[str] = field(default_factory=list)
     extra_params: dict = field(default_factory=dict)
+    # Scope wilayah memakai alias `ar` (area terbaru blok). Join dipaksa bila klausa itu dipakai.
+    force_area_join: bool = False
 
     def __post_init__(self):
         for name in ("area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership"):
@@ -81,7 +83,7 @@ class BlockFilter:
 
     @property
     def needs_area_join(self) -> bool:
-        return self.area is not None
+        return self.area is not None or self.force_area_join
 
     def where(self) -> tuple[list[str], dict]:
         clauses, params = list(self.extra_where), dict(self.extra_params)

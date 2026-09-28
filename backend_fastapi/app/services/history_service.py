@@ -36,10 +36,16 @@ def _ha(value) -> str:
     return f"{formatted} ha"
 
 
-def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) -> dict:
+def resolve_history_table(table: str) -> tuple[str, str]:
+    """(kunci lama, nama fisik schema.tabel)."""
     key = _ALIASES.get(table, table)
     if key not in HISTORY_TABLES:
         raise bad_request(f"Tabel '{table}' tidak valid. Pilihan: {list(HISTORY_TABLES)}", field="table")
+    return key, HISTORY_TABLES[key]["table"]
+
+
+def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) -> dict:
+    key, _physical = resolve_history_table(table)
 
     blocks_sql, params = flt.block_ids_subquery()
     filter_info = {

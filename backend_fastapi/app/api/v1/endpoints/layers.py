@@ -37,6 +37,7 @@ def _layer_router(spec: LayerSpec, include_geojson: bool = True) -> APIRouter:
 
     def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
         user_access.require_layer(db, user, spec.code)
+        user_access.apply_data_scope(db, user, flt)
         return layer_service.geojson(db, spec, flt, bulan, tahun)
 
     def cleanup(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib):
@@ -71,6 +72,7 @@ def _sawit_router() -> APIRouter:
 
     def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
         user_access.require_layer(db, user, "sawit")
+        user_access.apply_data_scope(db, user, flt)
         return sawit_service.geojson(db, flt, bulan, tahun)
 
     def cleanup(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib):

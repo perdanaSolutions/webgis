@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 import { useAuthStore } from "~/stores/authStore";
+import { expandTransactionGrants, grantCovers } from "~/utils/accessGrants";
 
 /**
  * State halaman Blok Profile (peta layar penuh).
@@ -79,25 +80,49 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   // ------------------------------------------------------------------ hak akses
-  const isSuperAdmin = computed(() => (authStore.user?.roles ?? []).some((r) => r === "superadmin"));
+  const isSuperAdmin = computed(() => authStore.isSuperAdmin);
   const aksesData = computed(() => (authStore.user?.akses_data ?? []) as AksesData[]);
+  const transactionGrants = computed(() =>
+    isSuperAdmin.value ? null : expandTransactionGrants(authStore.user?.akses_transaksi),
+  );
+  const canViewProduction = computed(() => grantCovers(transactionGrants.value, "trx.block_productions", "trx_produksi_tbs"));
+  const canViewAreaStatement = computed(() => grantCovers(transactionGrants.value, "trx.area_statements", "trx_areal_statement"));
+  const canViewRotation = computed(() => grantCovers(transactionGrants.value, "trx.harvest_rotations", "trx_rotasi_pusingan"));
 
   function scopeRows(): AksesData[] {
     return Array.isArray(aksesData.value) ? aksesData.value : [];
   }
 
-  function allowedAreas(): Set<string> | null {
-    if (isSuperAdmin.value) return null;
-    return new Set(scopeRows().map((row) => norm(row.kode_area)).filter(Boolean));
+  /** `"all"` = superadmin atau grant tanpa kode area. `"none"` = tidak ada wilayah. */
+  function areaAllowance(): "all" | "none" | Set<string> {
+    if (isSuperAdmin.value) return "all";
+    const codes = scopeRows().map((row) => norm(row.kode_area)).filter(Boolean);
+    if (codes.length) return new Set(codes);
+    if (scopeRows().some((row) => norm(row.kode_pt) || norm(row.kode_est) || norm(row.kode_afd))) return "all";
+    return "none";
+  }
+
+  function grantTouches(row: AksesData, place: { area?: string; pt?: string; est?: string; afd?: string }) {
+    const rowArea = norm(row.kode_area);
+    const rowPt = norm(row.kode_pt);
+    const rowEst = norm(row.kode_est);
+    const rowAfd = norm(row.kode_afd);
+    if (!(rowArea || rowPt || rowEst || rowAfd)) return false;
+    if (rowArea && rowArea !== norm(place.area)) return false;
+    if (rowPt && place.pt !== undefined && rowPt !== norm(place.pt)) return false;
+    if (rowEst && place.est !== undefined && rowEst !== norm(place.est)) return false;
+    if (rowAfd && place.afd !== undefined && rowAfd !== norm(place.afd)) return false;
+    return true;
   }
 
   /** Grant induk (area/PT/estate tanpa anak) mencakup level di bawahnya. Baris ganda diabaikan. */
   function isEstateAllowed(item: EstateItem): boolean {
     if (isSuperAdmin.value) return true;
     return scopeRows().some((row) => {
-      if (norm(row.kode_area) !== norm(area.value)) return false;
+      if (norm(row.kode_area) && norm(row.kode_area) !== norm(area.value)) return false;
       if (norm(row.kode_est)) return norm(row.kode_est) === norm(item.kode_est);
       if (norm(row.kode_pt)) return norm(row.kode_pt) === norm(item.kode_pt);
+      if (norm(row.kode_afd)) return false;
       return Boolean(norm(row.kode_area));
     });
   }
@@ -106,12 +131,36 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (isSuperAdmin.value) return true;
     const estatePt = estatesByCode.value.get(estate.value)?.kode_pt;
     return scopeRows().some((row) => {
-      if (norm(row.kode_area) !== norm(area.value)) return false;
+      if (norm(row.kode_area) && norm(row.kode_area) !== norm(area.value)) return false;
       if (norm(row.kode_est) && norm(row.kode_est) !== norm(estate.value)) return false;
       if (!norm(row.kode_est) && norm(row.kode_pt) && norm(row.kode_pt) !== norm(estatePt)) return false;
       if (norm(row.kode_afd)) return norm(row.kode_afd) === norm(kodeAfd);
-      return true;
+      return Boolean(norm(row.kode_area) || norm(row.kode_pt) || norm(row.kode_est));
     });
+  }
+
+  function featureAllowed(props: Record<string, any>) {
+    if (isSuperAdmin.value) return true;
+    return scopeRows().some((row) => grantTouches(row, {
+      area: props.kode_area, pt: props.kode_pt, est: props.kode_est, afd: props.kode_afd,
+    }));
+  }
+
+  function redactProperties(props: Record<string, any>) {
+    const next = { ...props };
+    if (!canViewAreaStatement.value) delete next.areal_statement;
+    if (!canViewProduction.value) delete next.produksi_tbs;
+    if (!canViewRotation.value) delete next.rotasi_terakhir;
+    return next;
+  }
+
+  function redactDetail(payload: Record<string, any> | null) {
+    if (!payload) return payload;
+    const next = { ...payload };
+    if (!canViewAreaStatement.value) next.areal_statement = null;
+    if (!canViewProduction.value) next.produksi_tbs = null;
+    if (!canViewRotation.value) next.rotasi_pusingan = null;
+    return next;
   }
 
   // ------------------------------------------------------------------ opsi filter
@@ -119,9 +168,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingOptions.value = true;
     try {
       const res = await get<{ data: Array<{ area_id: string; nama: string }> }>("/spatial/area", { limit: 100 });
-      const allowed = allowedAreas();
+      const allowed = areaAllowance();
       areaOptions.value = (res?.data ?? [])
-        .filter((item) => !allowed || allowed.has(norm(item.area_id)))
+        .filter((item) => allowed === "all" || (allowed instanceof Set && allowed.has(norm(item.area_id))))
         .map((item) => ({ label: item.nama, value: item.area_id }));
     } finally {
       loadingOptions.value = false;
@@ -176,13 +225,21 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   );
 
   async function loadBlocks() {
+    if (!isSuperAdmin.value && !area.value && !estate.value && !afdeling.value) {
+      blocks.value = { type: "FeatureCollection", features: [] };
+      loadingBlocks.value = false;
+      return;
+    }
     const seq = ++blocksSeq;
     loadingBlocks.value = true;
     errorMessage.value = "";
     try {
       const res = await get<BlockCollection>("/spatial/geojson", scopeParams.value);
       if (seq !== blocksSeq) return;
-      blocks.value = res && Array.isArray(res.features) ? res : { type: "FeatureCollection", features: [] };
+      const features = (Array.isArray(res?.features) ? res.features : [])
+        .filter((feature) => featureAllowed((feature.properties ?? {}) as Record<string, any>))
+        .map((feature) => ({ ...feature, properties: redactProperties((feature.properties ?? {}) as Record<string, any>) }));
+      blocks.value = { type: "FeatureCollection", features };
     } catch {
       if (seq !== blocksSeq) return;
       blocks.value = { type: "FeatureCollection", features: [] };
@@ -199,7 +256,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingDetail.value = true;
     try {
       const res = await get<Record<string, any>>("/spatial/blok/detail", { blok_id: blokId.value });
-      if (seq === detailSeq) detail.value = res;
+      if (seq === detailSeq) detail.value = redactDetail(res);
     } catch {
       if (seq === detailSeq) detail.value = null;
     } finally {
@@ -209,6 +266,11 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   async function loadProduction() {
     const seq = ++productionSeq;
+    if (!canViewProduction.value) {
+      production.value = null;
+      loadingProduction.value = false;
+      return;
+    }
     loadingProduction.value = true;
     try {
       const res = await get<Record<string, any>>("/spatial/history", {
@@ -261,9 +323,40 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     await setArea(areaOptions.value[0]?.value ?? "");
   }
 
+  function clearMap() {
+    area.value = "";
+    estate.value = "";
+    afdeling.value = "";
+    blokId.value = "";
+    estateOptions.value = [];
+    afdelingOptions.value = [];
+    blocks.value = { type: "FeatureCollection", features: [] };
+    detail.value = null;
+    production.value = null;
+  }
+
   async function init() {
     await loadAreas();
-    if (!area.value) await setArea(areaOptions.value[0]?.value ?? "");
+    if (area.value || !areaOptions.value.length) {
+      if (!areaOptions.value.length) clearMap();
+      return;
+    }
+    const explicitArea = scopeRows().some((row) => norm(row.kode_area));
+    if (isSuperAdmin.value || explicitArea) {
+      await setArea(areaOptions.value[0]?.value ?? "");
+      return;
+    }
+    for (const option of areaOptions.value) {
+      area.value = option.value;
+      estate.value = "";
+      afdeling.value = "";
+      await loadEstates();
+      if (estateOptions.value.length) {
+        await refreshScope();
+        return;
+      }
+    }
+    clearMap();
   }
 
   // ------------------------------------------------------------------ turunan untuk kartu
@@ -344,6 +437,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blocks, blockFeatures, selectedFeature, detail, production,
     loadingOptions, loadingBlocks, loadingDetail, loadingProduction, errorMessage,
     scopeLevel, scopeLabel, scopeParams, productionYears, slopeShares, summary,
+    canViewProduction, canViewAreaStatement,
     init, reset, setArea, setEstate, setAfdeling, selectBlock, refreshScope,
   };
 });

@@ -69,7 +69,11 @@ function normalizeUser(raw: Partial<UserInfo> | null | undefined): UserInfo {
     role: roleNames[0] ?? raw?.role ?? null,
     akses_menu: uniqueText(raw?.akses_menu),
     akses_data: aksesData,
-    akses_transaksi: uniqueText(raw?.akses_transaksi),
+    akses_transaksi: uniqueText(
+      (Array.isArray(raw?.akses_transaksi) ? raw.akses_transaksi : []).map((item: any) =>
+        typeof item === "string" ? item : item?.nama_table_transaksi ?? item?.table_name ?? "",
+      ),
+    ),
   };
 }
 

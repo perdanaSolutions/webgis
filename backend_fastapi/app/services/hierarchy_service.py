@@ -25,8 +25,12 @@ def _where(clauses: list[str]) -> str:
     return ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
-def list_areas(db: Session, search: str | None, page: int, limit: int) -> dict:
+def list_areas(db: Session, search: str | None, page: int, limit: int,
+               extra_clause: tuple[str, dict] | None = None) -> dict:
     clauses, params = [], {}
+    if extra_clause:
+        clauses.append(extra_clause[0])
+        params.update(extra_clause[1])
     _search_clause(["ar.name", "ar.code"], search, clauses, params)
     sql = f"SELECT ar.id, ar.code, ar.name FROM master.areas ar {_where(clauses)}"
     return paginate_sql(db, sql, params, "q.name", page, limit, lambda r: {
@@ -35,12 +39,16 @@ def list_areas(db: Session, search: str | None, page: int, limit: int) -> dict:
     })
 
 
-def list_companies(db: Session, search: str | None, kode_pt: str | None, area: str | None, page: int, limit: int) -> dict:
+def list_companies(db: Session, search: str | None, kode_pt: str | None, area: str | None, page: int, limit: int,
+                   extra_clause: tuple[str, dict] | None = None) -> dict:
     flt = BlockFilter(area=area)
     area_clauses, params = flt.where()
     area_where = ("AND " + " AND ".join(area_clauses)) if area_clauses else ""
 
     clauses = [] if not area else ["pa.area_code IS NOT NULL"]
+    if extra_clause:
+        clauses.append(extra_clause[0])
+        params.update(extra_clause[1])
     if kode_pt and kode_pt.strip():
         clauses.append("(co.code = :kode_pt OR co.id::text = :kode_pt)")
         params["kode_pt"] = kode_pt.strip()
@@ -69,7 +77,7 @@ def list_companies(db: Session, search: str | None, kode_pt: str | None, area: s
 
 
 def list_estates(db: Session, search: str | None, kode_pt: str | None, kode_est: str | None, area: str | None,
-                 page: int, limit: int) -> dict:
+                 page: int, limit: int, extra_clause: tuple[str, dict] | None = None) -> dict:
     flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est)
     clauses, params = flt.where()
     if area and area.strip():
@@ -80,6 +88,9 @@ def list_estates(db: Session, search: str | None, kode_pt: str | None, kode_est:
             {LATEST_AREA_JOIN}
             WHERE dv2.estate_id = es.id AND {' AND '.join(area_clauses)})""")
         params.update(area_params)
+    if extra_clause:
+        clauses.append(extra_clause[0])
+        params.update(extra_clause[1])
     _search_clause(["es.name", "es.code", "es.short_name"], search, clauses, params)
 
     sql = f"""
@@ -95,8 +106,11 @@ def list_estates(db: Session, search: str | None, kode_pt: str | None, kode_est:
 
 
 def list_divisions(db: Session, search: str | None, kode_pt: str | None, kode_est: str | None, kode_afd: str | None,
-                   page: int, limit: int) -> dict:
+                   page: int, limit: int, extra_clause: tuple[str, dict] | None = None) -> dict:
     clauses, params = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd).where()
+    if extra_clause:
+        clauses.append(extra_clause[0])
+        params.update(extra_clause[1])
     _search_clause(["dv.code"], search, clauses, params)
     sql = f"""
         SELECT dv.id, dv.code, es.id AS estate_id, es.code AS estate_code, co.code AS company_code

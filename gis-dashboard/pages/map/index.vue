@@ -200,8 +200,9 @@ onBeforeUnmount(() => mq?.removeEventListener("change", syncDesktop));
       <aside v-show="showPanels || !isDesktop"
         class="z-[1100] space-y-4 p-4 lg:absolute lg:bottom-[104px] lg:right-6 lg:top-6 lg:w-[380px] lg:overflow-y-auto lg:p-0 lg:pb-1">
         <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
-        <SlopeDonutCard :shares="store.slopeShares" :loading="store.loadingProduction || store.loadingDetail" />
-        <ProductionChartCard :years="store.productionYears" :loading="store.loadingProduction" />
+        <SlopeDonutCard v-if="store.canViewAreaStatement || store.canViewProduction"
+          :shares="store.slopeShares" :loading="store.loadingProduction || store.loadingDetail" />
+        <ProductionChartCard v-if="store.canViewProduction" :years="store.productionYears" :loading="store.loadingProduction" />
       </aside>
 
       <!-- BAR RINGKASAN -->
