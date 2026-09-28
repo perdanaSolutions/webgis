@@ -10,9 +10,11 @@ const props = withDefaults(
   defineProps<{
     items: ModuleItem[];
     depth?: number;
+    expandAll?: boolean;
   }>(),
   {
     depth: 1,
+    expandAll: false,
   },
 );
 
@@ -24,6 +26,7 @@ function itemKey(item: ModuleItem, index: number) {
 }
 
 function isExpanded(item: ModuleItem, index: number) {
+  if (props.expandAll) return true;
   return Boolean(expanded.value[itemKey(item, index)]);
 }
 
@@ -153,7 +156,7 @@ function childCount(item: ModuleItem) {
               </span>
               <span class="h-px flex-1 bg-progress-track" />
             </div>
-            <MenuDashboardCards :items="item.children" :depth="props.depth + 1" />
+            <MenuDashboardCards :items="item.children" :depth="props.depth + 1" :expand-all="props.expandAll" />
           </div>
         </Transition>
       </div>

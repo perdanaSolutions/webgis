@@ -83,9 +83,14 @@ export function useAccessControl() {
     };
   });
 
-  const isSuperAdmin = computed(
-    () => normalize(authStore.user?.role ?? "") === "superadmin",
-  );
+  function hasRole(name: string) {
+    const normalized = normalize(name);
+    return (authStore.user?.roles ?? []).some(
+      (role) => normalize(role) === normalized,
+    );
+  }
+
+  const isSuperAdmin = computed(() => hasRole("superadmin"));
 
   function hasPermission(code: string) {
     const normalized = normalize(code);
@@ -148,6 +153,7 @@ export function useAccessControl() {
     permissions,
     scope,
     isSuperAdmin,
+    hasRole,
     hasPermission,
     canAccessMenuPath,
     allowedPTCodes,

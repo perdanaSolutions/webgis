@@ -8,9 +8,11 @@ export const getErrorMessage = (
     const errorMessages: string[] = [];
 
     backendErrors.forEach((err: { field: string; msg: string }) => {
-      if (err.field) {
-        // Format string per field, contoh "username: Field required"
+      if (!err.msg) return;
+      if (err.field && err.field !== "global") {
         errorMessages.push(`${err.field}: ${err.msg}`);
+      } else {
+        errorMessages.push(err.msg);
       }
     });
 

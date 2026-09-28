@@ -261,7 +261,7 @@ export const useMapStore = defineStore("map", () => {
   }
 
   function isSuperAdmin(): boolean {
-    return authStore.user?.role === "superadmin";
+    return (authStore.user?.roles ?? []).some((r) => r === "superadmin");
   }
 
   function getUserAksesData(): AksesDataItem[] {
@@ -1079,6 +1079,11 @@ export const useMapStore = defineStore("map", () => {
     }
   }
 
+  /** Muat ulang data informasi (tab tema) memakai filter yang sedang aktif, tanpa memuat ulang peta. */
+  async function refreshHistory(selectedTahun: string, selectedTable: string) {
+    await fetchSpatialHistory({ ...filters.value }, selectedTahun, selectedTable);
+  }
+
   async function resetFilters() {
     filteredGeoJSON.value = null;
     historyData.value = null;
@@ -1172,6 +1177,7 @@ export const useMapStore = defineStore("map", () => {
     isLoading,
     loadGeoJSONData,
     applyFilters,
+    refreshHistory,
     fetchBlokPopupData,
     getPopupHierarchyLabels,
   };

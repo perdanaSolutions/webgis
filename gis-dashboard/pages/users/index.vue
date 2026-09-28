@@ -17,7 +17,9 @@ const manageUserStore = useManageUserStore();
 
 const search = ref("");
 const showFormModal = ref(false);
+const formError = ref("");
 const showDeleteModal = ref(false);
+const deleteError = ref("");
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
 
@@ -25,7 +27,7 @@ const form = reactive<CreateUserPayload>({
   username: "",
   email: "",
   nama_lengkap: "",
-  role_id: "",
+  role_ids: [],
   is_active: true,
   password: "",
 });
@@ -47,7 +49,7 @@ function resetForm() {
   form.username = "";
   form.email = "";
   form.nama_lengkap = "";
-  form.role_id = "";
+  form.role_ids = [];
   form.is_active = true;
   form.password = "";
 }
@@ -56,7 +58,7 @@ function fillFormFromUser(user: UserItem) {
   form.username = user.username ?? "";
   form.email = user.email ?? "";
   form.nama_lengkap = user.nama_lengkap ?? "";
-  form.role_id = user.role?.id ?? "";
+  form.role_ids = (user.roles ?? []).map((r) => r.id);
   form.is_active = Boolean(user.is_active);
   form.password = "";
 }
@@ -105,6 +107,7 @@ function closeFormModal() {
 
 function openDeleteModal(user: UserItem) {
   selectedUserId.value = user.id;
+  deleteError.value = "";
   showDeleteModal.value = true;
 }
 
@@ -113,12 +116,19 @@ function closeDeleteModal() {
 }
 
 async function submitForm() {
+  form.role_ids = [...new Set((form.role_ids ?? []).filter(Boolean))];
+  if (!form.role_ids.length) {
+    formError.value = "Pilih minimal satu role.";
+    return;
+  }
+  formError.value = "";
+
   if (formMode.value === "create") {
     await manageUserStore.createUser({
       username: form.username,
       email: form.email,
       nama_lengkap: form.nama_lengkap,
-      role_id: form.role_id,
+      role_ids: form.role_ids,
       is_active: form.is_active,
       password: form.password,
     });
@@ -127,7 +137,7 @@ async function submitForm() {
       username: form.username,
       email: form.email,
       nama_lengkap: form.nama_lengkap,
-      role_id: form.role_id,
+      role_ids: form.role_ids,
       is_active: form.is_active,
       password: form.password,
     };
@@ -140,7 +150,13 @@ async function submitForm() {
 }
 
 async function confirmDelete() {
-  await manageUserStore.deleteUser(selectedUserId.value);
+  deleteError.value = "";
+  try {
+    await manageUserStore.deleteUser(selectedUserId.value);
+  } catch {
+    deleteError.value = manageUserStore.errorMessage || "Gagal menghapus user.";
+    return;
+  }
   showDeleteModal.value = false;
 
   if (
@@ -282,7 +298,7 @@ function filterRoleOption(
                 <td class="px-4 py-3">{{ item.username }}</td>
                 <td class="px-4 py-3">{{ item.email }}</td>
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
-                <td class="px-4 py-3">{{ item.role?.nama ?? '' }}</td>
+                <td class="px-4 py-3">{{(item.roles ?? []).map((r) => r.nama).join(', ')}}</td>
                 <td class="px-4 py-3">
                   <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
                     ? 'bg-success-lighter text-success'
@@ -292,9 +308,8 @@ function filterRoleOption(
                   </span>
                 </td>
                 <td class="px-4 py-3">
-                  <div v-if="item.role?.nama !== 'superadmin'" class="flex items-center gap-2">
-                    <button
-                      class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
+                  <div class="flex items-center gap-2">
+                    <button class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                       @click="openEditModal(item)">
                       Edit
                     </button>
@@ -377,10 +392,12 @@ function filterRoleOption(
 
           <div>
             <label class="mb-1 block text-label">Role</label>
-            <v-autocomplete v-model="form.role_id" :items="manageUserStore.roles" item-title="nama" item-value="id"
+            <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role
+              digabung.</p>
+            <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
               placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
-              class="w-full custom-underlined-input" hide-details clearable :loading="manageUserStore.loadingRoles"
-              :custom-filter="filterRoleOption" />
+              class="w-full custom-underlined-input" hide-details clearable multiple chips closable-chips
+              :loading="manageUserStore.loadingRoles" :custom-filter="filterRoleOption" />
           </div>
 
           <div>
@@ -400,9 +417,12 @@ function filterRoleOption(
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
+          <p v-if="formError" class="md:col-span-2 rounded-xl bg-error-light px-4 py-3 text-error">
+            {{ formError }}
+          </p>
+
           <div class="md:col-span-2 mt-2 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               @click="closeFormModal">
               Batal
             </button>
@@ -420,6 +440,9 @@ function filterRoleOption(
         <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
         <p class="mt-2 text-muted">
           Apakah Anda yakin ingin menghapus user ini?
+        </p>
+        <p v-if="deleteError" class="mt-3 rounded-xl bg-error-light px-4 py-3 text-error">
+          {{ deleteError }}
         </p>
 
         <div class="mt-5 flex justify-end gap-2">

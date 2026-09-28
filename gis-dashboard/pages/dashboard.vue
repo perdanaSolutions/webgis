@@ -1,13 +1,48 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
-import { dashboardStore } from '~/stores/dashboardStore'
+import { dashboardStore, type ModuleItem } from '~/stores/dashboardStore'
+import { useAccessControl } from '~/composables/useAccessControl'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
+const { hasRole } = useAccessControl()
 
 const informasiUser = computed(() => authStore.user)
+const menuKeyword = ref('')
+
+function menuMatches(item: ModuleItem, keyword: string) {
+  return [item.title, item.description, item.to]
+    .join(' ')
+    .toLowerCase()
+    .includes(keyword)
+}
+
+function filterMenus(items: ModuleItem[], keyword: string): ModuleItem[] {
+  return items.flatMap((item) => {
+    const children = filterMenus(item.children ?? [], keyword)
+    if (!menuMatches(item, keyword) && !children.length) return []
+    return [{
+      ...item,
+      children: menuMatches(item, keyword) ? item.children : children,
+    }]
+  })
+}
+
+const appliedKeyword = computed(() => menuKeyword.value.trim().toLowerCase())
+
+const visibleMenus = computed(() => {
+  if (!appliedKeyword.value) return dashboardService.moduleItems
+  return filterMenus(dashboardService.moduleItems, appliedKeyword.value)
+})
+
+function searchMenus() {
+  document.getElementById('menu-modul')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
 
 defineOptions({
   name: 'DashboardPage',
@@ -39,13 +74,12 @@ onMounted(async () => {
           </p>
         </div>
 
-        <div class="flex items-center gap-3 rounded-full border border-default bg-surface p-3 shadow-sm">
-          <input type="text" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
-            class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder">
-          <button class="rounded-full bg-brand px-8 py-3 text-14 font-semibold text-on-brand">
-            {{ dashboardService.dashboardConfig.searchButtonLabel }}
-          </button>
-        </div>
+        <form class="flex items-center gap-3 rounded-full border border-default bg-surface p-3 shadow-sm"
+          @submit.prevent="searchMenus">
+          <input v-model="menuKeyword" type="search" :placeholder="dashboardService.dashboardConfig.searchPlaceholder"
+            class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder"
+            aria-label="Cari menu">
+        </form>
       </section>
 
       <section class="mt-6 grid grid-cols-1 gap-6">
@@ -112,7 +146,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="mt-7">
+      <section id="menu-modul" class="mt-7">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 class="text-20 font-bold">
@@ -123,7 +157,7 @@ onMounted(async () => {
             </p>
           </div>
 
-          <NuxtLink v-if="informasiUser?.role === 'superadmin'" to="/menus"
+          <NuxtLink v-if="hasRole('superadmin')" to="/menus"
             class="rounded-full border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
             Management Menu
           </NuxtLink>
@@ -143,7 +177,11 @@ onMounted(async () => {
           </div>
         </div>
 
-        <MenuDashboardCards v-else :items="dashboardService.moduleItems" />
+        <p v-else-if="appliedKeyword && !visibleMenus.length"
+          class="rounded-2xl border border-default bg-surface px-5 py-8 text-center text-14 text-muted">
+          Tidak ada menu yang cocok dengan "{{ menuKeyword.trim() }}".
+        </p>
+        <MenuDashboardCards v-else :items="visibleMenus" :expand-all="Boolean(appliedKeyword)" />
       </section>
     </div>
   </main>

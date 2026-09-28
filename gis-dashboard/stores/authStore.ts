@@ -2,17 +2,80 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
+type AksesData = {
+  kode_area?: string | null;
+  kode_pt?: string | null;
+  kode_est?: string | null;
+  kode_afd?: string | null;
+};
+
 type UserInfo = {
   id: string;
   username: string;
   nama_lengkap: string;
   email: string;
-  role_id: string;
-  role: string;
+  roles: string[];
+  role?: string | null;
   akses_menu: string[];
-  akses_data: Object[];
+  akses_data: AksesData[];
   akses_transaksi: string[];
 };
+
+function uniqueText(values: unknown) {
+  const list = Array.isArray(values) ? values : [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of list) {
+    const text = String(value ?? "").trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
+function normalizeUser(raw: Partial<UserInfo> | null | undefined): UserInfo {
+  const roleNames = uniqueText(
+    (Array.isArray(raw?.roles) ? raw.roles : []).map((role) =>
+      typeof role === "string" ? role : (role as { nama?: string })?.nama,
+    ),
+  );
+  if (!roleNames.length && raw?.role) roleNames.push(String(raw.role));
+
+  const aksesDataSeen = new Set<string>();
+  const aksesData: AksesData[] = [];
+  for (const row of Array.isArray(raw?.akses_data) ? raw.akses_data : []) {
+    const item: AksesData = {
+      kode_area: row?.kode_area ?? null,
+      kode_pt: row?.kode_pt ?? null,
+      kode_est: row?.kode_est ?? null,
+      kode_afd: row?.kode_afd ?? null,
+    };
+    const key = [item.kode_area, item.kode_pt, item.kode_est, item.kode_afd]
+      .map((value) => String(value ?? "").trim().toUpperCase())
+      .join("|");
+    if (aksesDataSeen.has(key)) continue;
+    aksesDataSeen.add(key);
+    aksesData.push(item);
+  }
+
+  return {
+    id: String(raw?.id ?? ""),
+    username: String(raw?.username ?? ""),
+    nama_lengkap: String(raw?.nama_lengkap ?? ""),
+    email: String(raw?.email ?? ""),
+    roles: roleNames,
+    role: roleNames[0] ?? raw?.role ?? null,
+    akses_menu: uniqueText(raw?.akses_menu),
+    akses_data: aksesData,
+    akses_transaksi: uniqueText(
+      (Array.isArray(raw?.akses_transaksi) ? raw.akses_transaksi : []).map((item: any) =>
+        typeof item === "string" ? item : item?.nama_table_transaksi ?? item?.table_name ?? "",
+      ),
+    ),
+  };
+}
 
 type LoginResponse = {
   access_token: string;
@@ -48,11 +111,14 @@ export const useAuthStore = defineStore("auth", () => {
   const errorMessage = ref("");
 
   const isAuthenticated = computed(() => Boolean(token.value));
+  const isSuperAdmin = computed(() =>
+    (user.value?.roles ?? []).some((role) => role.toLowerCase() === "superadmin"),
+  );
 
   function setAuthData(payload: LoginResponse) {
     token.value = payload.access_token;
     tokenType.value = payload.token_type ?? "bearer";
-    user.value = payload.user;
+    user.value = normalizeUser(payload.user);
   }
 
   function clearAuthData() {
@@ -110,8 +176,8 @@ export const useAuthStore = defineStore("auth", () => {
         },
       });
 
-      user.value = me;
-      return me;
+      user.value = normalizeUser(me);
+      return user.value;
     } catch {
       clearAuthData();
       await navigateTo("/login");
@@ -131,6 +197,7 @@ export const useAuthStore = defineStore("auth", () => {
     loading,
     errorMessage,
     isAuthenticated,
+    isSuperAdmin,
     login,
     validateToken,
     logout,
