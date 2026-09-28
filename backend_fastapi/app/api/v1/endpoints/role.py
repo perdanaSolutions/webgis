@@ -60,6 +60,9 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
             "created_at": role.created_at,
             "akses_menu": access_service.role_menu_rows(db, role.id),
             "akses_data": access_service.scopes_as_log_rows(scopes_by_role.get(str(role.id), [])),
+            "akses_wilayah": access_service.scopes_as_tree(scopes_by_role.get(str(role.id), []))
+            if scopes_by_role.get(str(role.id)) and "company_id" in scopes_by_role[str(role.id)][0]
+            else [],
             "akses_transaksi": access_service.role_transaction_rows(db, role.id),
         }
         for role in roles
@@ -121,7 +124,7 @@ def create_role(
     if payload.akses_menu:
         access_service.replace_menus(db, new_role.id, payload.akses_menu)
     if payload.akses_data:
-        access_service.add_scopes_from_legacy_payload(db, new_role.id, payload.akses_data)
+        access_service.apply_akses_data(db, new_role.id, payload.akses_data)
     if payload.akses_transaksi:
         access_service.replace_transactions(db, new_role.id, payload.akses_transaksi)
 
@@ -170,8 +173,7 @@ def update_role(
         access_service.replace_menus(db, role.id, payload.akses_menu)
 
     if "akses_data" in sent and payload.akses_data is not None:
-        access_service.clear_scopes(db, role.id)
-        access_service.add_scopes_from_legacy_payload(db, role.id, payload.akses_data)
+        access_service.apply_akses_data(db, role.id, payload.akses_data, replace=True)
 
     if "akses_transaksi" in sent and payload.akses_transaksi is not None:
         access_service.replace_transactions(db, role.id, payload.akses_transaksi)

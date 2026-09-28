@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.core.exceptions import bad_request, conflict, not_found
 from app.models.auth import Role, UserRole
-from app.schemas.access import AksesDataInput, AreaTreeSchema
 from app.schemas.permission import PermissionResponse
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.services import access_service
@@ -67,17 +66,7 @@ def _ensure_unique_name(db: Session, name: str, exclude_id: UUID | None = None) 
 
 
 def _replace_data_access(db: Session, role_id: UUID, items: list) -> None:
-    access_service.clear_scopes(db, role_id)
-    trees = [item for item in items if isinstance(item, AreaTreeSchema)]
-    legacy = [item for item in items if isinstance(item, AksesDataInput)]
-    unresolved: list[str] = []
-    if trees:
-        unresolved.extend(access_service.add_scopes_from_tree(db, role_id, trees)["unresolved"])
-    if legacy:
-        access_service.add_scopes_from_legacy_payload(db, role_id, legacy)
-    if unresolved:
-        preview = ", ".join(unresolved[:20])
-        raise bad_request(f"Wilayah tidak ditemukan: {preview}", field="akses_data")
+    access_service.apply_akses_data(db, role_id, items, replace=True)
 
 
 def _sync_access(db: Session, role: Role, payload: RoleCreate | RoleUpdate, *, replace_missing: bool) -> None:

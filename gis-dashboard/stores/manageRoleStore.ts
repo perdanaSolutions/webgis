@@ -104,6 +104,40 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     errorMessage.value = "";
   }
 
+  async function fetchAllSpatialPages(pathWithQuery: string) {
+    const baseUrl = getApiBaseUrl();
+    const limit = 100;
+    const items: any[] = [];
+    let page = 1;
+    let totalPage = 1;
+
+    while (page <= totalPage && page <= 200) {
+      const joiner = pathWithQuery.includes("?") ? "&" : "?";
+      const response = await $api(
+        `${baseUrl}${pathWithQuery}${joiner}page=${page}&limit=${limit}`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+          },
+        },
+      );
+
+      const batch = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+      items.push(...batch);
+
+      const reportedPages = Number((response as any)?.total_page ?? 1);
+      const totalData = Number((response as any)?.total_data ?? items.length);
+      totalPage = Number.isFinite(reportedPages) && reportedPages > 0 ? reportedPages : 1;
+      if (Array.isArray(response) || batch.length < limit || items.length >= totalData) break;
+      page += 1;
+    }
+
+    return items;
+  }
+
   async function initDataMenu() {
     try {
       const baseUrl = getApiBaseUrl();
@@ -128,20 +162,8 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   async function initDataArea() {
     try {
-      const baseUrl = getApiBaseUrl();
 
-      // TODO: sesuaikan endpoint area jika berbeda
-      const response = await $api(`${baseUrl}/v1/spatial/area?limit=100`, {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          "Content-Type": "application/json",
-        },
-      });
-
-      const getResponse = response as any;
-      allDataArea.value =
-        getResponse?.data ?? (Array.isArray(response) ? response : []);
+      allDataArea.value = await fetchAllSpatialPages("/v1/spatial/area");
 
       return allDataArea.value;
     } catch (error: any) {
@@ -173,25 +195,9 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     try {
       if (!areaId) return [];
 
-      const baseUrl = getApiBaseUrl();
-
-      // TODO: sesuaikan endpoint perusahaan by area jika berbeda
-      const response = await $api(
-        `${baseUrl}/v1/spatial/pt?area_id=${encodeURIComponent(areaId)}&limit=100`,
-        {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            "Content-Type": "application/json",
-          },
-        },
+      return await fetchAllSpatialPages(
+        `/v1/spatial/pt?area_id=${encodeURIComponent(areaId)}`,
       );
-
-      const normalized = Array.isArray(response)
-        ? response
-        : ((response as any)?.data ?? []);
-
-      return normalized as any[];
     } catch (error: any) {
       throw error;
     }
@@ -199,22 +205,9 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   async function initDataEstate(kodept: string) {
     try {
-      const baseUrl = getApiBaseUrl();
-
-      const response = await $api(
-        `${baseUrl}/v1/spatial/estate?kode_pt=${kodept}&limit=100`,
-        {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            "Content-Type": "application/json",
-          },
-        },
+      const normalizedEstate = await fetchAllSpatialPages(
+        `/v1/spatial/estate?kode_pt=${encodeURIComponent(kodept)}`,
       );
-
-      const normalizedEstate = Array.isArray(response)
-        ? response
-        : ((response as any)?.data ?? []);
 
       allDataEstate.value = normalizedEstate as any;
 
@@ -228,25 +221,21 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     try {
       if (!kodeEstate) return [];
 
-      const baseUrl = getApiBaseUrl();
-
-      // TODO: sesuaikan endpoint afdeling by estate jika berbeda
-      const response = await $api(
-        `${baseUrl}/v1/spatial/afdeling?kode_est=${encodeURIComponent(kodeEstate)}&limit=100`,
-        {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            "Content-Type": "application/json",
-          },
-        },
+      return await fetchAllSpatialPages(
+        `/v1/spatial/afdeling?kode_est=${encodeURIComponent(kodeEstate)}`,
       );
+    } catch (error: any) {
+      throw error;
+    }
+  }
 
-      const normalized = Array.isArray(response)
-        ? response
-        : ((response as any)?.data ?? []);
+  async function initDataBlokByAfdeling(kodeEstate: string, kodeAfd: string) {
+    try {
+      if (!kodeEstate || !kodeAfd) return [];
 
-      return normalized as any[];
+      return await fetchAllSpatialPages(
+        `/v1/spatial/blok?kode_est=${encodeURIComponent(kodeEstate)}&kode_afd=${encodeURIComponent(kodeAfd)}`,
+      );
     } catch (error: any) {
       throw error;
     }
@@ -501,6 +490,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     initDataPerusahaanByArea,
     initDataEstate,
     initDataAfdelingByEstate,
+    initDataBlokByAfdeling,
     initDataTableTransaksi,
   };
 });

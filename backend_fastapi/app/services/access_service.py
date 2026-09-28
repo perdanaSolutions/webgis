@@ -317,6 +317,26 @@ def add_scopes_from_tree(db: Session, role_id: UUID, tree: list[AreaTreeSchema])
     return {"inserted": _insert_scopes_bulk(db, role_id, rows), "unresolved": unresolved}
 
 
+def apply_akses_data(db: Session, role_id: UUID, items: list | None, *, replace: bool = False) -> dict:
+    """Simpan `akses_data`: pohon wilayah (AreaTreeSchema) dan/atau payload kode lama."""
+    if replace:
+        clear_scopes(db, role_id)
+    trees = [item for item in items or [] if isinstance(item, AreaTreeSchema)]
+    legacy = [item for item in items or [] if isinstance(item, AksesDataInput)]
+    unresolved: list[str] = []
+    inserted = 0
+    if trees:
+        result = add_scopes_from_tree(db, role_id, trees)
+        unresolved.extend(result["unresolved"])
+        inserted += result["inserted"]
+    if legacy:
+        add_scopes_from_legacy_payload(db, role_id, legacy)
+    if unresolved:
+        preview = ", ".join(unresolved[:20])
+        raise bad_request(f"Wilayah tidak ditemukan: {preview}", field="akses_data")
+    return {"inserted": inserted, "unresolved": unresolved}
+
+
 def add_scopes_from_legacy_payload(db: Session, role_id: UUID, items: list[AksesDataInput]) -> None:
     """Payload `akses_data` lama di POST/PUT /roles: satu PT dengan list area/afdeling."""
     for item in items:

@@ -45,6 +45,7 @@ const form = reactive({
   perusahaan_ids: [],
   estate_ids: [],
   afdeling_ids: [],
+  blok_ids: [],
   transaksi_ids: [],
   selected_area_items: [],
   selected_perusahaan_items: [],
@@ -55,6 +56,7 @@ const form = reactive({
 const perusahaanByAreaMap = ref({});
 const estateByPerusahaanMap = ref({});
 const afdelingByEstateMap = ref({});
+const blokByAfdelingMap = ref({});
 
 const filteredRoles = computed(() => {
   const keyword = search.value.trim().toLowerCase();
@@ -98,11 +100,36 @@ const allDataArea = computed(() => {
   });
 });
 
+const areaIdentityValues = (area) =>
+  [area?.id, area?.area_id, area?.kode_area, area?.id_area, getAreaId(area)]
+    .map((value) => String(value ?? ""))
+    .filter(Boolean);
+
+const isAreaSelected = (area) => {
+  const saved = new Set(form.area_ids.map((id) => String(id)));
+  return areaIdentityValues(area).some((value) => saved.has(value));
+};
+
+const perusahaanIdentityValues = (perusahaan) =>
+  [
+    perusahaan?.id,
+    perusahaan?.kode_pt,
+    perusahaan?.kode,
+    perusahaan?.id_perusahaan,
+    getPerusahaanCode(perusahaan),
+    perusahaan?.nama_pt,
+    perusahaan?.nama,
+  ]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+
+const isPerusahaanSelected = (perusahaan) => {
+  const saved = new Set(form.perusahaan_ids.map((id) => String(id)));
+  return perusahaanIdentityValues(perusahaan).some((value) => saved.has(value));
+};
+
 const selectedAreas = computed(() => {
-  const selectedIds = new Set(form.area_ids.map((id) => String(id)));
-  return (manageRoleStore.allDataArea ?? []).filter((area) =>
-    selectedIds.has(String(area?.id)),
-  );
+  return (manageRoleStore.allDataArea ?? []).filter((area) => isAreaSelected(area));
 });
 
 const groupedPerusahaanByArea = computed(() => {
@@ -117,10 +144,9 @@ const groupedPerusahaanByArea = computed(() => {
 });
 
 const selectedPerusahaanList = computed(() => {
-  const selectedIds = new Set(form.perusahaan_ids.map((id) => String(id)));
   return groupedPerusahaanByArea.value
     .flatMap((group) => group.perusahaan)
-    .filter((item) => selectedIds.has(String(item?.id)));
+    .filter((item) => isPerusahaanSelected(item));
 });
 
 const groupedEstateByPerusahaan = computed(() => {
@@ -158,6 +184,26 @@ const groupedAfdelingByEstate = computed(() => {
   });
 });
 
+const groupedBlokByAfdeling = computed(() => {
+  return groupedAfdelingByEstate.value.flatMap((group) =>
+    (group.afdelings ?? [])
+      .filter((afdeling) => isAfdelingSelected(group.estate, afdeling))
+      .map((afdeling) => {
+        const mapKey = getAfdelingSelectionKey(
+          group.estateKey,
+          getAfdelingCode(afdeling),
+        );
+        return {
+          mapKey,
+          estate: group.estate,
+          estateKey: group.estateKey,
+          afdeling,
+          bloks: blokByAfdelingMap.value[mapKey] ?? [],
+        };
+      }),
+  );
+});
+
 const allDataTransaksi = computed(
   () => manageRoleStore.allDataTransaksi ?? [],
 );
@@ -174,6 +220,7 @@ function resetForm() {
   form.perusahaan_ids = [];
   form.estate_ids = [];
   form.afdeling_ids = [];
+  form.blok_ids = [];
   form.transaksi_ids = [];
   form.selected_area_items = [];
   form.selected_perusahaan_items = [];
@@ -188,6 +235,7 @@ function resetForm() {
   perusahaanByAreaMap.value = {};
   estateByPerusahaanMap.value = {};
   afdelingByEstateMap.value = {};
+  blokByAfdelingMap.value = {};
 
   activePermissionTab.value = "menu";
 }
@@ -229,9 +277,21 @@ async function fillForm(role) {
   perusahaanByAreaMap.value = {};
   estateByPerusahaanMap.value = {};
   afdelingByEstateMap.value = {};
+  blokByAfdelingMap.value = {};
+  form.blok_ids = [];
 
   try {
     const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
+
+    if (!(manageRoleStore.allDataArea ?? []).length) {
+      await manageRoleStore.initDataArea();
+    }
+    if (!(manageRoleStore.allDataMenu ?? []).length) {
+      await manageRoleStore.initDataMenu();
+    }
+    if (!(manageRoleStore.allDataTransaksi ?? []).length) {
+      await manageRoleStore.initDataTableTransaksi();
+    }
 
     const result = transformDataToForm(existingAkses?.data ?? [], {
       nama: "",
@@ -578,10 +638,13 @@ const syncSelectedItemsFromIds = () => {
 };
 
 const loadPerusahaanMapsForAreas = async (areaIds = []) => {
-  const selectedAreaSet = new Set((areaIds ?? []).map((id) => String(id)));
-  const selectedAreasLocal = (manageRoleStore.allDataArea ?? []).filter((area) =>
-    selectedAreaSet.has(String(area?.id ?? "")),
-  );
+  const selectedAreasLocal = (manageRoleStore.allDataArea ?? []).filter((area) => {
+    if (areaIds?.length) {
+      const saved = new Set((areaIds ?? []).map((id) => String(id)));
+      return areaIdentityValues(area).some((value) => saved.has(value));
+    }
+    return isAreaSelected(area);
+  });
 
   const areaCodes = [...new Set(
     selectedAreasLocal
@@ -602,29 +665,31 @@ const loadHierarchyForEdit = async () => {
   beginDataLoad();
   try {
     const selectedAreasLocal = await loadPerusahaanMapsForAreas(form.area_ids);
-    const selectedPerusahaanIdSet = new Set(
-      form.perusahaan_ids.map((id) => String(id)),
-    );
-    const perusahaanCodesToLoad = new Set(
-      form.selected_perusahaan_items
-        .map((item) => String(item?.kode_pt ?? ""))
-        .filter(Boolean),
-    );
-
-    for (const area of selectedAreasLocal) {
-      const areaCode = String(getAreaId(area));
-      const perusahaanList = perusahaanByAreaMap.value[areaCode] ?? [];
-
-      for (const perusahaan of perusahaanList) {
-        if (!selectedPerusahaanIdSet.has(String(perusahaan?.id ?? ""))) continue;
-
-        const perusahaanCode = String(getPerusahaanCode(perusahaan));
-        if (perusahaanCode) perusahaanCodesToLoad.add(perusahaanCode);
-      }
+    if (selectedAreasLocal.length) {
+      form.area_ids = Array.from(new Set(
+        selectedAreasLocal.map((area) => String(area?.id ?? "")).filter(Boolean),
+      ));
     }
 
-    const perusahaanCodes = [...perusahaanCodesToLoad].filter(
-      (perusahaanCode) => perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode],
+    const matchedPerusahaan = [];
+    for (const area of selectedAreasLocal) {
+      const areaCode = String(getAreaId(area));
+      for (const perusahaan of perusahaanByAreaMap.value[areaCode] ?? []) {
+        if (!isPerusahaanSelected(perusahaan)) continue;
+        matchedPerusahaan.push(perusahaan);
+      }
+    }
+    if (matchedPerusahaan.length) {
+      form.perusahaan_ids = Array.from(new Set(
+        matchedPerusahaan.map((item) => String(item?.id ?? "")).filter(Boolean),
+      ));
+    }
+
+    const perusahaanCodesToLoad = [...new Set(
+      matchedPerusahaan.map((item) => String(getPerusahaanCode(item))).filter(Boolean),
+    )];
+    const perusahaanCodes = perusahaanCodesToLoad.filter(
+      (perusahaanCode) => !estateByPerusahaanMap.value[perusahaanCode],
     );
     const estateLists = await Promise.all(
       perusahaanCodes.map((perusahaanCode) => manageRoleStore.initDataEstate(perusahaanCode)),
@@ -691,6 +756,13 @@ const loadHierarchyForEdit = async () => {
 
     syncSelectedItemsFromIds();
     pruneDownstreamSelections();
+
+    try {
+      await ensureBloksForAfdelingKeys(form.afdeling_ids);
+      form.blok_ids = collectBlokIds(form.afdeling_ids);
+    } catch {
+      form.blok_ids = collectBlokIds(form.afdeling_ids);
+    }
   } finally {
     endDataLoad();
   }
@@ -761,6 +833,8 @@ const autoSelectHierarchyFromAreas = async (areaIds = []) => {
     });
 
     form.afdeling_ids = Array.from(new Set(afdelingKeys));
+    await ensureBloksForAfdelingKeys(form.afdeling_ids);
+    form.blok_ids = collectBlokIds(form.afdeling_ids);
     syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   } finally {
@@ -847,6 +921,160 @@ const pruneDownstreamSelections = () => {
       getAfdelingSelectionKey(item?.kode_est, item?.kode_afd),
     ),
   );
+
+  const selectedAfdelingKeys = new Set(form.afdeling_ids.map((id) => String(id)));
+  const nextBlokMap = {};
+  Object.entries(blokByAfdelingMap.value).forEach(([key, bloks]) => {
+    if (selectedAfdelingKeys.has(String(key))) nextBlokMap[key] = bloks;
+  });
+  blokByAfdelingMap.value = nextBlokMap;
+  form.blok_ids = form.blok_ids.filter((id) =>
+    selectedAfdelingKeys.has(parentAfdelingKeyFromBlok(id)),
+  );
+};
+
+const getBlokCode = (blok) =>
+  String(blok?.kode_blok ?? blok?.blok ?? blok?.code ?? blok?.id ?? "");
+
+const getBlokSelectionKey = (estateCode, afdelingCode, blokCode) => {
+  const parentKey = getAfdelingSelectionKey(estateCode, afdelingCode);
+  const kodeBlok = String(blokCode ?? "");
+  if (!parentKey || !kodeBlok) return "";
+  return `${parentKey}${AFDELING_KEY_SEPARATOR}${kodeBlok}`;
+};
+
+const parentAfdelingKeyFromBlok = (blokKey) => {
+  const parts = String(blokKey ?? "").split(AFDELING_KEY_SEPARATOR);
+  if (parts.length < 3) return "";
+  return getAfdelingSelectionKey(parts[0], parts[1]);
+};
+
+const hasBlokCache = (key) =>
+  Object.prototype.hasOwnProperty.call(blokByAfdelingMap.value, key);
+
+const dedupeBloks = (list = []) => {
+  const seen = new Set();
+  return (list ?? []).filter((blok) => {
+    const key = String(blok?.id ?? getBlokCode(blok));
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const ensureAfdelingsLoaded = async (estateCodes = []) => {
+  const missing = [...new Set(estateCodes.map((code) => String(code)).filter(Boolean))]
+    .filter((estateCode) => !afdelingByEstateMap.value[estateCode]);
+  if (!missing.length) return;
+
+  beginDataLoad();
+  try {
+    const lists = await Promise.all(
+      missing.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
+    );
+    const next = { ...afdelingByEstateMap.value };
+    missing.forEach((estateCode, index) => {
+      next[estateCode] = lists[index] ?? [];
+    });
+    afdelingByEstateMap.value = next;
+  } finally {
+    endDataLoad();
+  }
+};
+
+const afdelingKeysForEstates = (estateCodes = []) => {
+  const keys = [];
+  estateCodes.forEach((estateCode) => {
+    (afdelingByEstateMap.value[String(estateCode)] ?? []).forEach((afdeling) => {
+      const key = getAfdelingSelectionKey(estateCode, getAfdelingCode(afdeling));
+      if (key) keys.push(key);
+    });
+  });
+  return keys;
+};
+
+const mergeAfdelingIds = (estateCodes = []) => {
+  const keys = afdelingKeysForEstates(estateCodes);
+  form.afdeling_ids = Array.from(new Set([
+    ...form.afdeling_ids.map((value) => String(value)),
+    ...keys,
+  ]));
+  return keys;
+};
+
+const collectBlokIds = (afdelingKeys = []) => {
+  const selected = new Set((afdelingKeys ?? []).map((key) => String(key)));
+  const ids = [];
+  Object.entries(blokByAfdelingMap.value).forEach(([afdKey, bloks]) => {
+    if (!selected.has(String(afdKey))) return;
+    const { kodeEst, kodeAfd } = parseAfdelingSelectionKey(afdKey);
+    (bloks ?? []).forEach((blok) => {
+      const selectionKey = getBlokSelectionKey(kodeEst, kodeAfd, getBlokCode(blok));
+      if (selectionKey) ids.push(selectionKey);
+    });
+  });
+  return Array.from(new Set(ids));
+};
+
+const mergeBlokIds = (afdelingKeys = []) => {
+  form.blok_ids = Array.from(new Set([
+    ...form.blok_ids.map((value) => String(value)),
+    ...collectBlokIds(afdelingKeys),
+  ]));
+};
+
+const ensureBloksForAfdelingKeys = async (afdelingKeys = []) => {
+  const pairs = [];
+  for (const key of afdelingKeys) {
+    const selectionKey = String(key ?? "");
+    const { kodeEst, kodeAfd } = parseAfdelingSelectionKey(selectionKey);
+    if (!kodeEst || !kodeAfd || hasBlokCache(selectionKey)) continue;
+    pairs.push({ key: selectionKey, kodeEst, kodeAfd });
+  }
+  if (!pairs.length) return;
+
+  beginDataLoad();
+  try {
+    const next = { ...blokByAfdelingMap.value };
+    const chunkSize = 6;
+    for (let index = 0; index < pairs.length; index += chunkSize) {
+      const chunk = pairs.slice(index, index + chunkSize);
+      const lists = await Promise.all(
+        chunk.map((pair) => manageRoleStore.initDataBlokByAfdeling(pair.kodeEst, pair.kodeAfd)),
+      );
+      chunk.forEach((pair, chunkIndex) => {
+        next[pair.key] = dedupeBloks(lists[chunkIndex] ?? []);
+      });
+    }
+    blokByAfdelingMap.value = next;
+  } finally {
+    endDataLoad();
+  }
+};
+
+const isBlokSelected = (estateCode, afdeling, blok) => {
+  const key = getBlokSelectionKey(
+    estateCode,
+    getAfdelingCode(afdeling),
+    getBlokCode(blok),
+  );
+  return !!key && form.blok_ids.includes(key);
+};
+
+const toggleBlok = (blok, estateCode, afdeling) => {
+  const key = getBlokSelectionKey(
+    estateCode,
+    getAfdelingCode(afdeling),
+    getBlokCode(blok),
+  );
+  if (!key) return;
+
+  const index = form.blok_ids.indexOf(key);
+  if (index > -1) {
+    form.blok_ids.splice(index, 1);
+  } else {
+    form.blok_ids.push(key);
+  }
 };
 
 const toggleArea = async (area) => {
@@ -908,6 +1136,18 @@ const togglePerusahaan = async (perusahaan) => {
         endDataLoad();
       }
     }
+    const estateCodes = (estateByPerusahaanMap.value[perusahaanCode] ?? [])
+      .map((estate) => String(getEstateCode(estate)))
+      .filter(Boolean);
+    form.estate_ids = Array.from(new Set([
+      ...form.estate_ids.map((value) => String(value)),
+      ...estateCodes,
+    ]));
+    await ensureAfdelingsLoaded(estateCodes);
+    const afdelingKeys = mergeAfdelingIds(estateCodes);
+    await ensureBloksForAfdelingKeys(afdelingKeys);
+    mergeBlokIds(afdelingKeys);
+    syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   }
 };
@@ -916,9 +1156,13 @@ const toggleEstate = async (estate) => {
   const code = String(getEstateCode(estate));
   if (!code) return;
 
-  const index = form.estate_ids.indexOf(code);
-  if (index > -1) {
-    form.estate_ids.splice(index, 1);
+  const aliases = new Set(
+    [code, String(estate?.id ?? "")].filter(Boolean),
+  );
+  const alreadySelected = form.estate_ids.some((id) => aliases.has(String(id)));
+
+  if (alreadySelected) {
+    form.estate_ids = form.estate_ids.filter((id) => !aliases.has(String(id)));
     form.selected_estate_items = form.selected_estate_items.filter(
       (item) => String(item?.kode_est ?? "") !== code,
     );
@@ -935,20 +1179,16 @@ const toggleEstate = async (estate) => {
         nama_estate: String(estate?.nama_estate ?? estate?.nama ?? ""),
       },
     ];
-    if (!afdelingByEstateMap.value[code]) {
-      beginDataLoad();
-      try {
-        const data = await manageRoleStore.initDataAfdelingByEstate(code);
-        afdelingByEstateMap.value[code] = data ?? [];
-      } finally {
-        endDataLoad();
-      }
-    }
+    await ensureAfdelingsLoaded([code]);
+    const afdelingKeys = mergeAfdelingIds([code]);
+    await ensureBloksForAfdelingKeys(afdelingKeys);
+    mergeBlokIds(afdelingKeys);
+    syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   }
 };
 
-const toggleAfdeling = (afdeling, estateCode = "") => {
+const toggleAfdeling = async (afdeling, estateCode = "") => {
   const afdelingCode = getAfdelingCode(afdeling);
   const selectionKey = getAfdelingSelectionKey(estateCode, afdelingCode);
   if (!selectionKey) return;
@@ -960,6 +1200,12 @@ const toggleAfdeling = (afdeling, estateCode = "") => {
       (item) =>
         getAfdelingSelectionKey(item?.kode_est, item?.kode_afd) !==
         selectionKey,
+    );
+    const nextBlokMap = { ...blokByAfdelingMap.value };
+    delete nextBlokMap[selectionKey];
+    blokByAfdelingMap.value = nextBlokMap;
+    form.blok_ids = form.blok_ids.filter(
+      (id) => parentAfdelingKeyFromBlok(id) !== selectionKey,
     );
   } else {
     form.afdeling_ids.push(selectionKey);
@@ -974,6 +1220,9 @@ const toggleAfdeling = (afdeling, estateCode = "") => {
         ),
       },
     ];
+    await ensureBloksForAfdelingKeys([selectionKey]);
+    mergeBlokIds([selectionKey]);
+    syncSelectedItemsFromIds();
   }
 };
 
@@ -1169,7 +1418,7 @@ onMounted(async () => {
                 <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
                   class="flex items-center gap-2 rounded-lg border border-default p-2"
                   :style="{ marginLeft: `${(Number(menu.level || 1) - 1) * 20}px` }">
-                  <input :checked="form.menu_ids.includes(menu.id)" type="checkbox" class="h-4 w-4"
+                  <input :checked="form.menu_ids.map((id) => String(id)).includes(String(menu.id))" type="checkbox" class="h-4 w-4"
                     @change="togglePermission(menu.id)" />
                   <span>
                     <span v-if="Number(menu.level) > 1" class="text-muted">↳ </span>
@@ -1193,7 +1442,7 @@ onMounted(async () => {
                 <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                   <label v-for="area in allDataArea" :key="area.id ?? area.kode_area ?? area.kode"
                     class="flex items-center gap-2 rounded-lg border border-default p-2">
-                    <input :checked="form.area_ids.includes(String(area.id))" type="checkbox" class="h-4 w-4"
+                    <input :checked="isAreaSelected(area)" type="checkbox" class="h-4 w-4"
                       @change="toggleArea(area)" />
                     <span>{{ area.nama ?? '' }}</span>
                   </label>
@@ -1201,7 +1450,7 @@ onMounted(async () => {
               </div>
 
               <div v-if="loadingHierarchy" class="mb-4 rounded-xl border border-default p-4 text-muted">
-                Memuat data hierarchy (perusahaan, estate, afdeling)...
+                Memuat data hierarchy (perusahaan, estate, afdeling, blok)...
               </div>
 
               <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-default p-4">
@@ -1223,7 +1472,7 @@ onMounted(async () => {
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="perusahaan in group.perusahaan" :key="perusahaan.id"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="form.perusahaan_ids.includes(String(perusahaan.id))" type="checkbox"
+                        <input :checked="isPerusahaanSelected(perusahaan)" type="checkbox"
                           class="h-4 w-4" @change="togglePerusahaan(perusahaan)" />
                         <span>{{ perusahaan.nama_pt ?? perusahaan.nama ?? perusahaan.title ??
                           getPerusahaanCode(perusahaan) }}</span>
@@ -1285,6 +1534,38 @@ onMounted(async () => {
                           class="h-4 w-4" @change="toggleAfdeling(afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
                           }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="groupedBlokByAfdeling.length" class="mt-4 rounded-xl border border-default p-4">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p class="font-semibold text-brand">Level 5 - Blok</p>
+                </div>
+
+                <div class="space-y-3">
+                  <div v-for="group in groupedBlokByAfdeling" :key="group.mapKey"
+                    class="rounded-lg border border-default p-3">
+                    <p class="mb-2 text-size-sm font-semibold text-label">
+                      Afdeling: {{ group.afdeling?.nama_afdeling ?? group.afdeling?.nama ?? getAfdelingCode(group.afdeling) }}
+                      <span class="text-muted">
+                        · Estate {{ group.estate?.nama_estate ?? group.estate?.nama ?? group.estateKey }}
+                      </span>
+                    </p>
+                    <div v-if="loadingHierarchy && !group.bloks.length" class="text-muted">
+                      Memuat blok...
+                    </div>
+                    <div v-else-if="!group.bloks.length" class="text-muted">
+                      Tidak ada blok untuk afdeling ini.
+                    </div>
+                    <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <label v-for="blok in group.bloks" :key="getBlokSelectionKey(group.estateKey, getAfdelingCode(group.afdeling), getBlokCode(blok))"
+                        class="flex items-center gap-2 rounded-lg border border-default p-2">
+                        <input :checked="isBlokSelected(group.estateKey, group.afdeling, blok)" type="checkbox"
+                          class="h-4 w-4" @change="toggleBlok(blok, group.estateKey, group.afdeling)" />
+                        <span>{{ blok.nama_blok ?? blok.nama ?? getBlokCode(blok) }}</span>
                       </label>
                     </div>
                   </div>
