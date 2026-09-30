@@ -44,6 +44,17 @@ def resolve_history_table(table: str) -> tuple[str, str]:
     return key, HISTORY_TABLES[key]["table"]
 
 
+def list_planting_years(db: Session, flt: BlockFilter) -> list[int]:
+    """Tahun tanam unik dari trx.area_statements (terbaru dulu), dibatasi filter wilayah/scope user."""
+    blocks_sql, params = flt.block_ids_subquery()
+    rows = db.execute(text(f"""
+        SELECT DISTINCT a.planting_year FROM trx.area_statements a
+        WHERE a.planting_year IS NOT NULL AND a.block_id IN ({blocks_sql})
+        ORDER BY a.planting_year DESC
+    """), params).scalars().all()
+    return [int(y) for y in rows]
+
+
 def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) -> dict:
     key, _physical = resolve_history_table(table)
 
