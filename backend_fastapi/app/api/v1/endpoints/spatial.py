@@ -164,6 +164,28 @@ def get_history_tables(db=Depends(deps.get_db), current_user=Depends(deps.get_cu
     return [row for row in rows if row["physical_table"] in allowed or row["table"] in allowed]
 
 
+@router.get("/history/tahun-tanam", summary="Daftar tahun tanam untuk filter GET /history")
+def get_history_planting_years(
+    area_id: Optional[str] = Query(None),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    blok_id: Optional[str] = Query(None),
+    kode_blok: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(None),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    user_access.require_transaction(db, current_user, "trx_areal_statement", "trx.area_statements")
+    flt = BlockFilter(
+        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
+        blok=blok_id or kode_blok, ownership=ownership,
+    )
+    user_access.apply_data_scope(db, current_user, flt)
+    years = history_service.list_planting_years(db, flt)
+    return {"data": years, "total": len(years)}
+
+
 @router.get("/history", summary="Histori transaksi per wilayah")
 def get_history_data(
     table: str = Query("trx_produksi_tbs"),

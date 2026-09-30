@@ -18,6 +18,7 @@ from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, json_safe, num, whole
 from app.utils.period import as_of_period, period_label, to_period
+from app.services.history_service import block_production_history, gap_category, gap_pct
 
 
 def resolve_block_id(db: Session, blok_ref: str) -> int:
@@ -157,6 +158,26 @@ def get_block_detail(
     else:
         achievement, category = 0.0, "NO TARGET"
 
+    # Yield & varians: rumus dan kunci sama dengan GET /history (dihitung dari data DB).
+    luas = num(master["planted_area_ha"])
+
+    def yield_ha(kg):
+        return num(kg) / 1000 / luas if luas and kg is not None else None
+
+    y_act, y_bgt, y_sns = yield_ha(prod.get("tbs_aktual")), yield_ha(prod.get("tbs_budget")), yield_ha(prod.get("tbs_sensus"))
+    gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
+
+    def rnd(v):
+        return round(v, 2) if v is not None else None
+
+    varians = {
+        "luas": round(luas, 2), "ton": round(tbs_act / 1000, 2),
+        "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
+        "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
+        "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
+        "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
+    }
+
     return {
         "status": "success",
         "message": f"Detail data blok {master['code']} berhasil dimuat.",
@@ -187,6 +208,7 @@ def get_block_detail(
         },
         "areal_statement": _statement_block(master),
         "produksi_tbs": {
+            **varians,
             "tbs": {
                 "aktual": tbs_act, "budget": tbs_bgt, "sensus": num(prod.get("tbs_sensus")),
                 "gap": round(tbs_act - tbs_bgt, 2), "pct_achievement": achievement, "kategori_yield": category,
@@ -201,6 +223,8 @@ def get_block_detail(
                 "kg_pkk": round(tbs_act / trees, 2) if trees else 0.0,
                 "jjg_pkk": round(jjg_act / trees, 2) if trees else 0.0,
             },
+            # Struktur yang sama dengan GET /history?table=trx_produksi_tbs (slope, data_histori, ringkasan gap).
+            **block_production_history(db, block_id, year),
         },
         "rotasi_pusingan": {
             "total_kegiatan": len(rotations),

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.services.block_filter import BlockFilter, statement_as_of_join
 from app.services.hierarchy_service import BLOCK_ATTRIBUTE_COLUMNS
+from app.services.history_service import gap_category, gap_pct
 from app.utils.geojson import feature_collection, make_feature
 from app.utils.parsing import json_safe
 from app.utils.period import period_label, period_parts, to_period
@@ -44,13 +45,36 @@ def _trx_summaries(db: Session, block_ids: list[int], as_of: date | None) -> dic
         }
 
     for r in db.execute(text(f"""
-        SELECT DISTINCT ON (block_id) block_id, period, ffb_actual_kg, ffb_budget_kg, bunches_actual, bjr_actual
-        FROM trx.block_productions WHERE block_id = ANY(:ids) {period_filter}
-        ORDER BY block_id, period DESC
+        SELECT DISTINCT ON (p.block_id) p.block_id, p.period, p.ffb_actual_kg, p.ffb_budget_kg, p.ffb_census_kg,
+               p.bunches_actual, p.bjr_actual, st.planted_area_ha
+        FROM trx.block_productions p
+        LEFT JOIN LATERAL (
+            SELECT a.planted_area_ha FROM trx.area_statements a
+            WHERE a.block_id = p.block_id AND a.period <= p.period ORDER BY a.period DESC LIMIT 1
+        ) st ON true
+        WHERE p.block_id = ANY(:ids) {period_filter.replace('period', 'p.period')}
+        ORDER BY p.block_id, p.period DESC
     """), params).mappings():
+        # Yield (ton/ha) & varians dihitung dari data DB, bukan dari kolom turunan di Excel.
+        luas = float(r["planted_area_ha"] or 0)
+
+        def yield_ha(kg):
+            return float(kg) / 1000 / luas if luas and kg is not None else None
+
+        y_act, y_bgt, y_sns = yield_ha(r["ffb_actual_kg"]), yield_ha(r["ffb_budget_kg"]), yield_ha(r["ffb_census_kg"])
+        gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
+
+        def rnd(v):
+            return round(v, 2) if v is not None else None
+
         summary[r["block_id"]]["produksi_tbs"] = {
             "tbs_aktual": json_safe(r["ffb_actual_kg"]), "tbs_budget": json_safe(r["ffb_budget_kg"]),
+            "tbs_sensus": json_safe(r["ffb_census_kg"]),
             "janjang_aktual": r["bunches_actual"], "bjr_aktual": json_safe(r["bjr_actual"]),
+            "luas_tanam": json_safe(r["planted_area_ha"]),
+            "y_aktual": rnd(y_act), "y_budget": rnd(y_bgt), "y_sensus": rnd(y_sns),
+            "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
+            "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
             "periode": period_label(r["period"]),
         }
 
