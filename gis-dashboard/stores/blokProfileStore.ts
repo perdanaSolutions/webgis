@@ -36,6 +36,19 @@ export type BlockCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record
 export type ProductionYear = {
   tahun: number; ton: number; luas: number; ton_ha: number; bjr: number; jjg_ppk: number; kg_ppk: number;
 };
+export type ProductionGapCategory = {
+  kategori: string;
+  keterangan: string;
+  luas: number;
+  jumlah_blok: number;
+  persen_blok: number;
+};
+export type ProductionGapSummary = {
+  periode: { tahun: number | null; bulan: number | null };
+  pembanding: string;
+  kategori: ProductionGapCategory[];
+  grand_total: { luas: number; jumlah_blok: number; persen_blok: number };
+};
 export type SlopeShare = { key: string; label: string; range: string; value: number; ha?: number };
 
 export type AreaStatementGroup = {
@@ -715,6 +728,41 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   const viewingBlock = computed(() => Boolean(blokId.value));
 
+  function gapSummaryOf(source: Record<string, any> | null | undefined, key: string): ProductionGapSummary | null {
+    const raw = source?.[key];
+    if (!raw || !Array.isArray(raw.kategori)) return null;
+    const row = (item: Record<string, any>): ProductionGapCategory => ({
+      kategori: String(item.kategori ?? ""),
+      keterangan: String(item.keterangan ?? ""),
+      luas: Number(item.luas ?? 0),
+      jumlah_blok: Number(item.jumlah_blok ?? 0),
+      persen_blok: Number(item.persen_blok ?? 0),
+    });
+    const total = raw.grand_total ?? {};
+    return {
+      periode: { tahun: raw.periode?.tahun ?? null, bulan: raw.periode?.bulan ?? null },
+      pembanding: String(raw.pembanding ?? ""),
+      kategori: raw.kategori.map((item: Record<string, any>) => row(item)),
+      grand_total: {
+        luas: Number(total.luas ?? 0),
+        jumlah_blok: Number(total.jumlah_blok ?? 0),
+        persen_blok: Number(total.persen_blok ?? 0),
+      },
+    };
+  }
+
+  /** Rekap gap produksi. Blok terpilih mengambil salinan yang sama di /blok/detail. */
+  const productionGapBudget = computed<ProductionGapSummary | null>(() =>
+    viewingBlock.value
+      ? gapSummaryOf(detail.value?.produksi_tbs, "ringkasan_gap_budget")
+      : gapSummaryOf(production.value, "ringkasan_gap_budget"),
+  );
+  const productionGapSensus = computed<ProductionGapSummary | null>(() =>
+    viewingBlock.value
+      ? gapSummaryOf(detail.value?.produksi_tbs, "ringkasan_gap_sensus")
+      : gapSummaryOf(production.value, "ringkasan_gap_sensus"),
+  );
+
   const productionYears = computed<ProductionYear[]>(() => {
     if (viewingBlock.value) return productionYearsFromDetail(detail.value);
     return ((production.value?.data_histori ?? []) as Array<Record<string, any>>)
@@ -814,7 +862,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blocks, blockFeatures, selectedFeature, detail, production, areaStatement, rotation,
     areaStatementView, rotationView,
     loadingOptions, loadingBlocks, loadingDetail, loadingProduction, loadingAreaStatement, loadingRotation, errorMessage,
-    scopeLevel, scopeLabel, scopeParams, productionYears, slopeShares, summary,
+    scopeLevel, scopeLabel, scopeParams, productionYears, productionGapBudget, productionGapSensus, slopeShares, summary,
     canViewProduction, canViewAreaStatement, canViewRotation,
     init, reset, setArea, setPt, setEstate, setAfdeling, setOwnership, setTahunTanam, selectBlock, loadSelectedDetail, clearBlockSelection, refreshScope,
   };

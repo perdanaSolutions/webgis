@@ -8,6 +8,7 @@ import BlockInfoCard from "~/components/blok-profile/BlockInfoCard.vue";
 import BlokProfileMap from "~/components/blok-profile/BlokProfileMap.vue";
 import FilterPanel from "~/components/blok-profile/FilterPanel.vue";
 import ProductionChartCard from "~/components/blok-profile/ProductionChartCard.vue";
+import ProductionGapCard from "~/components/blok-profile/ProductionGapCard.vue";
 import RotationCard from "~/components/blok-profile/RotationCard.vue";
 import SlopeDonutCard from "~/components/blok-profile/SlopeDonutCard.vue";
 import SummaryBar from "~/components/blok-profile/SummaryBar.vue";
@@ -317,6 +318,14 @@ onBeforeUnmount(() => {
         :inert="!isDesktop && !rightOpen ? true : undefined"
         :aria-hidden="!isDesktop && !rightOpen ? true : undefined">
         <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
+        <template v-if="store.canViewProduction">
+          <ProductionGapCard title="Gap terhadap Budget"
+            caption="Varians produksi aktual dibanding budget pada periode terakhir."
+            :data="store.productionGapBudget" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+          <ProductionGapCard title="Gap terhadap Sensus"
+            caption="Varians produksi aktual dibanding sensus pada periode terakhir."
+            :data="store.productionGapSensus" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+        </template>
         <SlopeDonutCard v-if="store.canViewProduction"
           :shares="store.slopeShares" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
         <ProductionChartCard v-if="store.canViewProduction" :years="store.productionYears"
