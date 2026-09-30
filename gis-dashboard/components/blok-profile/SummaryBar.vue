@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
+
 const props = defineProps<{
   summary: {
     kind: "blok" | "scope";
@@ -23,7 +25,7 @@ const caption = computed(() => {
   if (props.summary.kind === "scope") return props.summary.subtitle;
   const info = props.detail?.informasi_blok ?? {};
   return [STATUS[props.summary.status?.toUpperCase()] ?? props.summary.status,
-    info.tahun_tanam ? `Tahun tanam ${info.tahun_tanam}` : null, info.jenis_bibit ? `Bibit ${info.jenis_bibit}` : null]
+  info.tahun_tanam ? `Tahun tanam ${info.tahun_tanam}` : null, info.jenis_bibit ? `Bibit ${info.jenis_bibit}` : null]
     .filter(Boolean).join(" · ");
 });
 
@@ -44,8 +46,8 @@ function fmt(value: number | null, digits = 1) {
       </svg>
     </span>
     <div class="min-w-0 flex-1">
-      <p class="truncate text-16 font-bold text-[#2b2118]">{{ heading }}</p>
-      <p class="truncate text-13 text-[#8a7a68]">{{ caption }}</p>
+      <TruncatedText tag="p" class="text-16 font-bold text-[#2b2118]" :text="heading" />
+      <TruncatedText tag="p" class="text-13 text-[#8a7a68]" :text="caption" />
     </div>
     <dl class="hidden shrink-0 items-center gap-6 xl:flex">
       <div class="text-right">
@@ -61,12 +63,13 @@ function fmt(value: number | null, digits = 1) {
         <dt class="text-12 text-[#8a7a68]">Produksi{{ summary.produksiTahun ? ` ${summary.produksiTahun}` : "" }}</dt>
       </div>
     </dl>
-    <button type="button"
+    <!-- ini belum di eksekusi jangan di edit2  -->
+    <!-- <button type="button"
       class="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl bg-[#4a2f1d] px-5 text-14 font-semibold text-white hover:bg-[#3a2416] disabled:cursor-not-allowed disabled:opacity-50"
       :disabled="summary.kind !== 'blok'" :title="summary.kind !== 'blok' ? 'Pilih blok di peta terlebih dahulu' : ''"
       @click="emit('open-detail')">
       Buka Detail
       <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
-    </button>
+    </button> -->
   </div>
 </template>

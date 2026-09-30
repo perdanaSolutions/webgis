@@ -64,6 +64,15 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
+# Tahun tanam = planting_year di area statement TERBARU blok (bukan tahun kalender periode).
+_LATEST_PLANTING_YEAR = """EXISTS (
+    SELECT 1 FROM (
+        SELECT a.planting_year FROM trx.area_statements a
+        WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1
+    ) latest WHERE latest.planting_year = :f_tt
+)"""
+
+
 @dataclass
 class BlockFilter:
     area: str | None = None
@@ -72,14 +81,17 @@ class BlockFilter:
     kode_afd: str | None = None
     blok: str | None = None
     ownership: str | None = None
+    tahun_tanam: str | None = None
     extra_where: list[str] = field(default_factory=list)
     extra_params: dict = field(default_factory=dict)
     # Scope wilayah memakai alias `ar` (area terbaru blok). Join dipaksa bila klausa itu dipakai.
     force_area_join: bool = False
 
     def __post_init__(self):
-        for name in ("area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership"):
+        for name in ("area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership", "tahun_tanam"):
             setattr(self, name, _clean(getattr(self, name)))
+        if self.tahun_tanam is not None and not self.tahun_tanam.isdigit():
+            self.tahun_tanam = None
 
     @property
     def needs_area_join(self) -> bool:
@@ -105,6 +117,9 @@ class BlockFilter:
         if self.ownership:
             clauses.append("lower(bt.name) = lower(:f_owner)")
             params["f_owner"] = self.ownership
+        if self.tahun_tanam:
+            clauses.append(_LATEST_PLANTING_YEAR)
+            params["f_tt"] = int(self.tahun_tanam)
         return clauses, params
 
     def sql(self, with_area: bool = False) -> tuple[str, str, dict]:

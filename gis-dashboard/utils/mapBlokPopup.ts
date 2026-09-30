@@ -269,6 +269,82 @@ export function normalizeBlokPopupData(
   };
 }
 
+/** ACT/BGT di popup = ton/ha sampai dengan bulan (kg produksi / 1.000 / luas ha). */
+function tonPerHa(kg: unknown, luasHa: unknown): string {
+  const kgValue = Number(kg);
+  const area = Number(luasHa);
+  if (!Number.isFinite(kgValue) || !Number.isFinite(area) || area <= 0) return "-";
+  return formatNumberId(kgValue / 1000 / area);
+}
+
+/**
+ * Payload GET /spatial/blok/detail (struktur bersarang) -> baris popup peta.
+ * Payload datar lama tetap lewat normalizeBlokDetailResponse.
+ */
+export function blokPopupFromDetail(
+  detail: Record<string, any> | null | undefined,
+  overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
+): BlokPopupData {
+  if (detail && !detail.informasi_blok) {
+    return normalizeBlokDetailResponse(detail as BlokDetailResponse, undefined, overrides);
+  }
+
+  const info = detail?.informasi_blok ?? {};
+  const hierarchy = info.hierarki ?? {};
+  const totals = detail?.areal_statement?.grand_total ?? {};
+  const production = detail?.produksi_tbs ?? {};
+  const tbs = production.tbs ?? {};
+  const actualKg = Number(tbs.aktual);
+  const budgetKg = Number(tbs.budget);
+  const period = detail?.periode ?? {};
+  const gap = Number.isFinite(actualKg) && Number.isFinite(budgetKg) && budgetKg !== 0
+    ? formatPercentId(((actualKg - budgetKg) / budgetKg) * 100)
+    : "-";
+
+  return {
+    area: toDisplayText(hierarchy.nama_area || hierarchy.kode_area),
+    pt: toDisplayText(hierarchy.nama_pt || hierarchy.kode_pt),
+    estate: toDisplayText(hierarchy.nama_estate || hierarchy.kode_est),
+    afdeling: toDisplayText(hierarchy.kode_afd || hierarchy.nama_afd),
+    blok: toDisplayText(info.kode_blok || info.nama_blok),
+    tt: toDisplayText(info.tahun_tanam),
+    bibit: toDisplayText(info.jenis_bibit),
+    luas: toDisplayNumber(totals.luas_tanam),
+    pokok: toDisplayNumber(totals.total_pokok),
+    sph: toDisplayNumber(totals.sph),
+    bjrSdBi: toDisplayNumber(production.bjr?.aktual),
+    kgPkkSdBi: toDisplayNumber(production.kpi_per_pokok?.kg_pkk),
+    jjgPkkSdBi: toDisplayNumber(production.kpi_per_pokok?.jjg_pkk),
+    actSdBi: tonPerHa(tbs.aktual, totals.luas_tanam),
+    bgtSdBi: tonPerHa(tbs.budget, totals.luas_tanam),
+    gapSdBi: gap,
+    kategoriYield: toDisplayText(tbs.kategori_yield),
+    bulan: overrides?.bulan ?? toDisplayText(period.bulan, String(new Date().getMonth() + 1)),
+    tahun: overrides?.tahun ?? toDisplayText(period.tahun, String(new Date().getFullYear())),
+    blokId: toDisplayText(info.blok_id, ""),
+    kodeBlok: toDisplayText(info.kode_blok, ""),
+  };
+}
+
+/** Isi awal dari properti GeoJSON batas blok, sebelum detail periode selesai dimuat. */
+export function blokPopupFromFeature(
+  properties: Record<string, any>,
+  overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
+): BlokPopupData {
+  const statement = (properties.areal_statement ?? {}) as Record<string, any>;
+  return normalizeBlokPopupData(
+    {
+      ...properties,
+      nama_area: properties.nama_area ?? properties.kode_area,
+      luas: properties.luas ?? statement.luas_tanam,
+      pokok: properties.pokok ?? statement.total_pokok,
+      sph: properties.sph ?? statement.sph,
+    },
+    { area: "", pt: "", estate: "", afdeling: "" },
+    overrides,
+  );
+}
+
 export function normalizeBlokDetailResponse(
   detail: BlokDetailResponse,
   hierarchy?: {
@@ -426,19 +502,41 @@ export function getBulanPopupLabel(bulan: string): string {
   );
 }
 
+/**
+ * mode LATEST_TAHUN_TANAM = bulan+tahun yang diminta tidak punya transaksi,
+ * data di popup adalah transaksi paling akhir. SPESIFIK_TAHUN_TANAM = periode itu ada.
+ */
+export function periodAvailabilityNotice(
+  detail: Record<string, any> | null | undefined,
+  requested: { bulan: string; tahun: string },
+): string | undefined {
+  if (String(detail?.mode ?? "") !== "LATEST_TAHUN_TANAM") return undefined;
+  const asked = `${getBulanPopupLabel(requested.bulan)} ${requested.tahun}`;
+  const actualMonth = detail?.periode?.bulan;
+  const actualYear = detail?.periode?.tahun;
+  const actual = actualMonth && actualYear
+    ? `${getBulanPopupLabel(String(actualMonth))} ${actualYear}`
+    : "";
+  if (actual && actual !== asked) {
+    return `Periode ${asked} tidak tersedia. Data yang tampil adalah transaksi terakhir (${actual}).`;
+  }
+  return `Periode ${asked} tidak tersedia. Data yang tampil adalah transaksi terakhir.`;
+}
+
 export function buildBlokPopupHtml(
   data: BlokPopupData,
-  options?: { loading?: boolean; errorMessage?: string },
+  options?: { loading?: boolean; errorMessage?: string; notice?: string },
 ) {
   const gapColor = getGapColor(data.gapSdBi);
+  const banner = options?.errorMessage
+    ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${options.errorMessage}</p>`
+    : options?.notice
+      ? `<p data-popup-notice style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.4;">${options.notice}</p>`
+      : "";
 
   return `
     <div class="map-blok-popup" style="width:320px;max-width:320px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
-      ${
-        options?.errorMessage
-          ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${options.errorMessage}</p>`
-          : ""
-      }
+      ${banner}
       <div style="display:grid;gap:4px;margin-bottom:10px;">
         ${popupRow("Area", data.area)}
         ${popupRow("PT", data.pt)}

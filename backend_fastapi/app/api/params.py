@@ -22,8 +22,13 @@ def block_filter(
     kode_est: Annotated[str | None, Query(description="Kode/ID estate")] = None,
     kode_afd: Annotated[str | None, Query(description="Kode/ID afdeling")] = None,
     kode_blok: Annotated[str | None, Query(description="ID blok (numerik), kode blok, atau ID blok lama v2")] = None,
+    ownership: Annotated[str | None, Query(description="Tipe blok / kepemilikan. Kosong = semua")] = None,
+    tahun_tanam: Annotated[int | None, Query(ge=0, le=2100, description="Tahun tanam. Kosong = semua")] = None,
 ) -> BlockFilter:
-    return BlockFilter(area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
+    return BlockFilter(
+        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
+    )
 
 
 BlockFilterDep = Annotated[BlockFilter, Depends(block_filter)]

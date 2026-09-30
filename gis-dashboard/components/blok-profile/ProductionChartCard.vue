@@ -47,6 +47,7 @@ function ton(value: number) {
             class="pointer-events-none absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-lg bg-[#2b2118] px-2.5 py-1.5 text-12 text-white shadow-lg">
             <p class="font-semibold">{{ bar.tahun }} · {{ ton(bar.ton) }} ton</p>
             <p class="text-white/75">{{ bar.ton_ha.toLocaleString('id-ID', { maximumFractionDigits: 2 }) }} ton/ha · BJR {{ bar.bjr.toLocaleString('id-ID', { maximumFractionDigits: 1 }) }}</p>
+            <p class="text-white/75">{{ bar.jjg_ppk.toLocaleString('id-ID', { maximumFractionDigits: 2 }) }} jjg/pkk · {{ bar.kg_ppk.toLocaleString('id-ID', { maximumFractionDigits: 0 }) }} kg/pkk</p>
           </div>
         </div>
       </div>

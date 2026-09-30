@@ -173,6 +173,15 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     radius: 7,
     popupFields: [["kategori", "Kategori"], ["objectid", "Object ID"], ...BLOCK_FIELDS],
   },
+  drainase: {
+    defaultColor: "#0891b2",
+    radius: 5,
+    popupFields: [
+      ["nama", "Nama"], ["kategori", "Kategori"], ["jenis", "Jenis"],
+      ["diameter", "Diameter"], ["panjang", "Panjang (m)"], ["kedalaman", "Kedalaman"],
+      ["kondisi", "Kondisi"], ["keterangan", "Keterangan"], ...BLOCK_FIELDS,
+    ],
+  },
 };
 
 const GENERIC_COLORS = ["#06b6d4", "#ec4899", "#14b8a6", "#6366f1", "#84cc16", "#f43f5e"];

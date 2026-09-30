@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
+
 const props = defineProps<{
   summary: {
     kind: "blok" | "scope";
@@ -8,8 +10,10 @@ const props = defineProps<{
     subtitle: string;
     status: string;
     luas: number;
+    luasKerangka: number;
     pokok: number;
     blokCount: number;
+    filter: { pt: string; estate: string; afdeling: string; blok: string };
   };
   detail: Record<string, any> | null;
   loading: boolean;
@@ -29,11 +33,21 @@ function num(value: unknown, digits = 1) {
 
 const status = computed(() => STATUS[props.summary.status?.toUpperCase()] ?? null);
 
+const filterRows = computed(() => [
+  { label: "PT", value: props.summary.filter.pt },
+  { label: "Estate", value: props.summary.filter.estate },
+  { label: "Afdeling", value: props.summary.filter.afdeling },
+  { label: "Blok", value: props.summary.filter.blok },
+]);
+
 const rows = computed(() => {
+  const kerangka = { label: "Luas Kerangka", value: props.summary.luasKerangka ? `${num(props.summary.luasKerangka, 2)} Ha` : "-" };
   if (props.summary.kind === "scope") {
     const sph = props.summary.luas ? props.summary.pokok / props.summary.luas : 0;
     return [
+      ...filterRows.value,
       { label: "Jumlah Blok", value: props.summary.blokCount.toLocaleString("id-ID") },
+      kerangka,
       { label: "Luas Tanam", value: `${num(props.summary.luas)} Ha` },
       { label: "Total Pokok", value: num(props.summary.pokok, 0) },
       { label: "SPH Rata-rata", value: num(sph, 0) },
@@ -43,8 +57,9 @@ const rows = computed(() => {
   const periode = String(props.detail?.areal_statement?.periode ?? "");
   const [m, y] = periode.split("-");
   return [
+    ...filterRows.value,
+    kerangka,
     { label: "Luas Tanam", value: props.summary.luas ? `${num(props.summary.luas)} Ha` : "-" },
-    { label: "Estate", value: info.hierarki?.nama_estate ?? "-" },
     { label: "Tahun Tanam", value: info.tahun_tanam ?? "-" },
     { label: "Jenis Tanah", value: info.jenis_tanah ?? "-" },
     { label: "Bibit", value: info.jenis_bibit ?? "-" },
@@ -55,23 +70,25 @@ const rows = computed(() => {
 
 <template>
   <section class="bp-card p-5" aria-live="polite">
-    <div class="flex items-start justify-between gap-3 border-b border-[#eadfce] pb-4">
-      <div class="min-w-0">
-        <h2 class="truncate text-[26px] font-bold leading-tight tracking-tight text-[#2b2118]">{{ summary.title || "-" }}</h2>
-        <p class="truncate text-14 text-[#8a7a68]">{{ summary.subtitle }}</p>
+    <div class="flex flex-wrap items-start justify-between gap-2 border-b border-[#eadfce] pb-4">
+      <div class="min-w-0 flex-1 basis-[160px]">
+        <TruncatedText tag="h2" class="text-[22px] font-bold leading-tight tracking-tight text-[#2b2118] sm:text-[26px]"
+          :text="summary.title || '-'" />
+        <TruncatedText tag="p" class="text-14 text-[#8a7a68]" :text="summary.subtitle" />
       </div>
-      <span v-if="status" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-12 font-semibold" :class="status.tone">
+      <span v-if="status" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-12 font-semibold"
+        :class="status.tone">
         <span class="h-1.5 w-1.5 rounded-full bg-current" />{{ status.label }}
       </span>
-      <span v-else-if="summary.kind === 'scope'" class="shrink-0 rounded-lg bg-[#f6efe4] px-2.5 py-1 text-12 font-semibold text-[#6b5a48]">
-        Agregasi
+      <span v-else-if="summary.kind === 'scope'"
+        class="shrink-0 rounded-lg bg-[#f6efe4] px-2.5 py-1 text-12 font-semibold text-[#6b5a48]">
       </span>
     </div>
 
     <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-3" :class="loading && 'animate-pulse'">
       <div v-for="row in rows" :key="row.label" class="min-w-0">
         <dt class="text-12 text-[#8a7a68]">{{ row.label }}</dt>
-        <dd class="truncate text-15 font-semibold text-[#2b2118]" :title="String(row.value)">{{ row.value }}</dd>
+        <TruncatedText tag="dd" class="text-15 font-semibold text-[#2b2118]" :text="String(row.value)" />
       </div>
     </dl>
   </section>

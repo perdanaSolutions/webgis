@@ -36,10 +36,10 @@ type CatalogItem = {
   endpoints: Record<string, string> | null;
 };
 
-const ORDER = ["tph", "sawit", "kuning", "landuse", "slope", "jalan", "jembatan"];
+const ORDER = ["tph", "sawit", "kuning", "landuse", "slope", "jalan", "jembatan", "drainase"];
 const LABELS: Record<string, string> = {
   tph: "TPH", sawit: "Pokok Sawit", kuning: "Pokok Kuning", landuse: "Landuse", slope: "Slope",
-  jalan: "Jalan", jembatan: "Jembatan",
+  jalan: "Jalan", jembatan: "Jembatan", drainase: "Drainase",
 };
 const DEFAULT_ON = new Set(["tph", "sawit", "landuse"]);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];

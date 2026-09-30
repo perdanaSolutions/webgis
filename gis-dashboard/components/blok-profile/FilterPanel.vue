@@ -5,15 +5,23 @@ import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
 import { BASEMAPS, type BasemapKey } from "~/utils/mapLayers";
 
+type FieldKey = "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership" | "tahunTanam";
+
 const props = defineProps<{
   areaOptions: Option[];
+  ptOptions: Option[];
   estateOptions: Option[];
   afdelingOptions: Option[];
   blokOptions: Option[];
+  ownershipOptions: Option[];
+  tahunTanamOptions: Option[];
   area: string;
+  pt: string;
   estate: string;
   afdeling: string;
   blokId: string;
+  ownership: string;
+  tahunTanam: string;
   scopeLevel: ScopeLevel;
   blockCount: number;
   loading: boolean;
@@ -24,7 +32,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "update:area" | "update:estate" | "update:afdeling" | "update:blok", value: string): void;
+  (e: "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:tahunTanam", value: string): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
@@ -35,14 +43,19 @@ const emit = defineEmits<{
 const SCOPE_TEXT: Record<ScopeLevel, string> = {
   semua: "Semua wilayah yang Anda akses",
   area: "Area",
+  pt: "Perusahaan",
   estate: "Estate",
   afdeling: "Afdeling",
   blok: "Blok",
 };
 
-const scopeInfo = computed(() => props.scopeLevel === "blok"
-  ? "Scope aktif: Blok — data tidak diagregasi"
-  : `Scope aktif: ${SCOPE_TEXT[props.scopeLevel]} — agregasi ${props.blockCount.toLocaleString("id-ID")} blok`);
+const scopeInfo = computed(() => {
+  const extra = [props.ownership, props.tahunTanam ? `tahun tanam ${props.tahunTanam}` : ""].filter(Boolean);
+  const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
+  return props.scopeLevel === "blok"
+    ? `Scope aktif: Blok${suffix} — data tidak diagregasi`
+    : `Scope aktif: ${SCOPE_TEXT[props.scopeLevel]}${suffix} — agregasi ${props.blockCount.toLocaleString("id-ID")} blok`;
+});
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0));
 const totalCount = computed(() => props.layers.length + 1);
@@ -62,18 +75,26 @@ function subtitleOf(layer: OverlayLayer) {
 
 const fields = computed(() => [
   { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: "Pilih area", disabled: false },
-  { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: !props.area },
+  { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: "Semua perusahaan", disabled: !props.area },
+  { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: !props.pt },
   { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: "Semua afdeling", disabled: !props.estate },
-  { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Pilih blok di peta", disabled: !props.blokOptions.length },
+  { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Pilih blok di peta", disabled: !props.afdeling },
+  { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
+  { key: "tahunTanam" as const, label: "Tahun Tanam", value: props.tahunTanam, options: props.tahunTanamOptions, placeholder: "Semua tahun tanam", disabled: false },
 ]);
 
-function onField(key: "area" | "estate" | "afdeling" | "blok", value: string) {
-  emit(`update:${key}` as any, value);
+function itemsOf(field: { key: FieldKey; options: Option[]; placeholder: string }) {
+  if (field.key === "area") return field.options;
+  return [{ label: field.placeholder, value: "" }, ...field.options];
+}
+
+function onField(key: FieldKey, value: unknown) {
+  emit(`update:${key}`, value == null ? "" : String(value));
 }
 </script>
 
 <template>
-  <div class="bp-card flex h-full flex-col overflow-hidden">
+  <div class="bp-card flex h-full min-h-0 flex-col overflow-hidden">
     <div class="flex-1 overflow-y-auto">
       <!-- FILTER -->
       <section class="px-5 pb-5 pt-5">
@@ -89,18 +110,13 @@ function onField(key: "area" | "estate" | "afdeling" | "blok", value: string) {
             :disabled="loading" @click="emit('reset')">Reset</button>
         </div>
 
-        <label v-for="field in fields" :key="field.key" class="mb-3 block">
+        <label v-for="field in fields" :key="field.key" class="mb-3 block w-full">
           <span class="bp-label">{{ field.label }}</span>
-          <div class="relative">
-            <select class="bp-select" :value="field.value" :disabled="field.disabled || loading"
-              @change="onField(field.key, ($event.target as HTMLSelectElement).value)">
-              <option v-if="field.key !== 'area'" value="">{{ field.placeholder }}</option>
-              <option v-else-if="!field.value" value="" disabled>{{ field.placeholder }}</option>
-              <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-            <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b5a48]" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-          </div>
+          <v-autocomplete class="bp-autocomplete" :model-value="field.value || null" :items="itemsOf(field)" item-title="label"
+            item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading" variant="solo" flat
+            density="comfortable" hide-details single-line color="#6b4a2e" bg-color="#fbf7f0" base-color="#eadfce"
+            menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu' }"
+            @update:model-value="onField(field.key, $event)" />
         </label>
 
         <div class="mt-4 flex items-start gap-2 rounded-xl bg-[#f6efe4] px-3.5 py-3 text-13 text-[#6b5a48]">

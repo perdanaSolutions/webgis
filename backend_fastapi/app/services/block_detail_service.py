@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, json_safe, num, whole
-from app.utils.period import as_of_period, period_label
+from app.utils.period import as_of_period, period_label, to_period
 
 
 def resolve_block_id(db: Session, blok_ref: str) -> int:
@@ -66,6 +66,30 @@ def _statement_block(r: dict) -> dict | None:
     }
 
 
+def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tahun: int | None) -> tuple[date | None, bool]:
+    """
+    Popup mengirim bulan+tahun. Kalau periode itu punya transaksi, pakai persis
+    periode itu (SPESIFIK). Kalau tidak, jatuh ke transaksi paling akhir (LATEST)
+    supaya angka yang tampil bukan nol di tahun kosong.
+    Tanpa bulan+tahun, perilaku lama: statement terbaru tanpa batas atas.
+    """
+    if bulan is None or tahun is None:
+        return as_of_period(bulan, tahun), False
+
+    requested = to_period(bulan, tahun)
+    row = db.execute(text("""
+        SELECT BOOL_OR(period = :p) AS exact, MAX(period) AS latest
+        FROM (
+            SELECT period FROM trx.area_statements WHERE block_id = :bid
+            UNION ALL SELECT period FROM trx.block_productions WHERE block_id = :bid
+            UNION ALL SELECT period FROM trx.harvest_rotations WHERE block_id = :bid
+        ) src
+    """), {"bid": block_id, "p": requested}).mappings().one()
+    if row["exact"]:
+        return requested, True
+    return row["latest"], False
+
+
 def get_block_detail(
     db: Session,
     blok_ref: str,
@@ -75,7 +99,8 @@ def get_block_detail(
     tahun: int | None = None,
 ) -> dict:
     block_id = resolve_block_id(db, blok_ref)
-    as_of = as_of_period(bulan, tahun)
+    period_requested = bulan is not None and tahun is not None
+    as_of, period_exact = _resolve_requested_period(db, block_id, bulan, tahun)
     params = {"bid": block_id, "as_of": as_of, "tt": tahun_tanam}
 
     master = db.execute(text(f"""
@@ -93,14 +118,18 @@ def get_block_detail(
         WHERE bl.id = :bid
     """), params).mappings().one()
 
-    # Tahun akumulasi produksi & rotasi: tahun diminta, atau tahun data produksi terbaru blok ini.
-    year = tahun or db.execute(
-        text(f"SELECT extract(year FROM max(period))::int FROM trx.block_productions WHERE block_id = :bid "
-             f"{'AND period <= :as_of' if as_of else ''}"),
-        params,
-    ).scalar()
+    # Produksi & rotasi mengikuti periode yang dipakai. Kalau filter bulan+tahun
+    # kosong, tetap tahun produksi terbaru (perilaku lama).
+    if period_requested and as_of is not None:
+        year, year_end = as_of.year, as_of
+    else:
+        year = tahun or db.execute(
+            text(f"SELECT extract(year FROM max(period))::int FROM trx.block_productions WHERE block_id = :bid "
+                 f"{'AND period <= :as_of' if as_of else ''}"),
+            params,
+        ).scalar()
+        year_end = as_of if (as_of and year and as_of.year == year) else (date(year, 12, 1) if year else None)
     year_start = date(year, 1, 1) if year else None
-    year_end = as_of if (as_of and year and as_of.year == year) else (date(year, 12, 1) if year else None)
     range_params = {"bid": block_id, "start": year_start, "end": year_end}
 
     prod = db.execute(text("""
@@ -131,9 +160,10 @@ def get_block_detail(
     return {
         "status": "success",
         "message": f"Detail data blok {master['code']} berhasil dimuat.",
-        "mode": "SPESIFIK_TAHUN_TANAM" if tahun_tanam else "LATEST_TAHUN_TANAM",
+        "mode": "SPESIFIK_TAHUN_TANAM" if period_exact else "LATEST_TAHUN_TANAM",
         "periode": {
-            "bulan": bulan, "tahun": year,
+            "bulan": (as_of.month if as_of is not None else None) if period_requested else bulan,
+            "tahun": (as_of.year if as_of is not None else None) if period_requested else year,
             "label_periode": f"Tahun {year}" + (f" s/d bulan {year_end.month}" if year_end and year_end.month < 12 else "")
             if year else "Belum ada data produksi",
         },
