@@ -70,6 +70,75 @@ def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) ->
     return _area_statement(db, blocks_sql, params, tahun, filter_info)
 
 
+GAP_CATEGORIES = (
+    ("OPTIMUM", "Varians > 0%"),
+    ("GAP I", "Varians minus 1 - 20%"),
+    ("GAP II", "Varians minus 20 - 40%"),
+    ("GAP III", "Varians minus > 40%"),
+)
+
+
+def gap_pct(actual, target) -> float | None:
+    """% selisih aktual terhadap target ((aktual - target) / target * 100)."""
+    if actual is None or not target:
+        return None
+    return (actual - target) / target * 100
+
+
+def gap_category(gap_pct: float | None) -> str | None:
+    """Kategori varians produksi (sama dengan aplikasi lama); None bila tidak ada target."""
+    if gap_pct is None:
+        return None
+    if gap_pct >= 0:
+        return "OPTIMUM"
+    if gap_pct >= -20:
+        return "GAP I"
+    if gap_pct >= -40:
+        return "GAP II"
+    return "GAP III"
+
+
+def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_filter: str, target: str) -> dict | None:
+    """Rekap kategori GAP per blok (luas, jumlah blok, % blok) pada periode produksi terbaru."""
+    latest = db.execute(text(f"""
+        SELECT max(p.period) FROM trx.block_productions p WHERE p.block_id IN ({blocks_sql}) {year_filter}
+    """), params).scalar()
+    if latest is None:
+        return None
+    target_col = {"budget": "ffb_budget_kg", "sensus": "ffb_census_kg"}[target]
+    blocks = db.execute(text(f"""
+        SELECT SUM(p.ffb_actual_kg) AS act, SUM(p.{target_col}) AS tgt, SUM(a.planted_area_ha) AS luas
+        FROM trx.block_productions p
+        LEFT JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
+        WHERE p.block_id IN ({blocks_sql}) AND p.period = :latest
+        GROUP BY p.block_id
+    """), {**params, "latest": latest}).mappings().all()
+
+    buckets = {name: {"luas": 0.0, "jumlah_blok": 0} for name, _ in GAP_CATEGORIES}
+    for b in blocks:
+        category = gap_category(gap_pct(num(b["act"]), num(b["tgt"])))
+        if category:
+            buckets[category]["luas"] += num(b["luas"])
+            buckets[category]["jumlah_blok"] += 1
+    total_blok = sum(v["jumlah_blok"] for v in buckets.values())
+    return {
+        "periode": {"tahun": latest.year, "bulan": latest.month},
+        "pembanding": target,
+        "kategori": [
+            {
+                "kategori": name, "keterangan": note, "luas": round(buckets[name]["luas"], 2),
+                "jumlah_blok": buckets[name]["jumlah_blok"],
+                "persen_blok": round(buckets[name]["jumlah_blok"] / total_blok * 100, 1) if total_blok else 0.0,
+            }
+            for name, note in GAP_CATEGORIES
+        ],
+        "grand_total": {
+            "luas": round(sum(v["luas"] for v in buckets.values()), 2), "jumlah_blok": total_blok,
+            "persen_blok": 100.0 if total_blok else 0.0,
+        },
+    }
+
+
 def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, filter_info: dict) -> dict:
     monthly = tahun is not None
     params = {**params, "tahun": tahun}
@@ -96,8 +165,8 @@ def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, f
     rows = db.execute(text(f"""
         WITH m AS (
             SELECT p.period,
-                   SUM(p.ffb_actual_kg) AS ffb, SUM(p.bunches_actual) AS bunches,
-                   SUM(a.planted_area_ha) AS area, SUM(a.tree_count) AS trees
+                   SUM(p.ffb_actual_kg) AS ffb, SUM(p.ffb_budget_kg) AS ffb_bgt, SUM(p.ffb_census_kg) AS ffb_sns,
+                   SUM(p.bunches_actual) AS bunches, SUM(a.planted_area_ha) AS area, SUM(a.tree_count) AS trees
             FROM trx.block_productions p
             LEFT JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
             WHERE p.block_id IN ({blocks_sql}) {year_filter}
@@ -106,11 +175,33 @@ def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, f
         SELECT {time_cols},
                AVG(area) AS luas,
                SUM(ffb) / 1000.0 AS ton,
+               SUM(ffb_bgt) / 1000.0 AS ton_bgt,
+               SUM(ffb_sns) / 1000.0 AS ton_sns,
                SUM(ffb) / NULLIF(SUM(bunches), 0) AS bjr,
                SUM(bunches) / NULLIF(AVG(trees), 0) AS jjg_ppk,
                SUM(ffb) / NULLIF(AVG(trees), 0) AS kg_ppk
         FROM m GROUP BY {group_by} ORDER BY {group_by}
     """), params).mappings().all()
+
+    def history_row(r) -> dict:
+        luas = num(r["luas"])
+        yield_of = lambda ton: num(ton) / luas if luas and ton is not None else None  # noqa: E731
+        y_act, y_bgt, y_sns = yield_of(r["ton"]), yield_of(r["ton_bgt"]), yield_of(r["ton_sns"])
+        gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
+        rnd = lambda v: round(v, 2) if v is not None else None  # noqa: E731
+        return {
+            "periode": r["bulan"] if monthly else r["tahun"],
+            "tahun": r["tahun"], "bulan": r["bulan"],
+            "luas": round(luas, 2),
+            "ton": round(num(r["ton"]), 2),
+            "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
+            "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
+            "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
+            "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
+            "bjr": round(num(r["bjr"]), 2),
+            "jjg_ppk": round(num(r["jjg_ppk"]), 2) if r["jjg_ppk"] is not None else None,
+            "kg_ppk": round(num(r["kg_ppk"])) if r["kg_ppk"] is not None else None,
+        }
 
     return {
         "table": "trx_produksi_tbs",
@@ -127,19 +218,9 @@ def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, f
             "8-15%": round(num(slope["s2"]), 2), "15-25%": round(num(slope["s3"]), 2), ">25%": 0.0,
         },
         "total_periode": len(rows),
-        "data_histori": [
-            {
-                "periode": r["bulan"] if monthly else r["tahun"],
-                "tahun": r["tahun"], "bulan": r["bulan"],
-                "luas": round(num(r["luas"]), 2),
-                "ton": round(num(r["ton"]), 2),
-                "ton_ha": round(num(r["ton"]) / num(r["luas"]), 2) if num(r["luas"]) else 0.0,
-                "bjr": round(num(r["bjr"]), 2),
-                "jjg_ppk": round(num(r["jjg_ppk"]), 2) if r["jjg_ppk"] is not None else None,
-                "kg_ppk": round(num(r["kg_ppk"])) if r["kg_ppk"] is not None else None,
-            }
-            for r in rows
-        ],
+        "data_histori": [history_row(r) for r in rows],
+        "ringkasan_gap_budget": _production_gap_summary(db, blocks_sql, params, year_filter, "budget"),
+        "ringkasan_gap_sensus": _production_gap_summary(db, blocks_sql, params, year_filter, "sensus"),
     }
 
 
