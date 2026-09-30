@@ -78,6 +78,11 @@ GAP_CATEGORIES = (
 )
 
 
+def block_production_history(db: Session, block_id: int, tahun: int | None) -> dict:
+    """Respons `trx_produksi_tbs` (sama dengan GET /history) untuk SATU blok berdasarkan id pasti."""
+    return _production(db, "SELECT :hist_bid", {"hist_bid": block_id}, tahun, {"blok_id": block_id})
+
+
 def gap_pct(actual, target) -> float | None:
     """% selisih aktual terhadap target ((aktual - target) / target * 100)."""
     if actual is None or not target:

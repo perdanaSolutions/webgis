@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, json_safe, num, whole
-from app.services.history_service import gap_category, gap_pct
+from app.services.history_service import block_production_history, gap_category, gap_pct
 from app.utils.period import as_of_period, period_label
 
 
@@ -193,6 +193,8 @@ def get_block_detail(
                 "kg_pkk": round(tbs_act / trees, 2) if trees else 0.0,
                 "jjg_pkk": round(jjg_act / trees, 2) if trees else 0.0,
             },
+            # Struktur yang sama dengan GET /history?table=trx_produksi_tbs (slope, data_histori, ringkasan gap).
+            **block_production_history(db, block_id, year),
         },
         "rotasi_pusingan": {
             "total_kegiatan": len(rotations),

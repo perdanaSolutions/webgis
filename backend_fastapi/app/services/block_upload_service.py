@@ -39,7 +39,7 @@ class BlockFeature:
 
 
 def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
-    estate_code = clean_str(props.get("EstID") or props.get("Est") or props.get("Estate"))
+    estate_code = clean_str(props.get("Est_ID") or props.get("EstID") or props.get("Est") or props.get("Estate"))
     division, block = clean_str(props.get("Afdeling")), clean_str(props.get("Blok"))
     if not (estate_code and division and block):
         return None
