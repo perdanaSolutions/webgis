@@ -11,6 +11,7 @@ KEAMANAN: nama tabel/kolom dibangun dari input -> wajib lewat sanitize_identifie
 dan quote_ident/quote_table (lihat app/utils/sql.py).
 """
 import json
+import math
 import re
 from datetime import date, datetime
 from uuid import UUID
@@ -26,7 +27,7 @@ from app.services.upload.copy import copy_rows
 from app.services.upload.resolvers import BlockIndex, BlockMatchReport, geojson_block_keys, match_blocks
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
 from app.utils.pagination import page_response
-from app.utils.parsing import clean_str, to_float, to_int
+from app.utils.parsing import clean_str, is_blank, to_float
 from app.utils.period import period_label, to_period
 from app.utils.sql import quote_ident, quote_table, sanitize_identifier
 
@@ -347,16 +348,57 @@ def _attribute_columns(db: Session, layer: dict) -> list[dict]:
     return result
 
 
+INVALID = object()  # penanda nilai atribut terisi tapi tidak bisa dikonversi ke tipe kolom
+INT_RANGES = {"smallint": 2**15, "integer": 2**31, "bigint": 2**63}
+FLOAT_TYPES = {"double precision", "real", "numeric"}
+TRUE_VALUES = {"true", "t", "1", "y", "ya", "yes"}
+FALSE_VALUES = {"false", "f", "0", "n", "tidak", "no"}
+
+
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    text_value = str(value).strip().lower()
+    if text_value in TRUE_VALUES:
+        return True
+    if text_value in FALSE_VALUES:
+        return False
+    return INVALID
+
+
+def _to_date(value):
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text_value = str(value).strip()
+    for parse in (date.fromisoformat, lambda s: datetime.fromisoformat(s).date()):
+        try:
+            return parse(text_value).isoformat()
+        except ValueError:
+            continue
+    return INVALID
+
+
 def _cast(value, data_type: str):
-    if data_type in ("bigint", "integer", "smallint"):
-        return to_int(value)
-    if data_type in ("double precision", "real", "numeric"):
-        return to_float(value)
-    if data_type == "boolean":
-        return None if value is None else bool(value)
-    if data_type == "date":
-        return value.isoformat() if isinstance(value, (date, datetime)) else clean_str(value)
-    return clean_str(value) if not isinstance(value, (dict, list)) else json.dumps(value)
+    """Nilai properti -> nilai kolom. None = kosong; INVALID = terisi tapi tidak cocok dengan tipe kolom."""
+    if is_blank(value):
+        return None
+    if data_type in INT_RANGES or data_type in FLOAT_TYPES:
+        number = None if isinstance(value, (dict, list)) else to_float(value)
+        if number is None or not math.isfinite(number):
+            return INVALID
+        if data_type in FLOAT_TYPES:
+            return number
+        limit = INT_RANGES[data_type]
+        return int(number) if -limit <= number < limit else INVALID
+    if data_type in ("boolean", "date"):
+        if isinstance(value, (dict, list)):
+            return INVALID
+        return _to_bool(value) if data_type == "boolean" else _to_date(value)
+    return json.dumps(value) if isinstance(value, (dict, list)) else clean_str(value)
 
 
 def _prepare(db: Session, layer: dict, content: bytes) -> dict:
@@ -364,7 +406,8 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
     columns = _attribute_columns(db, layer)
     has_block = layer["relasi_blok"]
     has_objectid = any(c["column"] == "objectid" for c in columns)
-    stats = {"total": len(features), "invalid_props": 0, "invalid_geom": 0, "duplicates": 0}
+    stats = {"total": len(features), "invalid_props": 0, "invalid_geom": 0, "duplicates": 0, "invalid_values": 0}
+    invalid_samples: list[str] = []
 
     candidates: list[tuple[tuple | None, dict]] = []
     for feature in features:
@@ -377,7 +420,17 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
         if geom is None:
             stats["invalid_geom"] += 1
             continue
-        row = {"geom": geom, **{col["column"]: _cast(props.get(col["property"]), col["data_type"]) for col in columns}}
+        row = {"geom": geom}
+        for col in columns:
+            value = _cast(props.get(col["property"]), col["data_type"])
+            if value is INVALID:
+                # Nilai tidak cocok tipe kolom -> disimpan kosong, fitur tetap diunggah.
+                stats["invalid_values"] += 1
+                sample = f"{col['property']}={props.get(col['property'])!r} ({col['data_type']})"
+                if len(invalid_samples) < 5 and sample not in invalid_samples:
+                    invalid_samples.append(sample[:200])
+                value = None
+            row[col["column"]] = value
         candidates.append((keys, row))
 
     match = BlockMatchReport()
@@ -397,7 +450,8 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
             rows.append(row)
     rows.extend(by_objectid.values())
     stats["missing_block"] = match.missing
-    return {"rows": rows, "columns": columns, "stats": stats, "has_objectid": has_objectid, "match": match}
+    return {"rows": rows, "columns": columns, "stats": stats, "has_objectid": has_objectid, "match": match,
+            "invalid_samples": invalid_samples}
 
 
 def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun: int) -> dict:
@@ -410,6 +464,8 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
         "tertahan_karena_blok_belum_ada": s["missing_block"] if layer["relasi_blok"] else None,
         "data_properti_invalid": s["invalid_props"], "data_geometri_invalid": s["invalid_geom"],
         "duplikat_objectid_dalam_file": s["duplicates"],
+        "nilai_atribut_invalid": s["invalid_values"],
+        "contoh_nilai_atribut_invalid": prepared["invalid_samples"],
         **prepared["match"].as_dict(),
         "contoh_blok_tidak_ditemukan": prepared["match"].unmatched_samples,
         "kolom_tersimpan": [c["column"] for c in prepared["columns"]],
@@ -431,9 +487,12 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
             if layer["relasi_blok"]:
                 clauses.append("block_id = ANY(:blocks)")
                 params["blocks"] = sorted({r["block_id"] for r in rows})
-            if prepared["has_objectid"]:
+            oids = {r["objectid"] for r in rows if r.get("objectid") is not None}
+            # Tanpa relasi blok, baris ber-objectid kosong tidak bisa dicocokkan dengan data lama
+            # -> ganti seluruh periode supaya re-upload tidak menggandakan data.
+            if prepared["has_objectid"] and oids and (layer["relasi_blok"] or len(oids) == len(rows)):
                 clauses.append("objectid = ANY(:oids)")
-                params["oids"] = sorted({r["objectid"] for r in rows if r.get("objectid") is not None})
+                params["oids"] = sorted(oids)
             condition = f" AND ({' OR '.join(clauses)})" if clauses else ""
             replaced = db.execute(text(f"DELETE FROM {q_table} WHERE period = :p{condition}"), params).rowcount
             attr = [c["column"] for c in prepared["columns"]]
@@ -454,6 +513,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
         "sukses_terunggah": success, "tertahan_blok_missing": stats["missing_block"],
         "properti_invalid": stats["invalid_props"], "geometri_invalid": stats["invalid_geom"],
         "duplikat_dalam_file": stats["duplicates"], "data_lama_diganti": replaced,
+        "nilai_atribut_invalid": stats["invalid_values"], "contoh_nilai_atribut_invalid": prepared["invalid_samples"],
         **prepared["match"].as_dict(), "sistem_error": 0,
     }
     finish_batch(db, batch_id, status, success,
@@ -462,58 +522,76 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
             "status_proses": status, "detail_status": detail}
 
 
+# Kode hierarki blok diberi alias berawalan "_" supaya tidak bentrok dengan kolom atribut
+# (nama kolom hasil sanitize_identifier selalu diawali huruf).
+_BLOCK_FIELDS = (("kode_est", "es.code"), ("kode_afd", "dv.code"), ("kode_blok", "bl.code"))
+
+
 def _select(db: Session, layer: dict) -> tuple[str, list[str]]:
     attr = [c["column"] for c in _attribute_columns(db, layer)]
-    cols = ["t.id", *(["t.block_id AS blok_id"] if layer["relasi_blok"] else []), *(f"t.{quote_ident(c)}" for c in attr)]
+    cols = ["t.id", "t.period"]
+    if layer["relasi_blok"]:
+        cols += ["t.block_id AS blok_id", *(f"{expr} AS _{name}" for name, expr in _BLOCK_FIELDS)]
+    cols += [f"t.{quote_ident(c)}" for c in attr]
     return ", ".join(cols), attr
 
 
-def _where(layer: dict, period: date | None, blok: str | None) -> tuple[str, str, dict]:
+def _properties(layer: dict, row, attr: list[str]) -> dict:
+    """Urutan & isi properti disamakan dengan layer bawaan: id, blok_id, kode_est/afd/blok, atribut, bulan, tahun."""
+    props = {"id": row["id"]}
+    if layer["relasi_blok"]:
+        props["blok_id"] = row["blok_id"]
+        props.update({name: row[f"_{name}"] for name, _ in _BLOCK_FIELDS})
+    for c in attr:
+        props.setdefault(c, row[c])
+    props.update({"bulan": row["period"].month, "tahun": row["period"].year})
+    return props
+
+
+def _where(layer: dict, period: date | None, flt: BlockFilter) -> tuple[str, str, dict]:
+    """Filter hierarki (area/PT/estate/afdeling/blok) + scope wilayah hanya berlaku untuk layer berelasi blok."""
     joins, clauses, params = "", [], {}
     if period:
         clauses.append("t.period = :p")
         params["p"] = period
-    if blok and layer["relasi_blok"]:
-        b_joins, b_where, b_params = BlockFilter(blok=blok).sql()
+    if layer["relasi_blok"]:
+        b_joins, b_where, b_params = flt.sql()
         joins = f"JOIN master.blocks bl ON bl.id = t.block_id {b_joins}"
-        clauses.append(b_where.removeprefix("WHERE "))
+        if b_where:
+            clauses.append(b_where.removeprefix("WHERE "))
         params.update(b_params)
     return joins, ("WHERE " + " AND ".join(clauses)) if clauses else "", params
 
 
 def generic_list(db: Session, layer: dict, page: int, limit: int, bulan: int | None, tahun: int | None,
-                 blok: str | None) -> dict:
+                 flt: BlockFilter) -> dict:
     q_table = quote_table(layer["table_name"])
     period = resolve_period(db, q_table, bulan, tahun)
-    select_sql, _ = _select(db, layer)
-    joins, where_sql, params = _where(layer, period, blok)
+    select_sql, attr = _select(db, layer)
+    joins, where_sql, params = _where(layer, period, flt)
     base = f"FROM {q_table} t {joins} {where_sql}"
     total = db.execute(text(f"SELECT count(*) {base}"), params).scalar_one()
     rows = db.execute(
-        text(f"SELECT {select_sql}, t.period {base} ORDER BY t.id LIMIT :limit OFFSET :offset"),
+        text(f"SELECT {select_sql} {base} ORDER BY t.id LIMIT :limit OFFSET :offset"),
         {**params, "limit": limit, "offset": (page - 1) * limit},
     ).mappings()
-    data = [{**{k: v for k, v in r.items() if k != "period"}, "bulan": r["period"].month, "tahun": r["period"].year}
-            for r in rows]
-    return page_response(total, page, limit, data)
+    return page_response(total, page, limit, [_properties(layer, r, attr) for r in rows])
 
 
-def generic_geojson(db: Session, layer: dict, bulan: int | None, tahun: int | None, blok: str | None):
+def generic_geojson(db: Session, layer: dict, bulan: int | None, tahun: int | None, flt: BlockFilter):
     q_table = quote_table(layer["table_name"])
     period = resolve_period(db, q_table, bulan, tahun)
     if period is None:
         return feature_collection([])
-    select_sql, _ = _select(db, layer)
-    joins, where_sql, params = _where(layer, period, blok)
+    select_sql, attr = _select(db, layer)
+    joins, where_sql, params = _where(layer, period, flt)
     rows = db.execute(
         text(f"SELECT {select_sql}, ST_AsGeoJSON(t.geom, 6) AS geojson_geom FROM {q_table} t {joins} {where_sql} ORDER BY t.id"),
         params,
     ).mappings()
     features = []
     for r in rows:
-        properties = {k: v for k, v in r.items() if k != "geojson_geom"}
-        properties.update({"bulan": period.month, "tahun": period.year})
-        if feature := make_feature(properties, r["geojson_geom"]):
+        if feature := make_feature(_properties(layer, r, attr), r["geojson_geom"]):
             features.append(feature)
     return feature_collection(features)
 

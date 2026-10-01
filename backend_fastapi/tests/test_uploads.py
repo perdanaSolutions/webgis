@@ -128,7 +128,7 @@ def test_sawit_upload(client, auth, sample_block, block_geometry):
     assert {f["properties"]["objectid"] for f in fc["features"]} == {990000001, 990000002, 990000003}
 
 
-def test_generic_layer_lifecycle(client, auth, sample_block, block_geometry):
+def test_generic_layer_lifecycle(client, auth, sample_block, block_geometry, monkeypatch):
     code = f"uji_{uuid.uuid4().hex[:6]}"
     sample = _fc({"type": "Feature", "properties": _props(sample_block, Nama="Sumur 1", Kedalaman=12.5),
                   "geometry": {"type": "Point", "coordinates": block_geometry["point"]}})
@@ -144,6 +144,41 @@ def test_generic_layer_lifecycle(client, auth, sample_block, block_geometry):
     assert result["status_proses"] == "SUCCESS"
     rows = client.get(f"/api/v1/spatial/geo/{code}", headers=auth).json()
     assert rows["total_data"] == 1 and rows["data"][0]["kedalaman"] == 12.5
+    assert rows["data"][0]["kode_est"] == sample_block["estate"]
+
+    # Nilai atribut yang tidak cocok tipe kolom -> disimpan kosong & dilaporkan, upload tetap jalan.
+    bad = _fc({"type": "Feature", "properties": _props(sample_block, Nama="Sumur 2", Kedalaman="dalam"),
+               "geometry": {"type": "Point", "coordinates": block_geometry["point"]}})
+    analyze = _upload(client, auth, f"/geo/{code}/upload-analyze", bad).json()
+    assert analyze["siap_diunggah"] == 1 and analyze["nilai_atribut_invalid"] == 1
+    result = _upload(client, auth, f"/geo/{code}/upload-execute", bad).json()["data"]
+    assert result["status_proses"] == "SUCCESS" and result["detail_status"]["nilai_atribut_invalid"] == 1
+
+    params = {"bulan": BULAN, "tahun": TAHUN}
+    fc = client.get(f"/api/v1/spatial/geo/{code}/geojson", headers=auth, params=params).json()
+    props = fc["features"][0]["properties"]
+    assert props["kedalaman"] is None
+    assert (props["kode_est"], props["kode_afd"], props["kode_blok"]) == (
+        sample_block["estate"], sample_block["division"], sample_block["code"])
+
+    # Filter hierarki seperti layer bawaan (+ alias lama blok_id).
+    for extra, expected in (({"kode_est": sample_block["estate"]}, 1), ({"kode_est": "TIDAK-ADA"}, 0),
+                            ({"blok_id": str(sample_block["id"])}, 1)):
+        fc = client.get(f"/api/v1/spatial/geo/{code}/geojson", headers=auth, params={**params, **extra}).json()
+        assert len(fc["features"]) == expected, extra
+
+    # Scope wilayah user diterapkan.
+    from app.services import user_access
+    with engine.connect() as conn:
+        estate_id = conn.execute(text("SELECT dv.estate_id FROM master.blocks bl JOIN master.divisions dv "
+                                      "ON dv.id = bl.division_id WHERE bl.id = :b"), {"b": sample_block["id"]}).scalar()
+    for estates, expected in (([estate_id], 1), ([-1], 0)):
+        monkeypatch.setattr(user_access, "resolve_scope", lambda db, user, e=estates: user_access.DataScope(estates=e))
+        fc = client.get(f"/api/v1/spatial/geo/{code}/geojson", headers=auth, params=params).json()
+        listing = client.get(f"/api/v1/spatial/geo/{code}", headers=auth, params=params).json()
+        assert len(fc["features"]) == listing["total_data"] == expected, estates
+    monkeypatch.undo()
+    client.delete(f"/api/v1/spatial/geo/{code}/cleanup-period", headers=auth, params=params)
 
     legacy = client.post("/api/v1/spatial/geo/blok/upload-analyze", headers=auth,
                          params={"bulan": BULAN, "tahun": TAHUN}, files={"file": ("a", sample, "application/json")})

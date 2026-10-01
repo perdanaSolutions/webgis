@@ -10,8 +10,11 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
-from app.api.params import Bulan, BulanWajib, Limit, Page, Tahun, TahunWajib, UploadedFile, read_upload
+from app.api.params import (
+    BlockFilterDep, Bulan, BulanWajib, Limit, Page, Tahun, TahunWajib, UploadedFile, read_upload,
+)
 from app.services import user_access
+from app.services.block_filter import BlockFilter
 from app.services.layers import catalog_service
 
 router = APIRouter(prefix="/geo")
@@ -43,7 +46,7 @@ class LegacyJenisRegisterRequest(BaseModel):
     endpoints: dict[str, str] = Field(description="Wajib: upload_analyze, upload_execute, geojson")
 
 
-BlokParam = Annotated[str | None, Query(description="Filter blok (ID/kode)")]
+BlokParam = Annotated[str | None, Query(description="Alias lama untuk kode_blok (ID/kode blok)")]
 
 
 @router.get("/catalog", summary="Katalog seluruh jenis data geo (LEGACY & GENERIC) beserta endpoint-nya")
@@ -112,12 +115,21 @@ def generic_execute(kode: str, db: DbSession, user: CanUploadGeojson, bulan: Bul
     return {"status": "success", "data": result}
 
 
+def _scoped_filter(db, user, layer: dict, flt: BlockFilter, blok_id: str | None) -> BlockFilter:
+    """Filter hierarki + scope wilayah user (seperti layer bawaan). `blok_id` = alias lama untuk kode_blok."""
+    if blok_id and not flt.blok:
+        flt.blok = blok_id.strip() or None
+    if layer["relasi_blok"]:
+        user_access.apply_data_scope(db, user, flt)
+    return flt
+
+
 @router.get("/{kode}/geojson", summary="[GENERIC] GeoJSON FeatureCollection")
-def generic_geojson(kode: str, db: DbSession, user: CurrentUser, bulan: Bulan = None, tahun: Tahun = None,
-                    blok_id: BlokParam = None):
+def generic_geojson(kode: str, db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None,
+                    tahun: Tahun = None, blok_id: BlokParam = None):
     user_access.require_layer(db, user, kode)
     layer = catalog_service.get_generic_layer(db, kode)
-    return catalog_service.generic_geojson(db, layer, bulan, tahun, blok_id)
+    return catalog_service.generic_geojson(db, layer, bulan, tahun, _scoped_filter(db, user, layer, flt, blok_id))
 
 
 @router.delete("/{kode}/cleanup-period", summary="[GENERIC] Hapus data satu periode")
@@ -127,8 +139,9 @@ def generic_cleanup(kode: str, db: DbSession, _: CanUploadGeojson, bulan: BulanW
 
 
 @router.get("/{kode}", summary="[GENERIC] Daftar data (tanpa geometry) dengan pagination")
-def generic_list(kode: str, db: DbSession, user: CurrentUser, page: Page = 1, limit: Limit = 10,
+def generic_list(kode: str, db: DbSession, user: CurrentUser, flt: BlockFilterDep, page: Page = 1, limit: Limit = 10,
                  bulan: Bulan = None, tahun: Tahun = None, blok_id: BlokParam = None):
     user_access.require_layer(db, user, kode)
     layer = catalog_service.get_generic_layer(db, kode)
-    return catalog_service.generic_list(db, layer, page, limit, bulan, tahun, blok_id)
+    return catalog_service.generic_list(db, layer, page, limit, bulan, tahun,
+                                        _scoped_filter(db, user, layer, flt, blok_id))
