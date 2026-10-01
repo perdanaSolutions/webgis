@@ -91,7 +91,7 @@ def _trx_summaries(db: Session, block_ids: list[int], as_of: date | None) -> dic
     return summary
 
 
-def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None):
+def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None, hide_keys: tuple[str, ...] = ()):
     joins, where_sql, params = flt.sql()
     params["as_of"] = as_of
     period_filter = "AND bb.period <= :as_of" if as_of else ""
@@ -99,7 +99,7 @@ def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None):
         SELECT {BLOCK_ATTRIBUTE_COLUMNS}, b.period AS boundary_period, b.geom_json
         FROM master.blocks bl {joins}
         JOIN LATERAL (
-            SELECT bb.period, ST_AsGeoJSON(bb.geom) AS geom_json
+            SELECT bb.period, ST_AsGeoJSON(bb.geom, 6) AS geom_json
             FROM spatial.block_boundaries bb
             WHERE bb.block_id = bl.id {period_filter}
             ORDER BY bb.period DESC LIMIT 1
@@ -120,7 +120,7 @@ def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None):
             "kode_pt": r["company_code"], "nama_pt": r["company_name"], "kode_area": r["area_code"],
             "tipe_blok": r["block_type"], "tahun_tanam": r["planting_year"], "jenis_bibit": r["seed_varieties"],
             "status_tanam": r["planting_status"], "bulan": bulan, "tahun": tahun,
-            **summaries.get(r["id"], {}),
+            **{k: v for k, v in summaries.get(r["id"], {}).items() if k not in hide_keys},
         }
         feature = make_feature(properties, r["geom_json"])
         if feature:
@@ -143,7 +143,7 @@ def tph_geojson(db: Session, flt: BlockFilter, kategori: str | None, bulan: int 
 
     rows = db.execute(text(f"""
         SELECT t.id, t.period, cat.name AS kategori, bl.id AS block_id, bl.code, dv.id AS division_id, dv.code AS division_code,
-               es.code AS estate_code, ST_AsGeoJSON(t.geom) AS geom_json
+               es.code AS estate_code, ST_AsGeoJSON(t.geom, 6) AS geom_json
         FROM spatial.tph_points t
         JOIN master.blocks bl ON bl.id = t.block_id {joins}
         LEFT JOIN ref.tph_categories cat ON cat.id = t.category_id

@@ -552,19 +552,12 @@ _FEATURE_TX = (
 )
 
 
-def redact_feature_collection(db: Session, user, payload: dict) -> dict:
+def hidden_feature_keys(db: Session, user) -> tuple[str, ...]:
+    """Key properti ringkasan transaksi di GeoJSON blok yang tidak boleh dilihat user."""
     allowed = transaction_keys(db, user)
-    if allowed is None or not isinstance(payload, dict):
-        return payload
-    drop = [key for key, table in _FEATURE_TX if table not in allowed]
-    if not drop:
-        return payload
-    for feature in payload.get("features") or []:
-        props = feature.get("properties") if isinstance(feature, dict) else None
-        if isinstance(props, dict):
-            for key in drop:
-                props.pop(key, None)
-    return payload
+    if allowed is None:
+        return ()
+    return tuple(key for key, table in _FEATURE_TX if table not in allowed)
 
 
 def redact_block_detail(db: Session, user, payload: dict) -> dict:

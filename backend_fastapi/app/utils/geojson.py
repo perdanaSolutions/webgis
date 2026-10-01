@@ -70,13 +70,29 @@ def geometry_to_ewkb(geometry: dict | None, target_type: str) -> str | None:
         return None
 
 
+class RawGeometry(str):
+    """Geometri GeoJSON yang sudah berupa string JSON (hasil ST_AsGeoJSON); disisipkan apa adanya."""
+
+
+def _dump(value: Any) -> str:
+    return json.dumps(value, default=json_safe, separators=(",", ":"))
+
+
 def feature_collection(features: list[dict]) -> Response:
     """Serialisasi FeatureCollection langsung (lebih cepat daripada lewat validasi response_model)."""
-    body = json.dumps({"type": "FeatureCollection", "features": features}, default=json_safe, separators=(",", ":"))
+    parts = []
+    for feature in features:
+        geometry = feature.get("geometry")
+        if isinstance(geometry, RawGeometry):
+            parts.append(f'{{"type":"Feature","properties":{_dump(feature["properties"])},"geometry":{geometry}}}')
+        else:
+            parts.append(_dump(feature))
+    body = f'{{"type":"FeatureCollection","features":[{",".join(parts)}]}}'
     return Response(content=body, media_type="application/json")
 
 
 def make_feature(properties: dict[str, Any], geometry_json: str | None) -> dict | None:
     if not geometry_json:
         return None
-    return {"type": "Feature", "properties": properties, "geometry": json.loads(geometry_json)}
+    # Geometri tidak di-parse lalu di-serialisasi ulang; string dari PostGIS dipakai langsung.
+    return {"type": "Feature", "properties": properties, "geometry": RawGeometry(geometry_json)}

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.db.session import set_audit_actor
 from app.models.auth import User, Permission, Role
 
 # Mengatur endpoint mana yang dijadikan acuan Swagger untuk mengambil token JWT
@@ -43,7 +44,9 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Akun tidak aktif")
-        
+
+    # Trigger audit membaca pelaku dari setting app.user_id (lihat app/db/session.py)
+    set_audit_actor(db, user.id)
     return user
 
 

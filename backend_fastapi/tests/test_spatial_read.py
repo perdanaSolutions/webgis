@@ -40,6 +40,17 @@ def test_blocks_geojson(client, auth, sample_block):
     assert len(by_code["features"]) == 1
 
 
+def test_blocks_geojson_hides_unauthorized_transaction_keys(client, auth, sample_block, monkeypatch):
+    from app.services import user_access
+    monkeypatch.setattr(user_access, "hidden_feature_keys",
+                        lambda db, user: ("areal_statement", "produksi_tbs", "rotasi_terakhir"))
+    fc = client.get("/api/v1/spatial/geojson", headers=auth,
+                    params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"])}).json()
+    props = fc["features"][0]["properties"]
+    assert props["blok_id"] == sample_block["id"]
+    assert not {"areal_statement", "produksi_tbs", "rotasi_terakhir"} & props.keys()
+
+
 def test_block_detail(client, auth, sample_block):
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"]}).json()
     assert detail["informasi_blok"]["blok_id"] == sample_block["id"]

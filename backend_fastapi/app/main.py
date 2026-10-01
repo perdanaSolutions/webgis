@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
 from app.core.database import engine
 from app.core.middleware import DropEmptyQueryParamsMiddleware
@@ -76,6 +77,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 # =================================================================
 # MIDDLEWARE & ROUTER
 # =================================================================
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(ClientIpMiddleware)
 app.add_middleware(
@@ -87,6 +89,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 
 @app.get("/")
 def root():
