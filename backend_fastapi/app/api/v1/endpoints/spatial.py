@@ -122,6 +122,7 @@ def get_blocks_geojson(
     kode_afd: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
     ownership: Optional[str] = Query(None),
+    tahun_tanam: Optional[int] = Query(None, ge=0, le=2100),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
     db=Depends(deps.get_db),
@@ -129,6 +130,7 @@ def get_blocks_geojson(
 ):
     flt = BlockFilter(
         area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok, ownership=ownership,
+        tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
     user_access.apply_data_scope(db, current_user, flt)
     hide_keys = user_access.hidden_feature_keys(db, current_user)
@@ -204,9 +206,15 @@ def get_history_data(
     flt = BlockFilter(
         area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
         blok=blok_id or kode_blok, ownership=ownership,
+        tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
     user_access.apply_data_scope(db, current_user, flt)
-    return history_service.get_history(db, table, tahun if tahun is not None else tahun_tanam, flt)
+    # `tahun` tetap tahun kalender. Tahun tanam hanya menyaring blok; untuk areal
+    # statement ia juga mengunci jendela agregasi bila tahun kalender tidak diisi.
+    calendar = tahun
+    if legacy_key == "trx_areal_statement" and calendar is None:
+        calendar = tahun_tanam
+    return history_service.get_history(db, table, calendar, flt)
 
 
 @router.get("/tph/geojson", summary="Titik TPH sebagai GeoJSON")
@@ -216,6 +224,8 @@ def get_tph_geojson(
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(None),
+    tahun_tanam: Optional[int] = Query(None, ge=0, le=2100),
     kategori: Optional[str] = Query(None),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
@@ -223,7 +233,10 @@ def get_tph_geojson(
     current_user=Depends(deps.get_current_user),
 ):
     user_access.require_layer(db, current_user, "tph")
-    flt = BlockFilter(area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
+    flt = BlockFilter(
+        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
+    )
     user_access.apply_data_scope(db, current_user, flt)
     return map_service.tph_geojson(db, flt, kategori, bulan, tahun)
 

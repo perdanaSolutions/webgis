@@ -1,6 +1,7 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
+import { menuIconPath } from "~/utils/menuThemeOptions";
 import { flattenMenuTree } from "~/utils/menuTree";
 import { useAuthStore } from "./authStore";
 
@@ -46,8 +47,8 @@ export const dashboardStore = defineStore("dashboard", () => {
   const authStore = useAuthStore();
 
   const dashboardConfig = {
-    brandTitle: "Dashboard",
-    brandSubtitle: "Sistem Informasi Surveyor Tanah",
+    brandTitle: "Home",
+    brandSubtitle: "Teladan Productivity Technology Science",
     greetingTop: "Selamat Datang Kembali,",
     greetingName: "Bruno Fernandes 👋",
     greetingDesc: "Kelola sistem dan akses semua modul dengan mudah dan cepat.",
@@ -153,7 +154,9 @@ export const dashboardStore = defineStore("dashboard", () => {
       description: String(raw?.description ?? ""),
       bgClass: String(raw?.bgClass ?? raw?.bg_class ?? "bg-blue-50"),
       iconClass: String(raw?.iconClass ?? raw?.icon_class ?? "text-blue-500"),
-      arrowClass: String(raw?.arrowClass ?? raw?.arrow_class ?? "text-blue-500"),
+      arrowClass: String(
+        raw?.arrowClass ?? raw?.arrow_class ?? "text-blue-500",
+      ),
       to: String(raw?.to ?? ""),
       icon: String(raw?.icon ?? "report"),
       level: Number(raw?.level ?? 1),
@@ -172,11 +175,13 @@ export const dashboardStore = defineStore("dashboard", () => {
       const children = filterMenuTree(item.children ?? [], allowedIds);
       const selfAllowed = !allowedIds || allowedIds.has(item.id);
       if (!selfAllowed && !children.length) return [];
-      return [{
-        ...item,
-        to: selfAllowed ? item.to : "",
-        children,
-      }];
+      return [
+        {
+          ...item,
+          to: selfAllowed ? item.to : "",
+          children,
+        },
+      ];
     });
   }
 
@@ -200,10 +205,7 @@ export const dashboardStore = defineStore("dashboard", () => {
 
       if (authStore.isSuperAdmin) {
         moduleItems.value = menuTree;
-      } else if (
-        informasiUser &&
-        Array.isArray(informasiUser.akses_menu)
-      ) {
+      } else if (informasiUser && Array.isArray(informasiUser.akses_menu)) {
         moduleItems.value = filterMenuTree(
           menuTree,
           new Set(informasiUser.akses_menu),
@@ -224,34 +226,7 @@ export const dashboardStore = defineStore("dashboard", () => {
   }
 
   function iconPath(icon: string) {
-    switch (icon) {
-      case "report":
-        return "M8 3a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8.5a1 1 0 0 0 .707-.293l3.5-3.5A1 1 0 0 0 21 16.5V4a1 1 0 0 0-1-1H8Zm2 4h8M10 11h8M10 15h5";
-      case "statistik":
-        return "M4 18h3l3-6 3 4 4-8 3 2M4 6h16v12H4z";
-      case "block":
-        return "M4 8 12 4l8 4v8l-8 4-8-4V8Zm8-4v16M4 8l8 4 8-4";
-      case "dokumen":
-        return "M5 7a2 2 0 0 1 2-2h3l2 2h5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7Z";
-      case "agenda":
-        return "M7 3v3M17 3v3M4 8h16M6 6h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z";
-      case "pengguna":
-        return "M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0";
-      case "notif":
-        return "M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z";
-      case "modul":
-        return "M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7";
-      case "pesan":
-        return "M4 6h16v10H7l-3 3V6Zm4 4h8";
-      case "pengumuman":
-        return "M4 12h3l8-4v8l-8-4H4Zm11 2v4a2 2 0 0 1-2 2";
-      case "keamanan":
-        return "M12 3 5 6v5c0 4.5 2.9 8.6 7 10 4.1-1.4 7-5.5 7-10V6l-7-3Zm0 6v4m0 4h.01";
-      case "bantuan":
-        return "M12 18h.01M9.1 9a3 3 0 1 1 5.8 1c-.5 1-1.7 1.5-2.4 2.1-.6.5-1 1.1-1 1.9";
-      default:
-        return "";
-    }
+    return menuIconPath(icon);
   }
 
   return {

@@ -2,11 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import "~/assets/css/blok-profile.css";
+import AreaStatementCard from "~/components/blok-profile/AreaStatementCard.vue";
 import BlockDetailDrawer from "~/components/blok-profile/BlockDetailDrawer.vue";
 import BlockInfoCard from "~/components/blok-profile/BlockInfoCard.vue";
 import BlokProfileMap from "~/components/blok-profile/BlokProfileMap.vue";
 import FilterPanel from "~/components/blok-profile/FilterPanel.vue";
 import ProductionChartCard from "~/components/blok-profile/ProductionChartCard.vue";
+import ProductionGapCard from "~/components/blok-profile/ProductionGapCard.vue";
+import RotationCard from "~/components/blok-profile/RotationCard.vue";
 import SlopeDonutCard from "~/components/blok-profile/SlopeDonutCard.vue";
 import SummaryBar from "~/components/blok-profile/SummaryBar.vue";
 import Header from "~/components/Header.vue";
@@ -14,7 +17,7 @@ import { useMapOverlays } from "~/composables/useMapOverlays";
 import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
-import { BASEMAPS, type BasemapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
 
 defineOptions({ name: "BlokProfilePage" });
 
@@ -41,8 +44,20 @@ const BASEMAP_KEY = "blok-profile-basemap";
 const basemap = ref<BasemapKey>("satellite");
 const opacity = ref(80);
 const showBlocks = ref(true);
-const showPanels = ref(true);
+const budgetColors = ref<Record<BudgetGapKey, boolean>>({
+  OPTIMUM: true,
+  "GAP I": true,
+  "GAP II": true,
+  "GAP III": true,
+});
+
 const detailOpen = ref(false);
+
+type LeftKey = "filter" | "layer" | "basemap";
+type RightKey = "info" | "produksi" | "slope" | "area" | "rotasi";
+
+const activeLeft = ref<LeftKey | null>(null);
+const activeRight = ref<RightKey | null>(null);
 
 watch(basemap, (value) => {
   try { localStorage.setItem(BASEMAP_KEY, value); } catch { /* mode privat */ }
@@ -50,25 +65,75 @@ watch(basemap, (value) => {
 
 // ------------------------------------------------------------------ tata letak
 const isDesktop = ref(false);
-let mq: MediaQueryList | null = null;
-const syncDesktop = () => { isDesktop.value = !!mq?.matches; };
+const isMobile = ref(false);
+const stageRef = ref<HTMLElement | null>(null);
+const stageW = ref(0);
+
+let mqDesktop: MediaQueryList | null = null;
+let mqMobile: MediaQueryList | null = null;
+let stageObserver: ResizeObserver | null = null;
 
 const GUTTER = 24;
 const LEFT_W = 340;
 const RIGHT_W = 380;
-const BOTTOM_BAR_H = 72;
+const BOTTOM_BAR_H = 88;
+const EDGE = 12;
+
+function measureStage() {
+  stageW.value = stageRef.value?.clientWidth ?? window.innerWidth;
+}
+
+function syncLayout() {
+  const wasMobile = isMobile.value;
+  isDesktop.value = !!mqDesktop?.matches;
+  isMobile.value = !!mqMobile?.matches;
+  measureStage();
+  if (isMobile.value && !wasMobile && activeLeft.value && activeRight.value) activeRight.value = null;
+}
+
+function openLeft(key: LeftKey) {
+  activeLeft.value = activeLeft.value === key ? null : key;
+  if (activeLeft.value && !isDesktop.value) activeRight.value = null;
+}
+
+function openRight(key: RightKey) {
+  activeRight.value = activeRight.value === key ? null : key;
+  if (activeRight.value && !isDesktop.value) activeLeft.value = null;
+}
+
+function closePanels() {
+  activeLeft.value = null;
+  activeRight.value = null;
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") closePanels();
+}
+
+function panelWidth(max: number) {
+  if (isMobile.value) return Math.max(0, stageW.value - EDGE * 2);
+  return Math.min(max, Math.max(0, stageW.value - EDGE * 2));
+}
 
 /** Bagian peta yang tertutup kartu mengambang -> dipakai untuk zoom-to-fit & posisi kontrol. */
 const mapInsets = computed(() => {
-  if (!isDesktop.value || !showPanels.value) return { top: GUTTER, right: GUTTER, bottom: GUTTER + 56, left: GUTTER };
-  return { top: GUTTER, left: GUTTER + LEFT_W, right: GUTTER + RIGHT_W, bottom: GUTTER + BOTTOM_BAR_H };
+  const bottom = isMobile.value ? 72 : GUTTER + BOTTOM_BAR_H;
+  const pill = isMobile.value ? 0 : 200;
+  const left = activeLeft.value ? EDGE + panelWidth(LEFT_W) + pill : 16;
+  const right = activeRight.value ? EDGE + panelWidth(RIGHT_W) + pill : 72;
+  return { top: 16, left, right, bottom };
 });
 
 const slopeLayerOn = computed(() => layers.value.some((l) => l.code === "slope" && l.enabled));
 
 // ------------------------------------------------------------------ aksi
 function onSelectBlock(id: string) {
-  void store.selectBlock(store.blokId === id ? "" : id); // klik blok yang sama = batal pilih
+  if (!id || store.blokId === id) return;
+  void store.selectBlock(id);
+}
+
+function onDeselectBlock() {
+  void store.clearBlockSelection();
 }
 
 function downloadGeoJSON() {
@@ -87,9 +152,17 @@ function downloadGeoJSON() {
 }
 
 onMounted(async () => {
-  mq = window.matchMedia("(min-width: 1024px)");
-  syncDesktop();
-  mq.addEventListener("change", syncDesktop);
+  store.resetFilters();
+  mqDesktop = window.matchMedia("(min-width: 1280px)");
+  mqMobile = window.matchMedia("(max-width: 767px)");
+  syncLayout();
+  mqDesktop.addEventListener("change", syncLayout);
+  mqMobile.addEventListener("change", syncLayout);
+  window.addEventListener("keydown", onKeydown);
+  if (stageRef.value && typeof ResizeObserver !== "undefined") {
+    stageObserver = new ResizeObserver(() => syncLayout());
+    stageObserver.observe(stageRef.value);
+  }
   try {
     const saved = localStorage.getItem(BASEMAP_KEY) as BasemapKey | null;
     if (saved && BASEMAPS.some((b) => b.key === saved)) basemap.value = saved;
@@ -105,108 +178,200 @@ onMounted(async () => {
   await Promise.all([store.init(), overlays.loadCatalog()]);
 });
 
-onBeforeUnmount(() => mq?.removeEventListener("change", syncDesktop));
+onBeforeUnmount(() => {
+  mqDesktop?.removeEventListener("change", syncLayout);
+  mqMobile?.removeEventListener("change", syncLayout);
+  window.removeEventListener("keydown", onKeydown);
+  stageObserver?.disconnect();
+});
 </script>
 
 <template>
-  <main class="flex min-h-screen flex-col bg-[#f7f2ea] text-14 text-[#2b2118] lg:h-screen">
+  <main class="bp-map-shell flex min-h-0 flex-col overflow-hidden bg-[#f4f6f1] text-14 text-[#1f2a18]">
     <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
 
     <!-- PAGE HEADER -->
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[#eadfce] bg-white px-4 py-1.5 lg:px-6">
+    <div class="flex shrink-0 items-center justify-between gap-2 border-b border-[#d5dcc8] bg-white px-3 py-1.5 sm:px-4 lg:px-6">
       <div class="min-w-0">
-        <nav class="text-11 leading-none text-[#8a7a68]" aria-label="Breadcrumb">
+        <nav class="hidden text-11 leading-none text-[#6e7866] sm:block" aria-label="Breadcrumb">
           <NuxtLink to="/dashboard" class="hover:underline">Beranda</NuxtLink>
           <span class="mx-1">/</span>
           <span>{{ pageTitle }}</span>
         </nav>
-        <div class="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <h1 class="text-lg font-bold leading-none tracking-tight text-[#2b2118]">{{ pageTitle }}</h1>
-          <p class="truncate text-12 leading-none text-[#8a7a68]">Tampilan peta layar penuh · scope: {{ store.scopeLabel }}</p>
+        <div class="flex min-w-0 items-baseline gap-x-2 sm:mt-0.5">
+          <h1 class="truncate text-base font-bold leading-none tracking-tight text-[#1f2a18] sm:text-lg">{{ pageTitle }}</h1>
+          <p class="hidden min-w-0 truncate text-12 leading-none text-[#6e7866] md:block">Tampilan peta layar penuh · scope: {{ store.scopeLabel }}</p>
         </div>
       </div>
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" class="bp-btn hidden lg:inline-flex" :aria-pressed="showPanels" @click="showPanels = !showPanels">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M14 10l-2 2 2 2" />
-          </svg>
-          Panel
-        </button>
-        <button type="button" class="bp-btn" title="Unduh batas blok & layer aktif sebagai GeoJSON" @click="downloadGeoJSON">
+      <div class="flex shrink-0 items-center gap-1.5">
+        <button type="button" class="bp-btn max-sm:w-9 max-sm:justify-center max-sm:px-0" title="Unduh batas blok & layer aktif sebagai GeoJSON" aria-label="Unduh peta" @click="downloadGeoJSON">
           <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
           </svg>
-          Unduh Peta
+          <span class="hidden sm:inline">Unduh Peta</span>
         </button>
-        <NuxtLink to="/document" class="bp-btn bp-btn-primary">
+        <NuxtLink to="/document" class="bp-btn bp-btn-primary max-sm:w-9 max-sm:justify-center max-sm:px-0" aria-label="Tambah blok">
           <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          Tambah Blok
+          <span class="hidden sm:inline">Tambah Blok</span>
         </NuxtLink>
       </div>
     </div>
 
-    <div class="relative flex flex-1 flex-col lg:block lg:min-h-0 lg:overflow-hidden">
+    <div ref="stageRef" class="relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
-      <section class="relative h-[62vh] min-h-[420px] lg:absolute lg:inset-0 lg:h-auto">
-        <BlokProfileMap ref="mapRef" :blocks="store.blocks" :selected-id="store.blokId" :show-blocks="showBlocks"
-          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :insets="mapInsets" @select="onSelectBlock" />
+      <section class="absolute inset-0 z-0">
+        <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
+          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors" :insets="mapInsets"
+          :request-detail="store.loadSelectedDetail"
+          @select="onSelectBlock" @deselect="onDeselectBlock" />
 
         <div v-if="store.loadingBlocks"
-          class="pointer-events-none absolute left-1/2 top-6 z-[1200] -translate-x-1/2 rounded-full bg-white/95 px-4 py-2 text-13 font-medium shadow-lg">
+          class="pointer-events-none absolute left-1/2 top-4 z-[1200] max-w-[calc(100%-6rem)] -translate-x-1/2 truncate rounded-full bg-white/95 px-4 py-2 text-13 font-medium shadow-lg">
           Memuat batas blok…
         </div>
         <div v-else-if="!store.blockFeatures.length && store.area"
-          class="pointer-events-none absolute left-1/2 top-6 z-[1200] -translate-x-1/2 rounded-full bg-white/95 px-4 py-2 text-13 shadow-lg">
+          class="pointer-events-none absolute left-1/2 top-4 z-[1200] max-w-[calc(100%-6rem)] -translate-x-1/2 truncate rounded-full bg-white/95 px-4 py-2 text-13 shadow-lg">
           Belum ada batas blok untuk scope ini.
         </div>
 
         <!-- Legenda kelas kemiringan + kontrol peta -->
-        <div class="absolute bottom-6 right-6 z-[1100] flex items-end gap-3">
-          <div v-if="slopeLayerOn" class="bp-card px-4 py-3">
-            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#8a7a68]">Kelas Kemiringan</p>
-            <div class="grid grid-cols-2 gap-x-5 gap-y-1.5">
-              <span v-for="(color, range) in SLOPE_RAMP" :key="range" class="inline-flex items-center gap-2 text-13 text-[#2b2118]">
+        <div v-show="!(isMobile && (activeLeft || activeRight))"
+          class="bp-controls absolute z-[1350] flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2 right-4 md:flex-row">
+          <div v-if="slopeLayerOn" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Kelas Kemiringan</p>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <span v-for="(color, range) in SLOPE_RAMP" :key="range" class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
                 <span class="h-3 w-3 rounded-[3px] ring-1 ring-black/10" :style="{ background: color }" />{{ range }}%
               </span>
             </div>
           </div>
           <div class="bp-card flex overflow-hidden !rounded-2xl">
-            <button type="button" class="flex h-12 w-12 items-center justify-center hover:bg-[#f6efe4]" aria-label="Perbesar" @click="mapRef?.zoomIn()">
+            <button type="button" class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12" aria-label="Perbesar" @click="mapRef?.zoomIn()">
               <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
             </button>
-            <button type="button" class="flex h-12 w-12 items-center justify-center border-x border-[#eadfce] hover:bg-[#f6efe4]" aria-label="Perkecil" @click="mapRef?.zoomOut()">
+            <button type="button" class="flex h-11 w-11 items-center justify-center border-x border-[#d5dcc8] hover:bg-[#eef3e7] sm:h-12 sm:w-12" aria-label="Perkecil" @click="mapRef?.zoomOut()">
               <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14" /></svg>
             </button>
-            <button type="button" class="flex h-12 w-12 items-center justify-center hover:bg-[#f6efe4]" aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
+            <button type="button" class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12" aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
               <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
             </button>
           </div>
         </div>
       </section>
 
-      <!-- KARTU KIRI -->
-      <aside v-show="showPanels || !isDesktop" class="z-[1100] p-4 lg:absolute lg:bottom-6 lg:left-6 lg:top-6 lg:w-[340px] lg:p-0">
-        <FilterPanel :area-options="store.areaOptions" :estate-options="store.estateOptions"
-          :afdeling-options="store.afdelingOptions" :blok-options="store.blokOptions" :area="store.area"
-          :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId" :scope-level="store.scopeLevel"
-          :block-count="store.blockFeatures.length" :loading="store.loadingOptions || store.loadingBlocks" :layers="layers"
-          :show-blocks="showBlocks" :basemap="basemap" :opacity="opacity"
-          @update:area="store.setArea" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
-          @update:blok="store.selectBlock" @reset="store.reset" @toggle-layer="overlays.toggle"
-          @toggle-blocks="showBlocks = !showBlocks" @update:basemap="basemap = $event" @update:opacity="opacity = $event" />
+      <button v-show="!isDesktop && (activeLeft || activeRight)" type="button"
+        class="absolute inset-0 z-[1250] bg-[#1f2a18]/20" aria-label="Tutup panel" @click="closePanels" />
+
+      <!-- TOMBOL COLLAPSE KIRI -->
+      <aside v-show="!(isMobile && activeRight)" class="bp-rail bp-rail-left" :class="activeLeft && 'is-open'">
+        <div class="bp-rail-pills" role="toolbar" aria-label="Panel kiri">
+          <button type="button" class="bp-collapse-btn" :class="activeLeft === 'filter' && 'is-active'"
+            :aria-expanded="activeLeft === 'filter'" aria-controls="bp-panel-filter" @click="openLeft('filter')">
+            <span>Filter Kebun</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
+              <circle cx="16" cy="7" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="17" r="2" />
+            </svg>
+          </button>
+          <button type="button" class="bp-collapse-btn" :class="activeLeft === 'layer' && 'is-active'"
+            :aria-expanded="activeLeft === 'layer'" aria-controls="bp-panel-layer" @click="openLeft('layer')">
+            <span>Layer Data</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linejoin="round" d="m12 3 8 4.5-8 4.5-8-4.5L12 3Zm-8 9 8 4.5 8-4.5M4 16.5 12 21l8-4.5" />
+            </svg>
+          </button>
+          <button type="button" class="bp-collapse-btn" :class="activeLeft === 'basemap' && 'is-active'"
+            :aria-expanded="activeLeft === 'basemap'" aria-controls="bp-panel-basemap" @click="openLeft('basemap')">
+            <span>Base Map</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linejoin="round" d="m4 6 5-2 6 3 5-2v14l-5 2-6-3-5 2V6Zm5-2v14m6-11v14" />
+            </svg>
+          </button>
+        </div>
+        <div v-if="activeLeft" :id="`bp-panel-${activeLeft}`" class="bp-collapse-panel">
+          <FilterPanel :section="activeLeft" :area-options="store.areaOptions" :pt-options="store.ptOptions" :estate-options="store.estateOptions"
+            :afdeling-options="store.afdelingOptions" :blok-options="store.blokOptions"
+            :ownership-options="store.ownershipOptions" :tahun-tanam-options="store.tahunTanamOptions"
+            :area="store.area" :pt="store.pt" :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId"
+            :ownership="store.ownership" :tahun-tanam="store.tahunTanam" :scope-level="store.scopeLevel"
+            :block-count="store.blockFeatures.length" :loading="store.loadingOptions || store.loadingBlocks" :layers="layers"
+            :show-blocks="showBlocks" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
+            :filter-generation="store.filterGeneration"
+            @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
+            @update:afdeling="store.setAfdeling" @update:blok="store.selectBlock"
+            @update:ownership="store.setOwnership" @update:tahun-tanam="store.setTahunTanam"
+            @reset="store.reset" @toggle-layer="overlays.toggle"
+            @toggle-blocks="showBlocks = !showBlocks"
+            @update:basemap="basemap = $event" @update:opacity="opacity = $event" />
+        </div>
       </aside>
 
-      <!-- KOLOM KANAN -->
-      <aside v-show="showPanels || !isDesktop"
-        class="z-[1100] space-y-4 p-4 lg:absolute lg:bottom-[104px] lg:right-6 lg:top-6 lg:w-[380px] lg:overflow-y-auto lg:p-0 lg:pb-1">
-        <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
-        <SlopeDonutCard v-if="store.canViewAreaStatement || store.canViewProduction"
-          :shares="store.slopeShares" :loading="store.loadingProduction || store.loadingDetail" />
-        <ProductionChartCard v-if="store.canViewProduction" :years="store.productionYears" :loading="store.loadingProduction" />
+      <!-- TOMBOL COLLAPSE KANAN -->
+      <aside v-show="!(isMobile && activeLeft)" class="bp-rail bp-rail-right" :class="activeRight && 'is-open'">
+        <div class="bp-rail-pills" role="toolbar" aria-label="Panel kanan">
+          <button type="button" class="bp-collapse-btn" :class="activeRight === 'info' && 'is-active'"
+            :aria-expanded="activeRight === 'info'" aria-controls="bp-panel-info" @click="openRight('info')">
+            <span>Informasi Blok</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" />
+            </svg>
+          </button>
+          <button v-if="store.canViewProduction" type="button" class="bp-collapse-btn" :class="activeRight === 'produksi' && 'is-active'"
+            :aria-expanded="activeRight === 'produksi'" aria-controls="bp-panel-produksi" @click="openRight('produksi')">
+            <span>Produksi</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" d="M4 19V5M4 19h16" /><path stroke-linecap="round" stroke-linejoin="round" d="M8 15v-3M12 15V8M16 15v-5" />
+            </svg>
+          </button>
+          <button v-if="store.canViewProduction" type="button" class="bp-collapse-btn" :class="activeRight === 'slope' && 'is-active'"
+            :aria-expanded="activeRight === 'slope'" aria-controls="bp-panel-slope" @click="openRight('slope')">
+            <span>Slope Kemiringan</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linejoin="round" d="m3 18 7-9 4 5 7-8" /><path stroke-linecap="round" d="M3 21h18" />
+            </svg>
+          </button>
+          <button v-if="store.canViewAreaStatement" type="button" class="bp-collapse-btn" :class="activeRight === 'area' && 'is-active'"
+            :aria-expanded="activeRight === 'area'" aria-controls="bp-panel-area" @click="openRight('area')">
+            <span>Areal Statement</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /><path d="M4 8h2M4 12h2M4 16h2" />
+            </svg>
+          </button>
+          <button v-if="store.canViewRotation" type="button" class="bp-collapse-btn" :class="activeRight === 'rotasi' && 'is-active'"
+            :aria-expanded="activeRight === 'rotasi'" aria-controls="bp-panel-rotasi" @click="openRight('rotasi')">
+            <span>Rotasi Pusingan</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20 12a8 8 0 1 1-2.3-5.7L20 8" /><path stroke-linecap="round" stroke-linejoin="round" d="M20 4v4h-4" />
+            </svg>
+          </button>
+        </div>
+
+        <div v-if="activeRight === 'info'" id="bp-panel-info" class="bp-collapse-panel">
+          <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
+        </div>
+        <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
+          <ProductionGapCard title="Gap terhadap Budget"
+            caption="Varians produksi aktual dibanding budget pada periode terakhir."
+            :data="store.productionGapBudget" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+          <ProductionGapCard title="Gap terhadap Sensus"
+            caption="Varians produksi aktual dibanding sensus pada periode terakhir."
+            :data="store.productionGapSensus" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+          <ProductionChartCard :years="store.productionYears"
+            :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+        </div>
+        <div v-else-if="activeRight === 'slope'" id="bp-panel-slope" class="bp-collapse-panel">
+          <SlopeDonutCard :shares="store.slopeShares" :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+        </div>
+        <div v-else-if="activeRight === 'area'" id="bp-panel-area" class="bp-collapse-panel">
+          <AreaStatementCard :data="store.areaStatementView" :loading="store.blokId ? store.loadingDetail : store.loadingAreaStatement" />
+        </div>
+        <div v-else-if="activeRight === 'rotasi'" id="bp-panel-rotasi" class="bp-collapse-panel">
+          <RotationCard :data="store.rotationView" :loading="store.blokId ? store.loadingDetail : store.loadingRotation" />
+        </div>
       </aside>
 
-      <!-- BAR RINGKASAN -->
-      <div v-show="showPanels || !isDesktop" class="z-[1100] p-4 lg:absolute lg:bottom-6 lg:left-[388px] lg:right-[428px] lg:p-0">
+      <!-- BAR RINGKASAN: sembunyi di mobile, tetap tampil di tablet dan desktop -->
+      <div class="bp-summary absolute z-[1260] hidden left-3 right-3 md:block">
         <SummaryBar :summary="store.summary" :detail="store.detail" @open-detail="detailOpen = true" />
       </div>
     </div>

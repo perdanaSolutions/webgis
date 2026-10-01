@@ -61,7 +61,7 @@ def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) ->
     blocks_sql, params = flt.block_ids_subquery()
     filter_info = {
         "area_id": flt.area, "kode_pt": flt.kode_pt, "kode_est": flt.kode_est, "kode_afd": flt.kode_afd,
-        "blok_id": flt.blok, "ownership": flt.ownership,
+        "blok_id": flt.blok, "ownership": flt.ownership, "tahun_tanam": flt.tahun_tanam,
     }
     if key == "trx_produksi_tbs":
         return _production(db, blocks_sql, params, tahun, filter_info)

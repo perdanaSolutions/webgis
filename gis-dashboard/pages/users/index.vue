@@ -395,7 +395,7 @@ function filterRoleOption(
             <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role
               digabung.</p>
             <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
-              placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#2B7FFF"
+              placeholder="Cari atau pilih role" variant="outlined" density="comfortable" color="#638840"
               class="w-full custom-underlined-input" hide-details clearable multiple chips closable-chips
               :loading="manageUserStore.loadingRoles" :custom-filter="filterRoleOption" />
           </div>

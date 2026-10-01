@@ -28,7 +28,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         variant: "outlined",
         density: "comfortable",
         hideDetails: true,
-        color: "#2B7FFF",
+        color: "#638840",
       },
     },
   });

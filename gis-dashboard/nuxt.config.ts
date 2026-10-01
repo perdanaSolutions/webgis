@@ -102,7 +102,7 @@ export default defineNuxtConfig({
     manifest: {
       name: "GIS Dashboard PWA",
       short_name: "GISDash",
-      theme_color: "#000000",
+      theme_color: "#638840",
     },
     workbox: {
       globPatterns: ["**/*.{js,css,html,png,svg,ico}"],

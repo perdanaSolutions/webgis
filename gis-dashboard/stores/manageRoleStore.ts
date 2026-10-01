@@ -76,18 +76,20 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   const menuItems = ref<MenuAccessItem[]>([]);
   const masterDataItems = ref<MasterDataAccessItem[]>([]);
   const transactionItems = ref<TransactionAccessItem[]>([]);
-  const allDataMenu = ref([]);
-  const allDataArea = ref([]);
-  const allDataPerusahaan = ref([]);
-  const allDataEstate = ref([]);
-  const allDataAfdeling = ref([]);
-  const allDataTransaksi = ref([]);
+  const allDataMenu = ref<any[]>([]);
+  const allDataArea = ref<any[]>([]);
+  const allDataPerusahaan = ref<any[]>([]);
+  const allDataEstate = ref<any[]>([]);
+  const allDataAfdeling = ref<any[]>([]);
+  const allDataLayer = ref<any[]>([]);
+  const allDataTransaksi = ref<any[]>([]);
 
   const loadingList = ref(false);
   const loadingCreate = ref(false);
   const loadingUpdate = ref(false);
   const loadingMenu = ref(false);
   const loadingMasterData = ref(false);
+  const loadingLayer = ref(false);
   const loadingTransaction = ref(false);
   const errorMessage = ref("");
 
@@ -262,6 +264,32 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  function grantKeys(item: any) {
+    return [
+      item?.id,
+      item?.kode,
+      item?.table,
+      item?.table_name,
+      item?.nama_table_transaksi,
+      item?.physical_table,
+    ]
+      .map((field) => String(field ?? "").trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  function physicalTableOf(item: any) {
+    return String(
+      item?.nama_table_transaksi ?? item?.physical_table ?? item?.table_name ?? "",
+    ).trim();
+  }
+
+  function matchPhysicalTable(catalog: any[], value: string) {
+    const key = String(value ?? "").trim().toLowerCase();
+    if (!key) return "";
+    const match = (catalog ?? []).find((item) => grantKeys(item).includes(key));
+    return match ? physicalTableOf(match) : "";
+  }
+
   function resolveTransactionTableName(
     kode: string,
     tableName: string,
@@ -288,8 +316,8 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     return "";
   }
 
-  async function initDataTableTransaksi() {
-    loadingTransaction.value = true;
+  async function initDataLayer() {
+    loadingLayer.value = true;
     clearError();
 
     try {
@@ -313,7 +341,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         .filter(Boolean);
 
       const seen = new Set<string>();
-      allDataTransaksi.value = normalizedData.flatMap((item: any) => {
+      allDataLayer.value = normalizedData.flatMap((item: any) => {
         const kode = String(item?.kode ?? item?.code ?? "").trim();
         const tableName = String(item?.table_name ?? "").trim();
         const qualified = resolveTransactionTableName(kode, tableName, validTables);
@@ -329,7 +357,52 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         }];
       }) as any;
 
-      return transactionItems.value;
+      return allDataLayer.value;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal mengambil data layer.",
+      );
+      throw error;
+    } finally {
+      loadingLayer.value = false;
+    }
+  }
+
+  async function initDataTableTransaksi() {
+    loadingTransaction.value = true;
+    clearError();
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const response = await $api<any>(`${baseUrl}/v1/spatial/history/tables`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      const rows = Array.isArray(response)
+        ? response
+        : ((response as any)?.data ?? []);
+
+      const seen = new Set<string>();
+      allDataTransaksi.value = rows.flatMap((item: any) => {
+        const physical = String(item?.physical_table ?? "").trim();
+        const table = String(item?.table ?? "").trim();
+        const key = physical.toLowerCase();
+        if (!physical || seen.has(key)) return [];
+        seen.add(key);
+        const label = String(item?.label ?? (table || physical));
+        return [{
+          id: physical,
+          table,
+          physical_table: physical,
+          table_name: physical,
+          nama_table_transaksi: physical,
+          label,
+          title: label,
+        }];
+      }) as any;
+
+      return allDataTransaksi.value;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(
         error,
@@ -341,6 +414,37 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     }
   }
 
+  function splitSavedGrants(rows: any[] = []) {
+    const layerIds: string[] = [];
+    const transaksiIds: string[] = [];
+    const preserved: string[] = [];
+
+    for (const row of rows ?? []) {
+      const saved = String(row?.nama_table_transaksi ?? row ?? "").trim();
+      if (!saved) continue;
+
+      const layer = matchPhysicalTable(allDataLayer.value as any[], saved);
+      if (layer) {
+        layerIds.push(layer);
+        continue;
+      }
+
+      const transaksi = matchPhysicalTable(allDataTransaksi.value as any[], saved);
+      if (transaksi) {
+        transaksiIds.push(transaksi);
+        continue;
+      }
+
+      if (saved.includes(".")) preserved.push(saved);
+    }
+
+    return {
+      layer_ids: uniqueStringArray(layerIds),
+      transaksi_ids: uniqueStringArray(transaksiIds),
+      preserved_grant_ids: uniqueStringArray(preserved),
+    };
+  }
+
   function saveErrorMessage(error: any, fallback: string) {
     if (error?.data) return getErrorMessage(error, fallback);
     return error?.message || fallback;
@@ -348,12 +452,17 @@ export const useManageRoleStore = defineStore("manageRole", () => {
 
   function toRoleBody(payload: any) {
     const menuIds = uniqueStringArray(payload?.akses_menu ?? payload?.menu_ids ?? []);
-    const requestedTransaksi = uniqueStringArray(
-      payload?.akses_transaksi ?? payload?.transaksi_ids ?? [],
+    const layerRequested = uniqueStringArray(payload?.layer_ids ?? []);
+    const transaksiRequested = uniqueStringArray(payload?.transaksi_ids ?? []);
+    const preserved = uniqueStringArray(payload?.preserved_grant_ids ?? []);
+    const layerTables = uniqueStringArray(
+      layerRequested
+        .map((value) => matchPhysicalTable(allDataLayer.value as any[], String(value)))
+        .filter(Boolean),
     );
-    const transaksiIds = uniqueStringArray(
-      requestedTransaksi
-        .map((value) => lookupTransactionTable(String(value)))
+    const transaksiTables = uniqueStringArray(
+      transaksiRequested
+        .map((value) => matchPhysicalTable(allDataTransaksi.value as any[], String(value)))
         .filter(Boolean),
     );
     const tree = Array.isArray(payload?.akses_data) ? payload.akses_data : [];
@@ -370,7 +479,12 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         "Data wilayah belum siap disimpan. Tunggu pilihan area selesai dimuat, lalu simpan lagi.",
       );
     }
-    if (requestedTransaksi.length > 0 && transaksiIds.length === 0) {
+    if (layerRequested.length !== layerTables.length) {
+      throw new Error(
+        "Layer data tidak dikenali. Muat ulang daftar layer, lalu simpan lagi.",
+      );
+    }
+    if (transaksiRequested.length !== transaksiTables.length) {
       throw new Error(
         "Tabel transaksi tidak dikenali. Muat ulang daftar transaksi, lalu simpan lagi.",
       );
@@ -381,7 +495,11 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       deskripsi: payload?.deskripsi ?? "",
       akses_menu: menuIds,
       akses_data: tree,
-      akses_transaksi: transaksiIds,
+      akses_transaksi: uniqueStringArray([
+        ...layerTables,
+        ...transaksiTables,
+        ...preserved,
+      ]),
     };
   }
 
@@ -401,21 +519,6 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     } finally {
       loadingCreate.value = false;
     }
-  }
-
-  function lookupTransactionTable(value: string) {
-    const key = value.trim().toLowerCase();
-    if (!key) return "";
-    const match = (allDataTransaksi.value as any[]).find((item) =>
-      [item?.id, item?.kode, item?.table_name, item?.nama_table_transaksi]
-        .map((field) => String(field ?? "").trim().toLowerCase())
-        .includes(key),
-    );
-    const resolved = String(
-      match?.nama_table_transaksi ?? match?.table_name ?? "",
-    ).trim();
-    if (resolved) return resolved;
-    return value.includes(".") ? value.trim() : "";
   }
 
   async function getExistingAksesByRole(roleId: string) {
@@ -470,6 +573,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     loadingUpdate,
     loadingMenu,
     loadingMasterData,
+    loadingLayer,
     loadingTransaction,
     errorMessage,
     hasRoles,
@@ -478,11 +582,13 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     allDataPerusahaan,
     allDataEstate,
     allDataAfdeling,
+    allDataLayer,
     allDataTransaksi,
     fetchRoles,
     createRole,
     updateRole,
     getExistingAksesByRole,
+    splitSavedGrants,
     clearError,
     initDataMenu,
     initDataArea,
@@ -491,6 +597,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     initDataEstate,
     initDataAfdelingByEstate,
     initDataBlokByAfdeling,
+    initDataLayer,
     initDataTableTransaksi,
   };
 });

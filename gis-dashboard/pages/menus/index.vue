@@ -8,8 +8,8 @@ import {
   type MenuItem,
   type UpdateMenuPayload,
 } from "~/stores/manageMenuStore";
-import { useAuthStore } from "~/stores/authStore";
-import { dashboardStore } from "~/stores/dashboardStore";
+import { dashboardStore, type ModuleItem } from "~/stores/dashboardStore";
+import "~/assets/css/blok-profile.css";
 import { menuIconPath } from "~/utils/menuThemeOptions";
 import { menuSubtreeDepth } from "~/utils/menuTree";
 
@@ -18,7 +18,6 @@ defineOptions({
 });
 
 const manageMenuStore = useManageMenuStore();
-const authStore = useAuthStore();
 const dashboardService = dashboardStore();
 
 const search = ref("");
@@ -44,8 +43,6 @@ const form = reactive<MenuFormState>({
 const submitLoading = computed(
   () => manageMenuStore.loadingCreate || manageMenuStore.loadingUpdate,
 );
-
-const informasiUser = computed(() => authStore.user);
 
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Menu" : "Edit Menu",
@@ -218,12 +215,33 @@ async function confirmDelete() {
   }
 }
 
+function normalizeRoute(value: string) {
+  const path = value.trim().split("?")[0]?.replace(/\/+$/, "") ?? "";
+  if (!path) return "";
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function treeHasRoute(items: ModuleItem[], route: string): boolean {
+  const target = normalizeRoute(route);
+  return items.some((item) => {
+    if (normalizeRoute(item.to) === target) return true;
+    return treeHasRoute(item.children ?? [], route);
+  });
+}
+
 async function gotoUsers() {
   await navigateTo("/users");
 }
 
 onMounted(async () => {
-  if (informasiUser.value?.role !== "superadmin") {
+  try {
+    await dashboardService.initDataMenu();
+  } catch {
+    await navigateTo("/dashboard");
+    return;
+  }
+
+  if (!treeHasRoute(dashboardService.moduleItems, "/menus")) {
     await navigateTo("/dashboard");
     return;
   }

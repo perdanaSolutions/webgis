@@ -27,6 +27,7 @@ const searchQueryAfdeling = ref("");
 const activePermissionTab = ref("menu");
 const hierarchyLoadCount = ref(0);
 const loadingRoleData = ref(false);
+const grantCatalogReady = ref(true);
 const loadingHierarchy = computed(() => hierarchyLoadCount.value > 0);
 
 const beginDataLoad = () => {
@@ -46,7 +47,9 @@ const form = reactive({
   estate_ids: [],
   afdeling_ids: [],
   blok_ids: [],
+  layer_ids: [],
   transaksi_ids: [],
+  preserved_grant_ids: [],
   selected_area_items: [],
   selected_perusahaan_items: [],
   selected_estate_items: [],
@@ -79,7 +82,7 @@ const formDataLoading = computed(
 );
 
 const saveDisabled = computed(
-  () => submitLoading.value || formDataLoading.value,
+  () => submitLoading.value || formDataLoading.value || !grantCatalogReady.value,
 );
 
 const saveButtonLabel = computed(() => {
@@ -204,6 +207,10 @@ const groupedBlokByAfdeling = computed(() => {
   );
 });
 
+const allDataLayer = computed(
+  () => manageRoleStore.allDataLayer ?? [],
+);
+
 const allDataTransaksi = computed(
   () => manageRoleStore.allDataTransaksi ?? [],
 );
@@ -221,7 +228,9 @@ function resetForm() {
   form.estate_ids = [];
   form.afdeling_ids = [];
   form.blok_ids = [];
+  form.layer_ids = [];
   form.transaksi_ids = [];
+  form.preserved_grant_ids = [];
   form.selected_area_items = [];
   form.selected_perusahaan_items = [];
   form.selected_estate_items = [];
@@ -274,6 +283,10 @@ function resolveAreaIdsForForm(areaIds = [], selectedAreaItems = []) {
 
 async function fillForm(role) {
   loadingRoleData.value = true;
+  grantCatalogReady.value = false;
+  form.layer_ids = [];
+  form.transaksi_ids = [];
+  form.preserved_grant_ids = [];
   perusahaanByAreaMap.value = {};
   estateByPerusahaanMap.value = {};
   afdelingByEstateMap.value = {};
@@ -288,6 +301,9 @@ async function fillForm(role) {
     }
     if (!(manageRoleStore.allDataMenu ?? []).length) {
       await manageRoleStore.initDataMenu();
+    }
+    if (!(manageRoleStore.allDataLayer ?? []).length) {
+      await manageRoleStore.initDataLayer();
     }
     if (!(manageRoleStore.allDataTransaksi ?? []).length) {
       await manageRoleStore.initDataTableTransaksi();
@@ -308,11 +324,11 @@ async function fillForm(role) {
       .map((item) => String(item?.menu_id ?? ""))
       .filter((id) => !!id);
 
-    form.transaksi_ids = [...new Set(
-      (existingAkses?.transaksi ?? [])
-        .map((item) => resolveTransaksiId(String(item?.nama_table_transaksi ?? "")))
-        .filter((id) => !!id),
-    )];
+    const savedGrants = manageRoleStore.splitSavedGrants(existingAkses?.transaksi ?? []);
+    form.layer_ids = savedGrants.layer_ids;
+    form.transaksi_ids = savedGrants.transaksi_ids;
+    form.preserved_grant_ids = savedGrants.preserved_grant_ids;
+    grantCatalogReady.value = true;
 
     form.area_ids = resolveAreaIdsForForm(
       result.area_ids,
@@ -332,6 +348,7 @@ async function fillForm(role) {
 
 function openCreateModal() {
   manageRoleStore.clearError();
+  grantCatalogReady.value = true;
   formMode.value = "create";
   selectedRoleId.value = "";
   resetForm();
@@ -536,24 +553,40 @@ const getAfdelingCode = (afdeling) =>
     "",
   );
 
-const getTransaksiCode = (transaksi) =>
+const getLayerCode = (layer) =>
   String(
-    transaksi?.nama_table_transaksi ||
-      transaksi?.table_name ||
-      transaksi?.id ||
-      transaksi ||
+    layer?.nama_table_transaksi ||
+      layer?.table_name ||
+      layer?.id ||
       "",
   );
 
-function resolveTransaksiId(saved) {
-  const key = String(saved ?? "").trim().toLowerCase();
-  if (!key) return "";
-  const match = (allDataTransaksi.value ?? []).find((item) =>
-    [item?.id, item?.kode, item?.table_name, item?.nama_table_transaksi]
-      .map((value) => String(value ?? "").trim().toLowerCase())
-      .includes(key),
+const getTransaksiCode = (transaksi) =>
+  String(
+    transaksi?.physical_table ||
+      transaksi?.nama_table_transaksi ||
+      transaksi?.table_name ||
+      transaksi?.id ||
+      "",
   );
-  return match ? getTransaksiCode(match) : String(saved);
+
+function countRoleAccess(role, kind) {
+  const rows = role?.akses_transaksi ?? [];
+  const catalogsReady =
+    (manageRoleStore.allDataLayer ?? []).length > 0
+    || (manageRoleStore.allDataTransaksi ?? []).length > 0;
+
+  if (!catalogsReady) {
+    return rows.filter((item) => {
+      const name = String(item?.nama_table_transaksi ?? "").toLowerCase();
+      return kind === "layer"
+        ? name.startsWith("spatial.")
+        : name.startsWith("trx.") || name.startsWith("trx_");
+    }).length;
+  }
+
+  const split = manageRoleStore.splitSavedGrants(rows);
+  return kind === "layer" ? split.layer_ids.length : split.transaksi_ids.length;
 }
 
 const syncSelectedItemsFromIds = () => {
@@ -1226,26 +1259,33 @@ const toggleAfdeling = async (afdeling, estateCode = "") => {
   }
 };
 
-const toggleAllTransaksi = () => {
-  const transaksiCodes = allDataTransaksi.value
-    .map((transaksi) => getTransaksiCode(transaksi))
-    .filter((code) => !!code);
-
+const toggleAllInList = (codes, target) => {
   const isAllSelected =
-    transaksiCodes.length > 0 &&
-    transaksiCodes.every((code) => form.transaksi_ids.includes(code));
+    codes.length > 0 &&
+    codes.every((code) => target.includes(code));
 
   if (isAllSelected) {
-    form.transaksi_ids = form.transaksi_ids.filter(
-      (id) => !transaksiCodes.includes(String(id)),
-    );
-  } else {
-    const merged = new Set([
-      ...form.transaksi_ids.map((id) => String(id)),
-      ...transaksiCodes,
-    ]);
-    form.transaksi_ids = Array.from(merged);
+    return target.filter((id) => !codes.includes(String(id)));
   }
+
+  return Array.from(new Set([
+    ...target.map((id) => String(id)),
+    ...codes,
+  ]));
+};
+
+const toggleAllLayer = () => {
+  const codes = allDataLayer.value
+    .map((layer) => getLayerCode(layer))
+    .filter((code) => !!code);
+  form.layer_ids = toggleAllInList(codes, form.layer_ids);
+};
+
+const toggleAllTransaksi = () => {
+  const codes = allDataTransaksi.value
+    .map((transaksi) => getTransaksiCode(transaksi))
+    .filter((code) => !!code);
+  form.transaksi_ids = toggleAllInList(codes, form.transaksi_ids);
 };
 
 const togglePermission = (id) => {
@@ -1253,6 +1293,8 @@ const togglePermission = (id) => {
 
   if (activePermissionTab.value === "menu") {
     targetArray = form.menu_ids;
+  } else if (activePermissionTab.value === "layer") {
+    targetArray = form.layer_ids;
   } else if (activePermissionTab.value === "transaksi") {
     targetArray = form.transaksi_ids;
   }
@@ -1270,8 +1312,11 @@ onMounted(async () => {
     manageRoleStore.fetchRoles(),
     manageRoleStore.initDataMenu(),
     manageRoleStore.initDataArea(),
+    manageRoleStore.initDataLayer(),
     manageRoleStore.initDataTableTransaksi(),
-  ]);
+  ]).catch(() => {
+    // Pesan error sudah diisi store.
+  });
 });
 </script>
 
@@ -1321,13 +1366,14 @@ onMounted(async () => {
                 <th class="px-4 py-3 font-bold">Deskripsi</th>
                 <th class="px-4 py-3 font-bold">Menu</th>
                 <th class="px-4 py-3 font-bold">Akses Data</th>
+                <th class="px-4 py-3 font-bold">Layer Data</th>
                 <th class="px-4 py-3 font-bold">Transaksi</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="manageRoleStore.loadingList" class="border-t border-row">
-                <td colspan="4" class="px-4 py-8 text-center text-muted">
+                <td colspan="7" class="px-4 py-8 text-center text-muted">
                   Memuat data role...
                 </td>
               </tr>
@@ -1337,7 +1383,8 @@ onMounted(async () => {
                 <td class="px-4 py-3">{{ item.deskripsi }}</td>
                 <td class="px-4 py-3">{{ item.akses_menu?.length ?? 0 }}</td>
                 <td class="px-4 py-3">{{ item.akses_data?.length ?? 0 }}</td>
-                <td class="px-4 py-3">{{ item.akses_transaksi?.length ?? 0 }}</td>
+                <td class="px-4 py-3">{{ countRoleAccess(item, "layer") }}</td>
+                <td class="px-4 py-3">{{ countRoleAccess(item, "transaksi") }}</td>
                 <td class="px-4 py-3">
                   <button class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand"
                     @click="openEditModal(item)">
@@ -1347,7 +1394,7 @@ onMounted(async () => {
               </tr>
 
               <tr v-if="!manageRoleStore.loadingList && filteredRoles.length === 0" class="border-t border-row">
-                <td colspan="4" class="px-4 py-8 text-center text-muted">
+                <td colspan="7" class="px-4 py-8 text-center text-muted">
                   Belum ada data role.
                 </td>
               </tr>
@@ -1393,10 +1440,15 @@ onMounted(async () => {
                 : 'border border-tan bg-cream text-brand'" @click="changeContent('perusahaan')">
                 Akses Data
               </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'layer'
+                ? 'bg-brand text-on-brand'
+                : 'border border-tan bg-cream text-brand'" @click="changeContent('layer')">
+                Akses Layer Data
+              </button>
               <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'transaksi'
                 ? 'bg-brand text-on-brand'
                 : 'border border-tan bg-cream text-brand'" @click="changeContent('transaksi')">
-                Akses transaksi
+                Akses Transaksi
               </button>
             </div>
 
@@ -1573,6 +1625,33 @@ onMounted(async () => {
               </div>
             </div>
 
+            <div v-show="activePermissionTab === 'layer'" class="rounded-xl border border-default p-4">
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <p class="font-semibold text-brand">List layer data</p>
+                <button type="button"
+                  class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm font-semibold text-brand"
+                  @click="toggleAllLayer">
+                  Ceklis Semua
+                </button>
+              </div>
+
+              <div v-if="manageRoleStore.loadingLayer" class="text-muted">
+                Memuat data layer...
+              </div>
+              <div v-else-if="!allDataLayer.length" class="text-muted">
+                Belum ada data layer.
+              </div>
+
+              <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label v-for="layer in allDataLayer" :key="getLayerCode(layer)"
+                  class="flex items-center gap-2 rounded-lg border border-default p-2">
+                  <input :checked="form.layer_ids.includes(getLayerCode(layer))" type="checkbox"
+                    class="h-4 w-4" @change="togglePermission(getLayerCode(layer))" />
+                  <span>{{ layer?.title ?? layer?.nama_table_transaksi ?? layer }}</span>
+                </label>
+              </div>
+            </div>
+
             <div v-show="activePermissionTab === 'transaksi'" class="rounded-xl border border-default p-4">
               <div class="mb-3 flex items-center justify-between gap-2">
                 <p class="font-semibold text-brand">List data transaksi</p>
@@ -1583,7 +1662,10 @@ onMounted(async () => {
                 </button>
               </div>
 
-              <div v-if="!allDataTransaksi.length" class="text-muted">
+              <div v-if="manageRoleStore.loadingTransaction" class="text-muted">
+                Memuat data transaksi...
+              </div>
+              <div v-else-if="!allDataTransaksi.length" class="text-muted">
                 Belum ada data transaksi.
               </div>
 
@@ -1592,7 +1674,7 @@ onMounted(async () => {
                   class="flex items-center gap-2 rounded-lg border border-default p-2">
                   <input :checked="form.transaksi_ids.includes(getTransaksiCode(transaksi))" type="checkbox"
                     class="h-4 w-4" @change="togglePermission(getTransaksiCode(transaksi))" />
-                  <span>{{ transaksi?.title ?? transaksi?.nama_table_transaksi ?? transaksi }}</span>
+                  <span>{{ transaksi?.label ?? transaksi?.title ?? transaksi?.table }}</span>
                 </label>
               </div>
             </div>

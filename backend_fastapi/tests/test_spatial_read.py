@@ -60,6 +60,21 @@ def test_block_detail(client, auth, sample_block):
     missing = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": "999999999"})
     assert missing.status_code == 404
 
+    # Bulan+tahun yang tidak ada -> data transaksi terakhir, bukan angka nol tahun kosong.
+    fallback = client.get("/api/v1/spatial/blok/detail", headers=auth,
+                          params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 2099}).json()
+    assert fallback["mode"] == "LATEST_TAHUN_TANAM"
+    assert fallback["periode"]["tahun"] and fallback["periode"]["tahun"] != 2099
+
+    exact = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": sample_block["id"],
+        "bulan": fallback["periode"]["bulan"],
+        "tahun": fallback["periode"]["tahun"],
+    }).json()
+    assert exact["mode"] == "SPESIFIK_TAHUN_TANAM"
+    assert exact["periode"]["bulan"] == fallback["periode"]["bulan"]
+    assert exact["periode"]["tahun"] == fallback["periode"]["tahun"]
+
 
 def test_history_tables(client, auth, sample_block):
     tables = client.get("/api/v1/spatial/history/tables", headers=auth).json()

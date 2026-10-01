@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
 
 defineOptions({
@@ -29,20 +30,12 @@ onMounted(async () => {
     </div>
 
     <div class="relative flex flex-col items-center px-6 text-center">
-      <div class="relative mb-10 flex h-28 w-28 items-center justify-center">
-        <span class="absolute inset-0 rounded-full border-2 border-brand-10" />
+      <div class="relative mb-10 flex h-40 w-44 items-center justify-center">
+        <span class="absolute h-36 w-36 rounded-full border-2 border-brand-10" />
         <span
-          class="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-brand border-r-brand-secondary-60" />
-        <span class="absolute inset-3 animate-pulse rounded-full bg-brand-10" />
-        <div
-          class="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-brand text-on-brand shadow-lg shadow-brand-25">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 animate-pulse" fill="none" viewBox="0 0 24 24"
-            stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M9 6.75V15m6-6v8.25m.513 3.17C17.07 17.98 14.7 17 12 17s-5.07.98-6.437 2.83M14.25 9.75c0 .414-.336.75-.75.75h-3a.75.75 0 01-.75-.75V4.875C12 3.84 12.84 3 13.875 3h.375c.621 0 1.125.504 1.125 1.125v5.625Z" />
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15" />
-          </svg>
-        </div>
+          class="absolute h-36 w-36 animate-spin rounded-full border-2 border-transparent border-t-brand border-r-brand-secondary-60" />
+        <img :src="logoImage" alt="TLDN Productivity Technology Science"
+          class="relative z-10 h-[4.5rem] w-auto object-contain">
       </div>
 
       <h1 class="text-size-xl font-bold tracking-tight text-content-dark sm:text-size-2xl">

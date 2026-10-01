@@ -12,8 +12,15 @@ from app.services import access_service
 from app.services.user_activity import record_user_activity
 
 
+def _capitalize_text(value: str | None) -> str | None:
+    """Huruf pertama tiap kata besar, sisanya kecil — setara text-transform: capitalize di CSS."""
+    if value is None:
+        return None
+    return " ".join(part.capitalize() for part in value.strip().split())
+
+
 def _normalize_name(name: str) -> str:
-    return name.strip().lower()
+    return _capitalize_text(name) or ""
 
 
 def get_role(db: Session, role_id: UUID) -> Role:
@@ -58,7 +65,7 @@ def list_roles(db: Session) -> list[dict]:
 
 
 def _ensure_unique_name(db: Session, name: str, exclude_id: UUID | None = None) -> None:
-    query = select(Role.id).where(func.lower(Role.nama) == name)
+    query = select(Role.id).where(func.lower(Role.nama) == name.lower())
     if exclude_id:
         query = query.where(Role.id != exclude_id)
     if db.scalar(query):
@@ -81,7 +88,7 @@ def _sync_access(db: Session, role: Role, payload: RoleCreate | RoleUpdate, *, r
 def create_role(db: Session, payload: RoleCreate, current_user=None) -> dict:
     name = _normalize_name(payload.nama)
     _ensure_unique_name(db, name)
-    role = Role(nama=name, deskripsi=payload.deskripsi)
+    role = Role(nama=name, deskripsi=_capitalize_text(payload.deskripsi))
     db.add(role)
     db.flush()
 
@@ -114,7 +121,7 @@ def update_role(db: Session, role_id: UUID, payload: RoleUpdate, current_user=No
     _ensure_unique_name(db, name, exclude_id=role.id)
     role.nama = name
     if "deskripsi" in payload.model_fields_set:
-        role.deskripsi = payload.deskripsi
+        role.deskripsi = _capitalize_text(payload.deskripsi)
 
     _sync_access(db, role, payload, replace_missing=False)
     if current_user is not None:

@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from fastapi import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -23,8 +24,8 @@ from app.services.upload.report import UploadReport, geometry_problem, missing_b
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
 )
-from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
-from app.utils.parsing import to_float, to_int
+from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features
+from app.utils.parsing import json_safe, to_float, to_int
 from app.utils.period import period_label, to_period
 
 TABLE = "spatial.tree_censuses"
@@ -230,20 +231,66 @@ def list_rows(db: Session, bulan: int, tahun: int, blok: str | None) -> dict:
     return {"status": "success", "total_records": len(data), "periode": period_label(period), "data": data}
 
 
+def _block_ids(db: Session, flt: BlockFilter) -> list[int]:
+    """Blok yang lolos filter wilayah. Kecil (puluhan–ratusan), dipakai menyaring sensus."""
+    joins, where_sql, params = flt.sql()
+    return list(db.execute(
+        text(f"SELECT DISTINCT bl.id FROM master.blocks bl {joins} {where_sql}"),
+        params,
+    ).scalars().all())
+
+
+# FeatureCollection dirakit di Postgres. Indeks tree_censuses (block_id, period)
+# dipakai lewat join dari daftar blok, bukan dari seluruh tabel sensus.
+_GEOJSON_SQL = """
+    SELECT json_build_object(
+        'type', 'FeatureCollection',
+        'features', COALESCE(json_agg(json_build_object(
+            'type', 'Feature',
+            'properties', json_build_object(
+                'id', pt.id,
+                'objectid', pt.objectid,
+                'blok_id', tc.block_id,
+                'kode_blok', bl.code,
+                'kode_afd', dv.code,
+                'kode_est', es.code,
+                'diameter', tc.diameter,
+                'jarak', tc.spacing,
+                'kategori', cat.name,
+                'bulan', :bulan,
+                'tahun', :tahun
+            ),
+            'geometry', ST_AsGeoJSON(pt.geom)::json
+        )), '[]'::json)
+    )
+    FROM unnest(CAST(:ids AS bigint[])) AS scope(block_id)
+    JOIN spatial.tree_censuses tc ON tc.block_id = scope.block_id AND tc.period = :p
+    JOIN spatial.palm_trees pt ON pt.id = tc.palm_tree_id
+    JOIN master.blocks bl ON bl.id = tc.block_id
+    JOIN master.divisions dv ON dv.id = bl.division_id
+    JOIN master.estates es ON es.id = dv.estate_id
+    LEFT JOIN ref.tree_categories cat ON cat.id = tc.category_id
+"""
+
+
 def geojson(db: Session, flt: BlockFilter, bulan: int | None, tahun: int | None):
     period = resolve_period(db, TABLE, bulan, tahun)
     if period is None:
         return feature_collection([])
-    features = []
-    for r in _query(db, flt, period):
-        properties = {
-            "id": r["id"], "objectid": r["objectid"], "blok_id": r["block_id"], "kode_blok": r["kode_blok"],
-            "kode_afd": r["kode_afd"], "kode_est": r["kode_est"], "diameter": r["diameter"], "jarak": r["spacing"],
-            "kategori": r["kategori"], "bulan": period.month, "tahun": period.year,
-        }
-        if feature := make_feature(properties, r["geometry_json"]):
-            features.append(feature)
-    return feature_collection(features)
+    block_ids = _block_ids(db, flt)
+    if not block_ids:
+        return feature_collection([])
+
+    payload = db.execute(text(_GEOJSON_SQL), {
+        "p": period, "ids": block_ids, "bulan": period.month, "tahun": period.year,
+    }).scalar_one()
+    if isinstance(payload, memoryview):
+        payload = payload.tobytes().decode()
+    elif isinstance(payload, bytes):
+        payload = payload.decode()
+    elif not isinstance(payload, str):
+        payload = json.dumps(payload, default=json_safe, separators=(",", ":"))
+    return Response(content=payload, media_type="application/json")
 
 
 def cleanup(db: Session, bulan: int, tahun: int) -> dict:
