@@ -96,6 +96,23 @@ def test_layer_upload_roundtrip(client, auth, sample_block, block_geometry, laye
     assert cleanup.json()["data_terhapus"] == 1
 
 
+def test_layer_analyze_reports_rejected_features(client, auth, sample_block, block_geometry):
+    point = {"type": "Point", "coordinates": block_geometry["point"]}
+    content = _fc(
+        {"type": "Feature", "properties": _props(sample_block, OBJECTID=900010, Kategori="Kayu"), "geometry": point},
+        {"type": "Feature", "properties": {"OBJECTID": 900011, "Blok": "X"}, "geometry": point},           # atribut kurang
+        {"type": "Feature", "properties": _props(sample_block, OBJECTID=900012), "geometry": None},        # tanpa geometri
+        {"type": "Feature", "properties": _props(sample_block, OBJECTID=900010, Kategori="Beton"), "geometry": point},
+    )
+    analyze = _upload(client, auth, "/jembatan/upload-analyze", content).json()["data"]
+    assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN"
+    assert analyze["jembatan_siap_diunggah"] == 1
+    rejected = {r["fitur_index"]: r["kode"] for r in analyze["rincian"]["fitur_ditolak"]}
+    assert rejected == {0: "OBJECTID_GANDA", 1: "ATRIBUT_BLOK_KOSONG", 2: "GEOMETRI_TIDAK_VALID"}
+    assert {w["kode"] for w in analyze["peringatan"]} >= {"OBJECTID_GANDA", "ATRIBUT_BLOK_KOSONG", "GEOMETRI_TIDAK_VALID"}
+    assert "3 fitur ditolak" in analyze["kesimpulan"]
+
+
 def test_wrong_block_label_is_matched_by_geometry(client, auth, sample_block, block_geometry):
     # Label afdeling salah (kasus nyata di Sawit/TPH_Sample: AFDI03 padahal lokasinya AFDI04)
     props = _props(sample_block, OBJECTID=900005, Kategori="Kayu")

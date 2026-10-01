@@ -23,8 +23,10 @@ from app.core.exceptions import bad_request, conflict, not_found
 from app.services.block_filter import BlockFilter
 from app.services.map_service import resolve_period
 from app.services.upload.batch import final_status, finish_batch, start_batch
+from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
-from app.services.upload.resolvers import BlockIndex, BlockMatchReport, geojson_block_keys, match_blocks
+from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
+from app.services.upload.resolvers import BlockIndex, BlockMatchReport, block_label, geojson_block_keys, match_blocks
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
 from app.utils.pagination import page_response
 from app.utils.parsing import clean_str, is_blank, to_float
@@ -408,17 +410,20 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
     has_objectid = any(c["column"] == "objectid" for c in columns)
     stats = {"total": len(features), "invalid_props": 0, "invalid_geom": 0, "duplicates": 0, "invalid_values": 0}
     invalid_samples: list[str] = []
+    report = UploadReport(total=len(features))
 
-    candidates: list[tuple[tuple | None, dict]] = []
-    for feature in features:
+    candidates: list[tuple[int, tuple | None, dict]] = []
+    for i, feature in enumerate(features):
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props) if has_block else None
         if has_block and keys is None:
             stats["invalid_props"] += 1
+            report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
             continue
         geom = geometry_to_ewkb(feature.get("geometry"), layer["geometry_type"])
         if geom is None:
             stats["invalid_geom"] += 1
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), layer["geometry_type"]))
             continue
         row = {"geom": geom}
         for col in columns:
@@ -431,35 +436,78 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
                     invalid_samples.append(sample[:200])
                 value = None
             row[col["column"]] = value
-        candidates.append((keys, row))
+        candidates.append((i, keys, row))
 
     match = BlockMatchReport()
     if has_block:
-        block_ids, match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for k, r in candidates])
-        for (_, row), block_id in zip(candidates, block_ids):
+        block_ids, match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
+        for (_, _, row), block_id in zip(candidates, block_ids):
             row["block_id"] = block_id
 
     rows, by_objectid = [], {}
-    for _, row in candidates:
+    for i, keys, row in candidates:
         if has_block and row["block_id"] is None:
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
             continue
         if has_objectid and row.get("objectid") is not None:
-            stats["duplicates"] += row["objectid"] in by_objectid
-            by_objectid[row["objectid"]] = row
+            if row["objectid"] in by_objectid:
+                stats["duplicates"] += 1
+                report.reject(by_objectid[row["objectid"]][0], "OBJECTID_GANDA",
+                              f"OBJECTID {row['objectid']} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+            by_objectid[row["objectid"]] = (i, row)
         else:
             rows.append(row)
-    rows.extend(by_objectid.values())
+    rows.extend(row for _, row in by_objectid.values())
     stats["missing_block"] = match.missing
     return {"rows": rows, "columns": columns, "stats": stats, "has_objectid": has_objectid, "match": match,
-            "invalid_samples": invalid_samples}
+            "invalid_samples": invalid_samples, "report": report}
+
+
+def _replace_condition(layer: dict, prepared: dict) -> tuple[str, dict]:
+    """Data lama periode itu yang diganti upload: blok di file (dan objectid sama); tanpa blok -> seluruh periode."""
+    rows = prepared["rows"]
+    clauses, params = [], {}
+    if layer["relasi_blok"]:
+        clauses.append("block_id = ANY(:blocks)")
+        params["blocks"] = sorted({r["block_id"] for r in rows})
+    oids = {r["objectid"] for r in rows if r.get("objectid") is not None}
+    # Tanpa relasi blok, baris ber-objectid kosong tidak bisa dicocokkan dengan data lama
+    # -> ganti seluruh periode supaya re-upload tidak menggandakan data.
+    if prepared["has_objectid"] and oids and (layer["relasi_blok"] or len(oids) == len(rows)):
+        clauses.append("objectid = ANY(:oids)")
+        params["oids"] = sorted(oids)
+    return (f" AND ({' OR '.join(clauses)})" if clauses else ""), params
 
 
 def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
     prepared = _prepare(db, layer, content)
     s = prepared["stats"]
+    will_replace = 0
+    if prepared["rows"]:
+        condition, params = _replace_condition(layer, prepared)
+        will_replace = db.execute(
+            text(f"SELECT count(*) FROM {quote_table(layer['table_name'])} WHERE period = :p{condition}"),
+            {**params, "p": period},
+        ).scalar_one()
+    notices = []
+    if s["invalid_values"]:
+        notices.append({
+            "kode": "NILAI_ATRIBUT_INVALID", "level": "PERINGATAN", "jumlah": s["invalid_values"],
+            "pesan": f"{s['invalid_values']} nilai atribut tidak cocok dengan tipe kolomnya dan akan disimpan KOSONG "
+                     f"(fiturnya tetap diunggah). Contoh: {'; '.join(prepared['invalid_samples'])}.",
+        })
+    detail = upload_report.build(
+        db, prepared["report"], layer=layer["nama"], period=period, ready=len(prepared["rows"]),
+        block_ids=[r["block_id"] for r in prepared["rows"]] if layer["relasi_blok"] else None,
+        replaced=will_replace, match=prepared["match"] if layer["relasi_blok"] else None,
+        replace_scope="pada blok-blok yang ada di file ini" if layer["relasi_blok"] else "pada layer ini",
+        notices=notices,
+    )
     return {
-        "jenis": layer["kode"], "periode": period_label(period), "total_fitur": s["total"],
+        "jenis": layer["kode"], "periode": period_label(period),
+        "status_analisis": detail["status_analisis"], "kesimpulan": detail["kesimpulan"],
+        "total_fitur": s["total"],
         "siap_diunggah": len(prepared["rows"]),
         "tertahan_karena_blok_belum_ada": s["missing_block"] if layer["relasi_blok"] else None,
         "data_properti_invalid": s["invalid_props"], "data_geometri_invalid": s["invalid_geom"],
@@ -469,6 +517,9 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
         **prepared["match"].as_dict(),
         "contoh_blok_tidak_ditemukan": prepared["match"].unmatched_samples,
         "kolom_tersimpan": [c["column"] for c in prepared["columns"]],
+        "data_periode_ini_akan_diganti": will_replace,
+        "peringatan": detail["peringatan"],
+        "rincian": detail["rincian"],
     }
 
 
@@ -483,18 +534,9 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
         rows, stats = prepared["rows"], prepared["stats"]
         replaced = 0
         if rows:
-            clauses, params = [], {"p": period}
-            if layer["relasi_blok"]:
-                clauses.append("block_id = ANY(:blocks)")
-                params["blocks"] = sorted({r["block_id"] for r in rows})
-            oids = {r["objectid"] for r in rows if r.get("objectid") is not None}
-            # Tanpa relasi blok, baris ber-objectid kosong tidak bisa dicocokkan dengan data lama
-            # -> ganti seluruh periode supaya re-upload tidak menggandakan data.
-            if prepared["has_objectid"] and oids and (layer["relasi_blok"] or len(oids) == len(rows)):
-                clauses.append("objectid = ANY(:oids)")
-                params["oids"] = sorted(oids)
-            condition = f" AND ({' OR '.join(clauses)})" if clauses else ""
-            replaced = db.execute(text(f"DELETE FROM {q_table} WHERE period = :p{condition}"), params).rowcount
+            condition, params = _replace_condition(layer, prepared)
+            replaced = db.execute(text(f"DELETE FROM {q_table} WHERE period = :p{condition}"),
+                                  {**params, "p": period}).rowcount
             attr = [c["column"] for c in prepared["columns"]]
             columns = (["block_id"] if layer["relasi_blok"] else []) + ["period", *attr, "geom", "upload_batch_id"]
             copy_rows(db, q_table, columns, (

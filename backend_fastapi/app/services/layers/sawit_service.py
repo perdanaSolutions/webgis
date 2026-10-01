@@ -14,10 +14,15 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.block_filter import BlockFilter
+from app.services.layers.specs import SAWIT_LABEL
 from app.services.map_service import resolve_period
 from app.services.upload.batch import final_status, finish_batch, start_batch
+from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
-from app.services.upload.resolvers import BlockIndex, BlockMatchReport, RefResolver, geojson_block_keys, match_blocks
+from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
+from app.services.upload.resolvers import (
+    BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
+)
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
 from app.utils.parsing import to_float, to_int
 from app.utils.period import period_label, to_period
@@ -35,44 +40,67 @@ class PreparedSawit:
     duplicates: int = 0
     match: BlockMatchReport = field(default_factory=BlockMatchReport)
     new_categories: list[str] = field(default_factory=list)
+    unknown_categories: list[str] = field(default_factory=list)
+    report: UploadReport = field(default_factory=UploadReport)
 
 
 def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
     features = parse_features(content)
     categories = RefResolver(db, "tree_categories", create_missing=create_refs)
-    result = PreparedSawit(total=len(features))
+    result = PreparedSawit(total=len(features), report=UploadReport(total=len(features)))
+    report = result.report
 
-    candidates: list[tuple[tuple, dict]] = []
-    for feature in features:
+    candidates: list[tuple[int, tuple, dict]] = []
+    for i, feature in enumerate(features):
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props)
         objectid = to_int(props.get("OBJECTID"))
         diameter, spacing = to_float(props.get("Diameter")), to_float(props.get("Jarak"))
         category = props.get("Kategori")
-        if keys is None or objectid is None or not category or (diameter or 0) < 0 or (spacing or 0) < 0:
+        if keys is None:
             result.invalid_props += 1
+            report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
+            continue
+        problems = [msg for bad, msg in (
+            (objectid is None, "OBJECTID kosong"),
+            (not category, "Kategori kosong"),
+            ((diameter or 0) < 0, f"Diameter negatif ({diameter})"),
+            ((spacing or 0) < 0, f"Jarak negatif ({spacing})"),
+        ) if bad]
+        if problems:
+            result.invalid_props += 1
+            report.reject(i, "NILAI_TIDAK_VALID", "; ".join(problems))
             continue
         geom = geometry_to_ewkb(feature.get("geometry"), "POINT")
         if geom is None:
             result.invalid_geom += 1
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), "POINT"))
             continue
         category_id = categories.resolve(category)
         if category_id is None and create_refs:
             result.invalid_props += 1
+            report.reject(i, "NILAI_TIDAK_VALID", f"Kategori '{category}' tidak bisa disimpan")
             continue
-        candidates.append((keys, {
+        candidates.append((i, keys, {
             "objectid": objectid, "category_id": category_id,
             "diameter": diameter, "spacing": spacing, "geom": geom,
         }))
 
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for k, r in candidates])
-    for (_, row), block_id in zip(candidates, block_ids):
+    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
+    indexes: dict[int, int] = {}  # objectid -> fitur_index yang dipakai
+    for (i, keys, row), block_id in zip(candidates, block_ids):
         if block_id is None:
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
             continue
         row["block_id"] = block_id
-        result.duplicates += row["objectid"] in result.rows
+        if row["objectid"] in result.rows:
+            result.duplicates += 1
+            report.reject(indexes[row["objectid"]], "OBJECTID_GANDA",
+                          f"OBJECTID {row['objectid']} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
         result.rows[row["objectid"]] = row
+        indexes[row["objectid"]] = i
     result.new_categories = categories.created
+    result.unknown_categories = categories.unknown
     return result
 
 
@@ -83,9 +111,21 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {TABLE} WHERE period = :p AND block_id = ANY(:b)"), {"p": period, "b": blocks}
     ).scalar_one() if blocks else 0
+    notices = [{
+        "kode": "NILAI_REFERENSI_BARU", "level": "INFO", "jumlah": len(prepared.unknown_categories),
+        "pesan": "Kategori pokok berikut belum terdaftar dan akan DIBUAT otomatis saat upload: "
+                 f"{', '.join(prepared.unknown_categories[:20])}. Pastikan bukan salah ketik.",
+    }] if prepared.unknown_categories else []
+    detail = upload_report.build(
+        db, prepared.report, layer=SAWIT_LABEL, period=period, ready=len(prepared.rows),
+        block_ids=[r["block_id"] for r in prepared.rows.values()], replaced=will_replace, match=prepared.match,
+        notices=notices,
+    )
     return {
         "tipe_upload": "SPATIAL_POINT_SAWIT",
         "periode": period_label(period),
+        "status_analisis": detail["status_analisis"],
+        "kesimpulan": detail["kesimpulan"],
         "total_fitur_sawit": prepared.total,
         "sawit_siap_diunggah": len(prepared.rows),
         "sawit_tertahan_karena_blok_belum_ada": prepared.match.missing,
@@ -95,6 +135,8 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         "data_periode_ini_akan_diganti": will_replace,
         **prepared.match.as_dict(),
         "contoh_blok_tidak_ditemukan": prepared.match.unmatched_samples,
+        "peringatan": detail["peringatan"],
+        "rincian": detail["rincian"],
     }
 
 

@@ -22,8 +22,12 @@ from app.services.block_filter import BlockFilter
 from app.services.layers.specs import Column, LayerSpec
 from app.services.map_service import resolve_period
 from app.services.upload.batch import final_status, finish_batch, start_batch
+from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
-from app.services.upload.resolvers import BlockIndex, BlockMatchReport, RefResolver, geojson_block_keys, match_blocks
+from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
+from app.services.upload.resolvers import (
+    BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
+)
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
 from app.utils.parsing import clean_str, json_safe, to_float, to_int
 from app.utils.period import period_label, to_period
@@ -39,6 +43,8 @@ class PreparedUpload:
     duplicates: int = 0
     match: BlockMatchReport = field(default_factory=BlockMatchReport)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
+    unknown_refs: dict[str, list[str]] = field(default_factory=dict)
+    report: UploadReport = field(default_factory=UploadReport)
 
     @property
     def missing_block(self) -> int:
@@ -81,51 +87,60 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
     features = parse_features(content)
     refs = {c.kind[4:]: RefResolver(db, c.kind[4:], create_missing=create_refs)
             for c in spec.columns if c.kind.startswith("ref:")}
-    result = PreparedUpload(total=len(features))
+    result = PreparedUpload(total=len(features), report=UploadReport(total=len(features)))
+    report = result.report
 
     # 1) validasi properti & geometri
-    candidates: list[tuple[tuple, dict]] = []
-    for feature in features:
+    candidates: list[tuple[int, tuple, dict]] = []
+    for i, feature in enumerate(features):
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props)
         if keys is None:
             result.invalid_props += 1
+            report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
             continue
         geom = geometry_to_ewkb(feature.get("geometry"), spec.geometry_type)
         if geom is None:
             result.invalid_geom += 1
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), spec.geometry_type))
             continue
         row = {"geom": geom}
-        valid = True
+        negative = []
         for column in spec.columns:
             raw = next((props.get(p) for p in column.props if props.get(p) is not None), None)
             value = _cast(column, raw, refs)
             if column.non_negative and value is not None and value < 0:
-                valid = False
+                negative.append(f"{column.props[0]}={raw}")
             row[column.column] = value
-        if not valid:
+        if negative:
             result.invalid_props += 1
+            report.reject(i, "NILAI_TIDAK_VALID", "Nilai tidak boleh negatif: " + ", ".join(negative))
             continue
-        candidates.append((keys, row))
+        candidates.append((i, keys, row))
 
     # 2) tentukan blok (label -> master, cadangan: posisi geometri)
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for k, r in candidates])
+    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
 
     # 3) buang yang tanpa blok, dedup objectid (baris terakhir menang)
-    by_objectid: dict[int, dict] = {}
-    for (_, row), block_id in zip(candidates, block_ids):
+    by_objectid: dict[int, tuple[int, dict]] = {}
+    for (i, keys, row), block_id in zip(candidates, block_ids):
         if block_id is None:
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
             continue
         row["block_id"] = block_id
         objectid = row.get("objectid")
         if spec.unique_objectid and objectid is not None:
-            result.duplicates += objectid in by_objectid
-            by_objectid[objectid] = row
+            if objectid in by_objectid:
+                result.duplicates += 1
+                report.reject(by_objectid[objectid][0], "OBJECTID_GANDA",
+                              f"OBJECTID {objectid} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+            by_objectid[objectid] = (i, row)
         else:
             result.rows.append(row)
 
-    result.rows.extend(by_objectid.values())
+    result.rows.extend(row for _, row in by_objectid.values())
     result.new_refs = {name: r.created for name, r in refs.items() if r.created}
+    result.unknown_refs = {name: r.unknown for name, r in refs.items() if r.unknown}
     return result
 
 
@@ -147,9 +162,22 @@ def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int
         {**params, "p": period},
     ).scalar_one() if prepared.rows else 0
     code = spec.code
+    notices = [
+        {"kode": "NILAI_REFERENSI_BARU", "level": "INFO", "jumlah": len(values),
+         "pesan": f"Nilai {name} berikut belum terdaftar dan akan DIBUAT otomatis saat upload: {', '.join(values[:20])}. "
+                  "Pastikan bukan salah ketik."}
+        for name, values in prepared.unknown_refs.items()
+    ]
+    detail = upload_report.build(
+        db, prepared.report, layer=spec.label, period=period, ready=len(prepared.rows),
+        block_ids=[r["block_id"] for r in prepared.rows], replaced=will_replace, match=prepared.match,
+        notices=notices,
+    )
     return {
         "tipe_upload": spec.tipe_upload,
         "periode": period_label(period),
+        "status_analisis": detail["status_analisis"],
+        "kesimpulan": detail["kesimpulan"],
         f"total_fitur_{code}": prepared.total,
         f"{code}_siap_diunggah": len(prepared.rows),
         f"{code}_tertahan_karena_blok_belum_ada": prepared.missing_block,
@@ -159,6 +187,8 @@ def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int
         "data_periode_ini_akan_diganti": will_replace,
         **prepared.match.as_dict(),
         "contoh_blok_tidak_ditemukan": prepared.match.unmatched_samples,
+        "peringatan": detail["peringatan"],
+        "rincian": detail["rincian"],
     }
 
 

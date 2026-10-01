@@ -116,7 +116,8 @@ class BlockMatchReport:
         }
 
 
-def _label(keys: tuple) -> str:
+def block_label(keys: tuple) -> str:
+    """Label 'estate/afdeling/blok' dari keys `geojson_block_keys` (untuk pesan ke pengguna)."""
     estate_refs, division, block = keys
     estate = next((e for e in estate_refs if e), "-")
     return f"{estate}/{division}/{block}"
@@ -141,7 +142,7 @@ def match_blocks(db: Session, index: BlockIndex, candidates: list[tuple[tuple, s
             WHERE bl.id = ANY(:ids)
         """), {"ids": list(found_ids)}).all()) if found_ids else {}
         for i, block_id in zip(pending, located):
-            file_label = _label(candidates[i][0])
+            file_label = block_label(candidates[i][0])
             if block_id is None:
                 report.missing += 1
                 if file_label not in report.unmatched_samples and len(report.unmatched_samples) < 5:
@@ -174,6 +175,7 @@ class RefResolver:
         self.db, self.table, self.create_missing = db, table, create_missing
         self.column = "code" if table == "planting_statuses" else "name"
         self.created: list[str] = []
+        self.unknown: list[str] = []  # nilai belum ada & tidak dibuat (create_missing=False, mis. saat analisis)
         self._by_raw: dict[Any, int | None] = {}
         self._ids = {
             norm_key(r[1]): r[0]
@@ -207,6 +209,8 @@ class RefResolver:
         if key in self._ids:
             return self._ids[key]
         if not self.create_missing:
+            if name not in self.unknown:
+                self.unknown.append(name)
             return None
         new_id = self.db.execute(
             text(f"INSERT INTO ref.{self.table} ({self.column}) VALUES (:v) RETURNING id"), {"v": name[:100]}
