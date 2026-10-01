@@ -216,7 +216,7 @@ def list_rows(db: Session, spec: LayerSpec, bulan: int, tahun: int, blok: str | 
     clauses = [where_sql.removeprefix("WHERE ")] if where_sql else []
     clauses.append("t.period = :p")
     rows = db.execute(text(f"""
-        SELECT t.id, t.block_id, bl.code AS kode_blok, {_select_columns(spec)}, ST_AsGeoJSON(t.geom) AS geometry_json
+        SELECT t.id, t.block_id, bl.code AS kode_blok, {_select_columns(spec)}, ST_AsGeoJSON(t.geom, 6) AS geometry_json
         FROM {quote_table(spec.table)} t JOIN master.blocks bl ON bl.id = t.block_id {joins}
         WHERE {' AND '.join(clauses)}
         ORDER BY t.id
@@ -243,7 +243,7 @@ def geojson(db: Session, spec: LayerSpec, flt: BlockFilter, bulan: int | None, t
     clauses.append("t.period = :p")
     rows = db.execute(text(f"""
         SELECT t.id, t.block_id, bl.code AS kode_blok, dv.code AS kode_afd, es.code AS kode_est,
-               {_select_columns(spec)}, ST_AsGeoJSON(t.geom) AS geometry_json
+               {_select_columns(spec)}, ST_AsGeoJSON(t.geom, 6) AS geometry_json
         FROM {quote_table(spec.table)} t JOIN master.blocks bl ON bl.id = t.block_id {joins}
         WHERE {' AND '.join(clauses)}
         ORDER BY t.id

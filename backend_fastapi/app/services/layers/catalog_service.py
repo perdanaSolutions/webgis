@@ -506,7 +506,7 @@ def generic_geojson(db: Session, layer: dict, bulan: int | None, tahun: int | No
     select_sql, _ = _select(db, layer)
     joins, where_sql, params = _where(layer, period, blok)
     rows = db.execute(
-        text(f"SELECT {select_sql}, ST_AsGeoJSON(t.geom) AS geojson_geom FROM {q_table} t {joins} {where_sql} ORDER BY t.id"),
+        text(f"SELECT {select_sql}, ST_AsGeoJSON(t.geom, 6) AS geojson_geom FROM {q_table} t {joins} {where_sql} ORDER BY t.id"),
         params,
     ).mappings()
     features = []

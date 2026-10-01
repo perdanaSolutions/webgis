@@ -158,7 +158,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
 
 _SELECT = """
     SELECT pt.id, pt.objectid, tc.block_id, bl.code AS kode_blok, dv.code AS kode_afd, es.code AS kode_est,
-           tc.diameter, tc.spacing, cat.name AS kategori, tc.period, ST_AsGeoJSON(pt.geom) AS geometry_json
+           tc.diameter, tc.spacing, cat.name AS kategori, tc.period, ST_AsGeoJSON(pt.geom, 6) AS geometry_json
     FROM spatial.tree_censuses tc
     JOIN spatial.palm_trees pt ON pt.id = tc.palm_tree_id
     JOIN master.blocks bl ON bl.id = tc.block_id {joins}
