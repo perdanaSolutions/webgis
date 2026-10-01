@@ -46,6 +46,16 @@ def test_block_geometry_upload(client, auth, sample_block, block_geometry):
     )
     analyze = _upload(client, auth, "/blok-geometry/upload-analyze", content).json()
     assert analyze["total_fitur"] == 2 and analyze["data_tidak_valid"] == 1
+    assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN" and analyze["jumlah_blok_akan_disimpan"] == 1
+    assert analyze["rincian"]["fitur_tidak_valid"] == [
+        {"fitur_index": 1, "atribut_kosong": ["Estate (Est_ID/EstID/Est/Estate)", "Afdeling"]}]
+
+    # Blok yang sama di dua fitur dilaporkan sebagai blok terpecah, dihitung sekali sebagai blok.
+    feature = {"type": "Feature", "properties": _props(sample_block), "geometry": block_geometry["polygon"]}
+    split = _upload(client, auth, "/blok-geometry/upload-analyze", _fc(feature, feature)).json()
+    assert split["jumlah_blok_akan_disimpan"] == 1 and split["blok_terpecah"] == 1
+    assert split["rincian"]["blok_terpecah"][0]["fitur_index"] == [0, 1]
+    assert any(w["kode"] == "BLOK_TERPECAH" for w in split["peringatan"])
 
     result = _upload(client, auth, "/blok-geometry/upload-execute", content).json()["data"]
     assert result["status_proses"] == "PARTIAL_SUCCESS"

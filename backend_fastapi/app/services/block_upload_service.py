@@ -55,51 +55,183 @@ def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
     )
 
 
+DETAIL_LIMIT = 100  # batas jumlah baris per daftar detail di hasil analisis (total tetap dilaporkan)
+
+
+def _missing_attributes(props: dict) -> list[str]:
+    missing = []
+    if not clean_str(props.get("Est_ID") or props.get("EstID") or props.get("Est") or props.get("Estate")):
+        missing.append("Estate (Est_ID/EstID/Est/Estate)")
+    if not clean_str(props.get("Afdeling")):
+        missing.append("Afdeling")
+    if not clean_str(props.get("Blok")):
+        missing.append("Blok")
+    return missing
+
+
+EXPORT_KEYS = {"kode_est", "kode_afd", "kode_blok"}
+
+
+def _wrong_file_hint(features: list[dict]) -> str:
+    """Petunjuk tambahan saat tidak ada fitur valid: file hasil unduhan WebGIS atau bukan poligon."""
+    keys = {k for f in features[:200] for k in (f.get("properties") or {})}
+    types = {str((f.get("geometry") or {}).get("type")) for f in features[:200]}
+    if EXPORT_KEYS <= keys:
+        return (" File ini tampaknya hasil unduhan dari WebGIS (kolom kode_est/kode_afd/kode_blok), "
+                "bukan file sumber batas blok.")
+    if not types & {"Polygon", "MultiPolygon"}:
+        return f" File ini tidak berisi poligon (tipe geometri: {', '.join(sorted(types))})."
+    return ""
+
+
+def _block_label(item: BlockFeature) -> str:
+    return f"{item.estate_code}/{item.division}/{item.block}"
+
+
 def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
+    """
+    Analisis (tanpa menyimpan) file batas blok. Selain angka ringkas, dilaporkan juga
+    rinciannya supaya pengunggah tahu fitur mana yang bermasalah dan apa akibatnya.
+    Nomor fitur (`fitur_index`) dimulai dari 0, sama dengan urutan tabel atribut di QGIS.
+    """
     period = to_period(bulan, tahun)
+    label = period_label(period)
     features = parse_features(content)
     index = BlockIndex.load(db)
     existing_boundaries = set(db.execute(
         text("SELECT block_id FROM spatial.block_boundaries WHERE period = :p"), {"p": period}
     ).scalars())
 
-    new_blocks = overwrite = invalid = invalid_geom = 0
-    areas, companies, estates, divisions, blocks = set(), set(), set(), set(), set()
-    for feature in features:
-        item = _read_feature(feature.get("properties") or {}, feature.get("geometry"))
+    invalid_rows, invalid_geom_rows = [], []
+    areas, companies = set(), set()
+    # Satu blok bisa muncul di beberapa fitur; dikelompokkan per kunci estate/afdeling/blok.
+    by_block: dict[tuple, dict] = {}
+    for i, feature in enumerate(features):
+        props = feature.get("properties") or {}
+        item = _read_feature(props, feature.get("geometry"))
         if item is None:
-            invalid += 1
+            invalid_rows.append({"fitur_index": i, "atribut_kosong": _missing_attributes(props)})
             continue
         if item.geom is None:
-            invalid_geom += 1
+            invalid_geom_rows.append({"fitur_index": i, "blok": _block_label(item)})
             continue
         areas.add(norm_key(item.area))
         companies.add(norm_key(item.company))
-        estates.add(norm_key(item.estate_code))
-        divisions.add((norm_key(item.estate_code), norm_key(item.division)))
-        blocks.add((norm_key(item.estate_code), norm_key(item.division), norm_key(item.block)))
-        block_id = index.resolve((item.estate_code,), item.division, item.block)
-        if block_id is None:
-            new_blocks += 1
-        elif block_id in existing_boundaries:
-            overwrite += 1
+        key = (norm_key(item.estate_code), norm_key(item.division), norm_key(item.block))
+        if key not in by_block:
+            block_id = index.resolve((item.estate_code,), item.division, item.block)
+            by_block[key] = {"item": item, "fitur": [], "block_id": block_id,
+                             "status": "BLOK_BARU" if block_id is None
+                             else "DITIMPA" if block_id in existing_boundaries else "BARU"}
+        by_block[key]["fitur"].append(i)
 
-    valid = len(features) - invalid - invalid_geom
+    blocks = list(by_block.values())
+    new_master = [b for b in blocks if b["status"] == "BLOK_BARU"]
+    overwritten = [b for b in blocks if b["status"] == "DITIMPA"]
+    split = [b for b in blocks if len(b["fitur"]) > 1]
+    valid_features = len(features) - len(invalid_rows) - len(invalid_geom_rows)
+
+    per_estate: dict[str, dict] = {}
+    for b in blocks:
+        item = b["item"]
+        row = per_estate.setdefault(norm_key(item.estate_code), {
+            "estate": item.estate_code, "nama_estate": item.estate_name, "pt": item.company,
+            "afdeling": set(), "jumlah_blok": 0, "batas_baru": 0, "batas_ditimpa": 0, "blok_baru_di_master": 0,
+            "blok_terpecah": 0,
+        })
+        row["afdeling"].add(norm_key(item.division))
+        row["jumlah_blok"] += 1
+        row["batas_ditimpa" if b["status"] == "DITIMPA" else "batas_baru"] += 1
+        row["blok_baru_di_master"] += b["status"] == "BLOK_BARU"
+        row["blok_terpecah"] += len(b["fitur"]) > 1
+    for code, row in per_estate.items():
+        afdeling = len(row.pop("afdeling"))
+        per_estate[code] = {**{k: row[k] for k in ("estate", "nama_estate", "pt")}, "jumlah_afdeling": afdeling,
+                            **{k: v for k, v in row.items() if k not in ("estate", "nama_estate", "pt")}}
+
+    warnings = []
+    if invalid_rows:
+        warnings.append({
+            "kode": "ATRIBUT_TIDAK_LENGKAP", "jumlah": len(invalid_rows),
+            "pesan": f"{len(invalid_rows)} fitur tidak punya Estate/Afdeling/Blok lengkap dan akan DILEWATI. "
+                     "Lengkapi atributnya di file sumber bila fitur ini memang blok.",
+        })
+    if invalid_geom_rows:
+        warnings.append({
+            "kode": "GEOMETRI_TIDAK_VALID", "jumlah": len(invalid_geom_rows),
+            "pesan": f"{len(invalid_geom_rows)} fitur geometrinya kosong/bukan poligon dan akan DILEWATI.",
+        })
+    if split:
+        extra = sum(len(b["fitur"]) for b in split) - len(split)
+        warnings.append({
+            "kode": "BLOK_TERPECAH", "jumlah": len(split),
+            "pesan": f"{len(split)} blok muncul di lebih dari satu fitur (total {extra + len(split)} fitur). "
+                     f"Saat disimpan, hanya fitur TERAKHIR tiap blok yang dipakai; {extra} fitur lainnya tertimpa. "
+                     "Gabungkan poligon blok yang sama (dissolve) di file sumber, atau periksa apakah kodenya salah label.",
+        })
+    if overwritten:
+        warnings.append({
+            "kode": "MENIMPA_DATA_LAMA", "jumlah": len(overwritten),
+            "pesan": f"{len(overwritten)} blok sudah punya batas di periode {label}; batas lamanya akan diganti.",
+        })
+    if new_master:
+        warnings.append({
+            "kode": "BLOK_BARU_DI_MASTER", "jumlah": len(new_master),
+            "pesan": f"{len(new_master)} blok belum terdaftar di master dan akan DIBUAT otomatis. "
+                     "Pastikan kode estate/afdeling/blok-nya benar agar tidak membuat blok ganda.",
+        })
+
+    if not blocks:
+        status = "TIDAK_ADA_DATA_VALID"
+        conclusion = (f"Tidak ada fitur yang bisa disimpan dari {len(features)} fitur. Pastikan file berisi poligon batas "
+                      "blok dengan atribut Est_ID/EstID, Afdeling, dan Blok.")
+        conclusion += _wrong_file_hint(features)
+    else:
+        status = "SIAP_DENGAN_CATATAN" if warnings and any(w["kode"] != "MENIMPA_DATA_LAMA" for w in warnings) else "SIAP"
+        parts = [f"Dari {len(features)} fitur, {len(blocks)} blok akan disimpan untuk periode {label} "
+                 f"({len(blocks) - len(overwritten)} batas baru, {len(overwritten)} menimpa batas lama)."]
+        if invalid_rows or invalid_geom_rows:
+            parts.append(f"{len(invalid_rows) + len(invalid_geom_rows)} fitur dilewati.")
+        if split:
+            parts.append(f"{len(split)} blok terdiri dari beberapa poligon; hanya poligon terakhir yang tersimpan.")
+        conclusion = " ".join(parts)
+
     return {
         "tipe_upload": "GEOMETRI_BLOK_AND_MASTER_DATA",
-        "periode": period_label(period),
+        "periode": label,
+        "status_analisis": status,
+        "kesimpulan": conclusion,
         "total_fitur": len(features),
-        "data_baru_di_periode_ini": valid - overwrite,
-        "data_akan_ditimpa_di_periode_ini": overwrite,
-        "blok_baru_di_master": new_blocks,
-        "data_tidak_valid": invalid,
-        "data_geometri_invalid": invalid_geom,
+        "fitur_valid": valid_features,
+        "jumlah_blok_akan_disimpan": len(blocks),
+        # Field lama (dipakai FE); dihitung per BLOK, bukan per fitur.
+        "data_baru_di_periode_ini": len(blocks) - len(overwritten),
+        "data_akan_ditimpa_di_periode_ini": len(overwritten),
+        "blok_baru_di_master": len(new_master),
+        "data_tidak_valid": len(invalid_rows),
+        "data_geometri_invalid": len(invalid_geom_rows),
+        "blok_terpecah": len(split),
         "ringkasan_struktur_data": {
             "jumlah_master_area": len(areas - {""}),
             "jumlah_perusahaan_pt": len(companies - {""}),
-            "jumlah_estate": len(estates),
-            "jumlah_afdeling": len(divisions),
+            "jumlah_estate": len(per_estate),
+            "jumlah_afdeling": len({k[:2] for k in by_block}),
             "jumlah_blok": len(blocks),
+        },
+        "peringatan": warnings,
+        "rincian": {
+            "per_estate": sorted(per_estate.values(), key=lambda r: r["estate"]),
+            "fitur_tidak_valid": invalid_rows[:DETAIL_LIMIT],
+            "fitur_geometri_invalid": invalid_geom_rows[:DETAIL_LIMIT],
+            "blok_terpecah": [
+                {"blok": _block_label(b["item"]), "jumlah_fitur": len(b["fitur"]), "fitur_index": b["fitur"],
+                 "fitur_yang_tersimpan": b["fitur"][-1]}
+                for b in split[:DETAIL_LIMIT]
+            ],
+            "blok_akan_ditimpa": [_block_label(b["item"]) for b in overwritten[:DETAIL_LIMIT]],
+            "blok_baru_di_master": [_block_label(b["item"]) for b in new_master[:DETAIL_LIMIT]],
+            "catatan": f"Tiap daftar dibatasi {DETAIL_LIMIT} baris; jumlah lengkapnya ada di 'peringatan'. "
+                       "fitur_index dimulai dari 0 (urutan fitur di file / tabel atribut QGIS).",
         },
     }
 
