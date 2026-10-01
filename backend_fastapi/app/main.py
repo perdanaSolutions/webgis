@@ -82,7 +82,7 @@ app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(ClientIpMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGIN_LIST,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -20,6 +20,8 @@ def seed_data():
         seed_admin_username = settings.SEED_ADMIN_USERNAME
         seed_admin_email = settings.SEED_ADMIN_EMAIL
         seed_admin_password = settings.SEED_ADMIN_PASSWORD
+        if not seed_admin_password:
+            sys.exit("SEED_ADMIN_PASSWORD di .env masih kosong.")
 
         # 2. Daftar Permission Bawaan
         permissions_data = [

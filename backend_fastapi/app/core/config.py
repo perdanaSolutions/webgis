@@ -30,7 +30,14 @@ class Settings(BaseSettings):
     # Konfigurasi seed admin (wajib dari .env)
     SEED_ADMIN_USERNAME: str = "superadmin"
     SEED_ADMIN_EMAIL: str = "superadmin@plantation.com"
-    SEED_ADMIN_PASSWORD: str = "admin123"
+    SEED_ADMIN_PASSWORD: str = ""  # tanpa default: seed menolak berjalan bila kosong
+
+    # Origin yang boleh memanggil API, dipisah koma. "*" = semua (hanya untuk development)
+    CORS_ORIGINS: str = "*"
+
+    @property
+    def CORS_ORIGIN_LIST(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()] or ["*"]
 
     @property
     def DATABASE_URL(self) -> str:

@@ -150,7 +150,19 @@ def test_generic_layer_lifecycle(client, auth, sample_block, block_geometry):
     assert legacy.status_code == 400  # endpoint generik menolak jenis LEGACY
 
 
-def test_excel_imports(client, auth, sample_block):
+@pytest.fixture
+def clean_trx_period():
+    """cleanup-period hanya menghapus data spasial; data transaksi periode uji dibersihkan di sini agar tes idempoten."""
+    def wipe():
+        with engine.begin() as conn:
+            for table in ("trx.block_productions", "trx.harvest_rotations", "trx.area_statements"):
+                conn.execute(text(f"DELETE FROM {table} WHERE period = make_date(:t, :m, 1)"), {"t": TAHUN, "m": BULAN})
+    wipe()
+    yield
+    wipe()
+
+
+def test_excel_imports(client, auth, sample_block, clean_trx_period):
     base = {"UnitCode": sample_block["estate"], "DivisionCode": sample_block["division"],
             "KodeBlok": sample_block["code"], "Month": BULAN, "Year": TAHUN}
 

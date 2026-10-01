@@ -2,16 +2,14 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     access,
     activity_log,
-    areal_statement,
     auth,
     database_tables,
     geo_catalog,
     layers,
     menu,
-    pokok_produksi,
     role,
     spatial,
-    trx_rotasi_pusingan,
+    trx_imports,
     user,
 )
 
@@ -42,7 +40,7 @@ api_router.include_router(spatial.router, prefix="/spatial", tags=["Spatial Data
 api_router.include_router(layers.router, prefix="/spatial")
 api_router.include_router(geo_catalog.router, prefix="/spatial", tags=["Katalog & Layer Dinamis"])
 
-api_router.include_router(areal_statement.router, prefix="/areal-statement", tags=["Areal Statement"])
-api_router.include_router(pokok_produksi.router, prefix="/pokok-produksi", tags=["Pokok Produksi"])
-api_router.include_router(trx_rotasi_pusingan.router, prefix="/trx-rotasi-pusingan", tags=["trx-rotasi-pusingan"])
+api_router.include_router(trx_imports.areal_statement_router, prefix="/areal-statement", tags=["Areal Statement"])
+api_router.include_router(trx_imports.production_router, prefix="/pokok-produksi", tags=["Pokok Produksi"])
+api_router.include_router(trx_imports.rotation_router, prefix="/trx-rotasi-pusingan", tags=["trx-rotasi-pusingan"])
 
