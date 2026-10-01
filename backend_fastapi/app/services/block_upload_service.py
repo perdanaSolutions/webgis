@@ -152,31 +152,31 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     warnings = []
     if invalid_rows:
         warnings.append({
-            "kode": "ATRIBUT_TIDAK_LENGKAP", "jumlah": len(invalid_rows),
+            "kode": "ATRIBUT_TIDAK_LENGKAP", "level": "PERINGATAN", "jumlah": len(invalid_rows),
             "pesan": f"{len(invalid_rows)} fitur tidak punya Estate/Afdeling/Blok lengkap dan akan DILEWATI. "
                      "Lengkapi atributnya di file sumber bila fitur ini memang blok.",
         })
     if invalid_geom_rows:
         warnings.append({
-            "kode": "GEOMETRI_TIDAK_VALID", "jumlah": len(invalid_geom_rows),
+            "kode": "GEOMETRI_TIDAK_VALID", "level": "PERINGATAN", "jumlah": len(invalid_geom_rows),
             "pesan": f"{len(invalid_geom_rows)} fitur geometrinya kosong/bukan poligon dan akan DILEWATI.",
         })
     if split:
         extra = sum(len(b["fitur"]) for b in split) - len(split)
         warnings.append({
-            "kode": "BLOK_TERPECAH", "jumlah": len(split),
+            "kode": "BLOK_TERPECAH", "level": "PERINGATAN", "jumlah": len(split),
             "pesan": f"{len(split)} blok muncul di lebih dari satu fitur (total {extra + len(split)} fitur). "
                      f"Saat disimpan, hanya fitur TERAKHIR tiap blok yang dipakai; {extra} fitur lainnya tertimpa. "
                      "Gabungkan poligon blok yang sama (dissolve) di file sumber, atau periksa apakah kodenya salah label.",
         })
     if overwritten:
         warnings.append({
-            "kode": "MENIMPA_DATA_LAMA", "jumlah": len(overwritten),
+            "kode": "MENIMPA_DATA_LAMA", "level": "INFO", "jumlah": len(overwritten),
             "pesan": f"{len(overwritten)} blok sudah punya batas di periode {label}; batas lamanya akan diganti.",
         })
     if new_master:
         warnings.append({
-            "kode": "BLOK_BARU_DI_MASTER", "jumlah": len(new_master),
+            "kode": "BLOK_BARU_DI_MASTER", "level": "PERINGATAN", "jumlah": len(new_master),
             "pesan": f"{len(new_master)} blok belum terdaftar di master dan akan DIBUAT otomatis. "
                      "Pastikan kode estate/afdeling/blok-nya benar agar tidak membuat blok ganda.",
         })
@@ -187,7 +187,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
                       "blok dengan atribut Est_ID/EstID, Afdeling, dan Blok.")
         conclusion += _wrong_file_hint(features)
     else:
-        status = "SIAP_DENGAN_CATATAN" if warnings and any(w["kode"] != "MENIMPA_DATA_LAMA" for w in warnings) else "SIAP"
+        status = "SIAP_DENGAN_CATATAN" if any(w["level"] == "PERINGATAN" for w in warnings) else "SIAP"
         parts = [f"Dari {len(features)} fitur, {len(blocks)} blok akan disimpan untuk periode {label} "
                  f"({len(blocks) - len(overwritten)} batas baru, {len(overwritten)} menimpa batas lama)."]
         if invalid_rows or invalid_geom_rows:

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
+import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
 defineOptions({
@@ -129,7 +130,7 @@ async function onSubmitUpload() {
     actionSubmit();
   } else {
     isOpenModalValidasi.value = true;
-    isThereReplaceData.value = true;
+    isThereReplaceData.value = replaceCount.value > 0;
   }
 }
 
@@ -153,13 +154,20 @@ async function gotoDashboard() {
   await navigateTo("/dashboard");
 }
 
-const parsedDataObject = computed(() => {
-  const rawData = documentUploadStore.summaryAnalyze.data;
-  if (!rawData) return {};
-
+// Hasil analyze: layer bawaan & sawit membungkusnya di `data`, batas blok & layer dinamis tidak.
+const analysis = computed<Record<string, any>>(() => {
+  const summary = documentUploadStore.summaryAnalyze;
+  const rawData = summary.data ?? summary;
   // Jika 'data' masih berupa string JSON, parse dulu. Jika sudah objek, langsung return.
   return typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
 });
+
+const hasNoValidData = computed(() => analysis.value.status_analisis === "TIDAK_ADA_DATA_VALID");
+
+// Jumlah data lama di periode itu yang akan diganti (nama field berbeda per jenis upload).
+const replaceCount = computed(() =>
+  Number(analysis.value.data_periode_ini_akan_diganti ?? analysis.value.data_akan_ditimpa_di_periode_ini ?? 0),
+);
 
 </script>
 
@@ -362,35 +370,9 @@ const parsedDataObject = computed(() => {
 
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
-          <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm space-y-4">
-            <!-- 3. Rincian Data (Di-unpack agar tidak berbentuk JSON mentah) -->
-            <div class="pt-2">
-              <p class="text-size-xs font-bold tracking-wider text-muted uppercase mb-2 px-1">Rincian Data</p>
-
-              <div class="space-y-3">
-                <template v-for="(value, key) in parsedDataObject" :key="key">
-                  <div
-                    class="flex items-center justify-between p-3.5 bg-surface-neutral hover-bg-surface-neutral-hover-60 border border-default-60 rounded-xl transition-all duration-200">
-                    <!-- Key di Kiri -->
-                    <div class="flex items-center gap-3 pr-4">
-                      <div class="w-1.5 h-1.5 rounded-full bg-muted-dot"></div>
-                      <span class="text-size-sm font-medium text-label capitalize">
-                        {{ String(key).replace(/_/g, ' ').toLowerCase() }}
-                      </span>
-                    </div>
-
-                    <!-- Value di Kanan -->
-                    <div class="text-right shrink-0">
-                      <span
-                        class="text-size-sm font-bold text-content-brown bg-surface px-3 py-1.5 rounded-lg border border-default">
-                        {{ typeof value === 'number' ? value.toLocaleString('id-ID') : value }}
-                      </span>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-
+          <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
+            <h3 class="mb-4 text-18 font-bold text-brand">Hasil Analisis</h3>
+            <UploadAnalysisResult :analysis="analysis" />
           </div>
 
           <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-4 flex justify-end gap-2">
@@ -400,19 +382,20 @@ const parsedDataObject = computed(() => {
               Cancel
             </button>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
-              :disabled="isBusy" @click="onSubmitUpload">
+              :disabled="isBusy || hasNoValidData" @click="onSubmitUpload">
               {{ documentUploadStore.isUploading ? "Uploading..." : "Submit Analisis" }}
             </button>
           </div>
 
-          <div v-if="documentUploadStore.summaryAnalyze.data_tidak_valid > 0"
+          <!-- Cadangan untuk respons tanpa daftar peringatan -->
+          <div v-if="!analysis.peringatan && analysis.data_tidak_valid > 0"
             class="p-4 bg-error-light border border-error rounded-xl text-size-sm text-error-dark flex gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
               stroke="currentColor" class="w-5 h-5 flex-shrink-0">
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
             </svg>
-            <span>Perhatian: Terdapat {{ documentUploadStore.summaryAnalyze.data_tidak_valid }} data tidak valid yang
+            <span>Perhatian: Terdapat {{ analysis.data_tidak_valid }} data tidak valid yang
               terdeteksi.</span>
           </div>
         </div>
@@ -442,9 +425,11 @@ const parsedDataObject = computed(() => {
           </div>
 
           <!-- Isi Pesan Pertanyaan -->
-          <div class="mt-3 pl-13">
+          <div class="mt-3 pl-13 space-y-2">
+            <p v-if="analysis.kesimpulan" class="text-size-sm text-gray-body">{{ analysis.kesimpulan }}</p>
             <p v-if="isThereReplaceData" class="text-size-sm text-gray-body">
-              Apakah Anda yakin untuk submit analisis ini? Data akan di replace menggunakan data terbaru.
+              Apakah Anda yakin untuk submit analisis ini? {{ replaceCount.toLocaleString("id-ID") }} data lama
+              periode ini akan diganti dengan data dari file.
             </p>
             <p v-else class="text-size-sm text-gray-body">
               Apakah Anda yakin untuk submit analisis ini?
