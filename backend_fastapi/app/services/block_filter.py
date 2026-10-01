@@ -19,10 +19,15 @@ BLOCK_JOINS = """
 """
 
 # Area tidak ada di hierarki master: diambil dari area statement terbaru blok.
+# Satu pemindaian indeks (block_id, period), bukan LATERAL per baris. LATERAL
+# yang dikorelasikan ke tabel besar (mis. titik sawit) membuat Postgres
+# mengulang pencarian area untuk setiap titik.
 LATEST_AREA_JOIN = """
-    LEFT JOIN LATERAL (
-        SELECT a.area_id FROM trx.area_statements a WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1
-    ) la ON true
+    LEFT JOIN (
+        SELECT DISTINCT ON (block_id) block_id, area_id
+        FROM trx.area_statements
+        ORDER BY block_id, period DESC
+    ) la ON la.block_id = bl.id
     LEFT JOIN master.areas ar ON ar.id = la.area_id
 """
 

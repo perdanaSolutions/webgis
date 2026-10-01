@@ -106,6 +106,53 @@ export const SLOPE_RAMP: Record<string, string> = {
   "15-25": "#5a3a1c",
 };
 
+/** Warna blok dari properties.produksi_tbs.kategori_budget. */
+export const BUDGET_GAP_LAYERS = [
+  { key: "OPTIMUM", label: "Optimum", color: "#3aa0ff", hint: "Varians > 0%" },
+  { key: "GAP I", label: "Gap I", color: "#3ee07a", hint: "Varians −1% s.d. −20%" },
+  { key: "GAP II", label: "Gap II", color: "#ffe34d", hint: "Varians −20% s.d. −40%" },
+  { key: "GAP III", label: "Gap III", color: "#ff4d4d", hint: "Varians < −40%" },
+] as const;
+
+export type BudgetGapKey = (typeof BUDGET_GAP_LAYERS)[number]["key"];
+
+export const BUDGET_GAP_COLOR: Record<string, string> = Object.fromEntries(
+  BUDGET_GAP_LAYERS.map((item) => [item.key, item.color]),
+);
+
+function asRecord(value: unknown): Record<string, any> | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" ? parsed as Record<string, any> : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" ? value as Record<string, any> : null;
+}
+
+function pickField(record: Record<string, any> | null, name: string) {
+  if (!record) return undefined;
+  if (record[name] != null && record[name] !== "") return record[name];
+  const key = Object.keys(record).find((item) => item.toLowerCase() === name);
+  return key ? record[key] : undefined;
+}
+
+/** Nilai properties.produksi_tbs.kategori_budget, termasuk bila tersimpan sebagai JSON string. */
+export function readBudgetCategory(properties: Record<string, any> | null | undefined): string {
+  const props = properties ?? {};
+  const produksi = asRecord(props.produksi_tbs);
+  const raw = pickField(produksi, "kategori_budget") ?? pickField(props, "kategori_budget") ?? pickField(asRecord(produksi?.tbs), "kategori_budget");
+  const text = String(raw ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (text === "OPTIMUM") return "OPTIMUM";
+  if (text === "GAP I" || text === "GAP 1") return "GAP I";
+  if (text === "GAP II" || text === "GAP 2") return "GAP II";
+  if (text === "GAP III" || text === "GAP 3") return "GAP III";
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // Gaya layer tambahan
 // ---------------------------------------------------------------------------

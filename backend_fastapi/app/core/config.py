@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = "superadmin@plantation.com"
     SEED_ADMIN_PASSWORD: str = "admin123"
 
+    # Cache Redis untuk API baca halaman peta / blok profile.
+    # Backend jalan dengan network_mode: host, jadi Redis di container
+    # yang mem-publish port 6379 dijangkau lewat 127.0.0.1.
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_MAP_ENABLED: bool = True
+    REDIS_MAP_TTL_SECONDS: int = 900
+    REDIS_MAP_MAX_BYTES: int = 64 * 1024 * 1024
+
     @property
     def DATABASE_URL(self) -> str:
         return (

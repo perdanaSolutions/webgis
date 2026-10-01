@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
+import { onBeforeUnmount, onMounted, shallowRef, toRaw, watch } from "vue";
 import "leaflet/dist/leaflet.css";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { BlockCollection } from "~/stores/blokProfileStore";
-import { BASEMAPS, type BasemapKey, getOverlayColor } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -26,6 +26,8 @@ const props = defineProps<{
   overlays: OverlayLayer[];
   basemap: BasemapKey;
   opacity: number; // 0..1
+  /** Kategori budget yang sedang diwarnai. Kunci: OPTIMUM, GAP I, GAP II, GAP III. */
+  budgetColors: Record<string, boolean>;
   insets: Insets;
   requestDetail: (blokId: string, bulan: string, tahun: string) => Promise<Record<string, any>>;
 }>();
@@ -277,6 +279,7 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
   layer.on("add", () => {
     const path = (layer as any)._path as SVGPathElement | undefined;
     path?.setAttribute("pointer-events", "all");
+    paintBlock(layer, feature);
   });
 }
 
@@ -291,16 +294,47 @@ function openClickedBlock(layer: any, latlng: import("leaflet").LatLng) {
 }
 
 // ------------------------------------------------------------------ batas blok
-function blockStyle(id: string) {
-  const selected = id === props.selectedId;
+function featureProperties(feature: { properties?: Record<string, any> | null } | null | undefined) {
+  const properties = feature?.properties;
+  if (!properties) return {};
+  return toRaw(properties);
+}
+
+function budgetFill(properties: Record<string, any> | null | undefined) {
+  const category = readBudgetCategory(properties);
+  if (!category || props.budgetColors?.[category] === false) return null;
+  return BUDGET_GAP_COLOR[category] ?? null;
+}
+
+function blockStyle(feature: { properties?: Record<string, any> | null } | null | undefined) {
+  const properties = featureProperties(feature);
+  const selected = String(properties.blok_id ?? "") === props.selectedId;
+  const fill = budgetFill(properties);
+  const opacity = props.opacity > 0 ? props.opacity : 1;
   return {
     pane: "bp-blocks",
     color: "#ffffff",
-    weight: selected ? 3.5 : 1.2,
-    opacity: selected ? 1 : 0.85,
-    fillColor: "#ffffff",
-    fillOpacity: selected ? 0.06 * props.opacity : 0.02,
+    weight: selected ? 3.5 : 1.4,
+    opacity: 1,
+    fill: true,
+    fillColor: fill ?? "#ffffff",
+    fillOpacity: fill ? (selected ? 0.78 : 0.62) * opacity : selected ? 0.06 * opacity : 0.02,
   };
+}
+
+function paintBlock(layer: any, feature: { properties?: Record<string, any> | null } | null | undefined) {
+  const style = blockStyle(feature);
+  layer?.setStyle?.(style);
+  const path = layer?._path as SVGElement | undefined;
+  if (!path) return;
+  const fill = budgetFill(featureProperties(feature));
+  if (fill) {
+    path.style.setProperty("fill", fill, "important");
+    path.style.setProperty("fill-opacity", String(style.fillOpacity), "important");
+  } else {
+    path.style.removeProperty("fill");
+    path.style.removeProperty("fill-opacity");
+  }
 }
 
 function anyBlockPopupOpen() {
@@ -333,7 +367,7 @@ function renderBlocks(fit: boolean) {
 
     blockLayer = Lf.geoJSON(props.blocks!, {
       pane: "bp-blocks",
-      style: (f) => blockStyle(String(f?.properties?.blok_id ?? "")),
+      style: (f) => blockStyle(f),
       onEachFeature: (feature, layer) => {
         const id = String(feature.properties?.blok_id ?? "");
         bindBlockPopup(layer, feature);
@@ -342,7 +376,7 @@ function renderBlocks(fit: boolean) {
           openClickedBlock(layer, event.latlng);
         });
         layer.on("mouseover", () => (layer as any).setStyle?.({ weight: id === props.selectedId ? 3.5 : 2.4, opacity: 1 }));
-        layer.on("mouseout", () => (layer as any).setStyle?.(blockStyle(id)));
+        layer.on("mouseout", () => paintBlock(layer, feature));
       },
     });
 
@@ -384,7 +418,7 @@ function renderSelected(pan = false) {
   blockLayer?.eachLayer((layer) => {
     const feature = (layer as any).feature as GeoJSON.Feature;
     const id = String(feature.properties?.blok_id ?? "");
-    (layer as any).setStyle?.(blockStyle(id));
+    paintBlock(layer, feature);
     if (id !== props.selectedId) return;
     (layer as any).bringToFront?.();
     const bounds = (layer as any).getBounds() as import("leaflet").LatLngBounds;
@@ -587,6 +621,7 @@ watch(() => props.opacity, () => {
   });
   renderSelected();
 });
+watch(() => props.budgetColors, () => renderSelected(), { deep: true });
 watch(() => props.basemap, applyBasemap);
 watch(() => props.insets, applyInsets, { deep: true });
 </script>

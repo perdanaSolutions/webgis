@@ -8,6 +8,9 @@ Lalu jalankan:  pytest -q      (nama DB bisa diganti lewat env TEST_DB_NAME)
 import os
 
 os.environ["DB_NAME"] = os.environ.get("TEST_DB_NAME", "gis_db_v3_test")
+# Jangan menyentuh Redis sungguhan saat tes, kecuali TEST_REDIS=1.
+if os.environ.get("TEST_REDIS") != "1":
+    os.environ["REDIS_MAP_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

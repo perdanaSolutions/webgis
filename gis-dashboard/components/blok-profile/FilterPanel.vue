@@ -3,7 +3,7 @@ import { computed } from "vue";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
-import { BASEMAPS, type BasemapKey } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey } from "~/utils/mapLayers";
 
 type FieldKey = "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership" | "tahunTanam";
 
@@ -27,8 +27,13 @@ const props = defineProps<{
   loading: boolean;
   layers: OverlayLayer[];
   showBlocks: boolean;
+  budgetColors: Record<string, boolean>;
   basemap: BasemapKey;
   opacity: number; // 0..100
+  /** Hanya superadmin@plantation.com. User biasa tidak melihat opsi "semua". */
+  allowAll: boolean;
+  /** Naik setiap filter dikosongkan, supaya input tidak menahan pilihan lama. */
+  filterGeneration: number;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +41,7 @@ const emit = defineEmits<{
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
+  (e: "toggle-budget", key: BudgetGapKey): void;
   (e: "update:basemap", value: BasemapKey): void;
   (e: "update:opacity", value: number): void;
 }>();
@@ -57,8 +63,9 @@ const scopeInfo = computed(() => {
     : `Scope aktif: ${SCOPE_TEXT[props.scopeLevel]}${suffix} — agregasi ${props.blockCount.toLocaleString("id-ID")} blok`;
 });
 
-const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0));
-const totalCount = computed(() => props.layers.length + 1);
+const budgetOnCount = computed(() => BUDGET_GAP_LAYERS.filter((item) => props.budgetColors[item.key]).length);
+const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0) + budgetOnCount.value);
+const totalCount = computed(() => props.layers.length + 1 + BUDGET_GAP_LAYERS.length);
 
 function unitOf(type: string) {
   const t = type.toUpperCase();
@@ -73,18 +80,24 @@ function subtitleOf(layer: OverlayLayer) {
   return layer.period ? `${count} · ${layer.period}` : count;
 }
 
-const fields = computed(() => [
-  { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: "Pilih area", disabled: false },
-  { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: "Semua perusahaan", disabled: !props.area },
-  { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: !props.pt },
-  { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: "Semua afdeling", disabled: !props.estate },
-  { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Pilih blok di peta", disabled: !props.afdeling },
-  { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
-  { key: "tahunTanam" as const, label: "Tahun Tanam", value: props.tahunTanam, options: props.tahunTanamOptions, placeholder: "Semua tahun tanam", disabled: false },
-]);
+const HIERARCHY: FieldKey[] = ["area", "pt", "estate", "afdeling", "blok"];
+
+const fields = computed(() => {
+  const all = props.allowAll;
+  return [
+    { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: all ? "Semua area" : "Pilih area", disabled: false },
+    { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: all ? "Semua perusahaan" : "Pilih perusahaan", disabled: !props.area },
+    { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: all ? "Semua estate" : "Pilih estate", disabled: !props.pt },
+    { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: all ? "Semua afdeling" : "Pilih afdeling", disabled: !props.estate },
+    { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: all ? "Semua blok" : "Pilih blok", disabled: !props.afdeling },
+    { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
+    { key: "tahunTanam" as const, label: "Tahun Tanam", value: props.tahunTanam, options: props.tahunTanamOptions, placeholder: "Semua tahun tanam", disabled: false },
+  ];
+});
 
 function itemsOf(field: { key: FieldKey; options: Option[]; placeholder: string }) {
-  if (field.key === "area") return field.options;
+  const hierarchy = HIERARCHY.includes(field.key);
+  if (hierarchy && !props.allowAll) return field.options;
   return [{ label: field.placeholder, value: "" }, ...field.options];
 }
 
@@ -110,7 +123,7 @@ function onField(key: FieldKey, value: unknown) {
             :disabled="loading" @click="emit('reset')">Reset</button>
         </div>
 
-        <label v-for="field in fields" :key="field.key" class="mb-3 block w-full">
+        <label v-for="field in fields" :key="`${filterGeneration}-${field.key}`" class="mb-3 block w-full">
           <span class="bp-label">{{ field.label }}</span>
           <v-autocomplete class="bp-autocomplete" :model-value="field.value || null" :items="itemsOf(field)" item-title="label"
             item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading" variant="solo" flat
@@ -150,6 +163,18 @@ function onField(key: FieldKey, value: unknown) {
             </div>
             <button type="button" role="switch" :aria-checked="showBlocks" aria-label="Batas Blok" class="bp-switch"
               :class="showBlocks && 'is-on'" @click="emit('toggle-blocks')"><span /></button>
+          </li>
+
+          <li v-for="item in BUDGET_GAP_LAYERS" :key="item.key" class="bp-layer-row">
+            <span class="bp-layer-icon">
+              <span class="h-4 w-4 rounded-[4px] ring-1 ring-black/15" :style="{ background: item.color }" />
+            </span>
+            <div class="min-w-0 flex-1" :class="!budgetColors[item.key] && 'opacity-60'">
+              <p class="bp-layer-name">{{ item.label }}</p>
+              <p class="bp-layer-sub">{{ item.hint }}</p>
+            </div>
+            <button type="button" role="switch" :aria-checked="!!budgetColors[item.key]" :aria-label="item.label" class="bp-switch"
+              :class="budgetColors[item.key] && 'is-on'" @click="emit('toggle-budget', item.key)"><span /></button>
           </li>
 
           <li v-for="layer in layers" :key="layer.code" class="bp-layer-row">

@@ -17,7 +17,7 @@ import { useMapOverlays } from "~/composables/useMapOverlays";
 import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
-import { BASEMAPS, type BasemapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
 
 defineOptions({ name: "BlokProfilePage" });
 
@@ -44,6 +44,16 @@ const BASEMAP_KEY = "blok-profile-basemap";
 const basemap = ref<BasemapKey>("satellite");
 const opacity = ref(80);
 const showBlocks = ref(true);
+const budgetColors = ref<Record<BudgetGapKey, boolean>>({
+  OPTIMUM: true,
+  "GAP I": true,
+  "GAP II": true,
+  "GAP III": true,
+});
+
+function toggleBudgetColor(key: BudgetGapKey) {
+  budgetColors.value = { ...budgetColors.value, [key]: !budgetColors.value[key] };
+}
 const showPanels = ref(true);
 const detailOpen = ref(false);
 
@@ -166,6 +176,7 @@ function downloadGeoJSON() {
 }
 
 onMounted(async () => {
+  store.resetFilters();
   mqDesktop = window.matchMedia("(min-width: 1280px)");
   mqMobile = window.matchMedia("(max-width: 767px)");
   syncLayout();
@@ -240,7 +251,7 @@ onBeforeUnmount(() => {
       <!-- PETA -->
       <section class="absolute inset-0 z-0">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
-          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :insets="mapInsets"
+          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors" :insets="mapInsets"
           :request-detail="store.loadSelectedDetail"
           @select="onSelectBlock" @deselect="onDeselectBlock" />
 
@@ -294,12 +305,14 @@ onBeforeUnmount(() => {
           :area="store.area" :pt="store.pt" :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId"
           :ownership="store.ownership" :tahun-tanam="store.tahunTanam" :scope-level="store.scopeLevel"
           :block-count="store.blockFeatures.length" :loading="store.loadingOptions || store.loadingBlocks" :layers="layers"
-          :show-blocks="showBlocks" :basemap="basemap" :opacity="opacity"
+          :show-blocks="showBlocks" :budget-colors="budgetColors" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
+          :filter-generation="store.filterGeneration"
           @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
           @update:afdeling="store.setAfdeling" @update:blok="store.selectBlock"
           @update:ownership="store.setOwnership" @update:tahun-tanam="store.setTahunTanam"
           @reset="store.reset" @toggle-layer="overlays.toggle"
-          @toggle-blocks="showBlocks = !showBlocks" @update:basemap="basemap = $event" @update:opacity="opacity = $event" />
+          @toggle-blocks="showBlocks = !showBlocks" @toggle-budget="toggleBudgetColor"
+          @update:basemap="basemap = $event" @update:opacity="opacity = $event" />
       </aside>
 
       <button v-show="!isMobile || !rightOpen" type="button" class="bp-edge-btn" :class="leftOpen && 'is-open'" :style="leftToggleStyle"

@@ -4,6 +4,7 @@ import { defineStore } from "pinia";
 import { useAuthStore } from "~/stores/authStore";
 import { expandTransactionGrants, grantCovers } from "~/utils/accessGrants";
 import { getCurrentPopupPeriod } from "~/utils/mapBlokPopup";
+import { readBudgetCategory } from "~/utils/mapLayers";
 
 /**
  * State halaman Blok Profile (peta layar penuh).
@@ -21,6 +22,9 @@ import { getCurrentPopupPeriod } from "~/utils/mapBlokPopup";
  *   dikirim sebagai query `tahun`, bukan `tahun_tanam`.
  * Keduanya mulai dari string kosong (= semua).
  * Pilihan dibatasi `akses_data` user (superadmin bebas).
+ * User biasa tidak punya opsi "semua" pada Area s.d. Blok: tiap level
+ * otomatis memilih satu-satunya data, atau data pertama bila lebih dari satu.
+ * Opsi semua data hanya untuk superadmin@plantation.com.
  */
 
 export type Option = { label: string; value: string };
@@ -149,6 +153,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   let blocksSeq = 0;
   let detailSeq = 0;
   let historySeq = 0;
+  let filterEpoch = 0;
+  const filterGeneration = ref(0);
   let detailKey = "";
   let detailFlight: { key: string; promise: Promise<Record<string, any>> } | null = null;
 
@@ -169,6 +175,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   // ------------------------------------------------------------------ hak akses
   const isSuperAdmin = computed(() => authStore.isSuperAdmin);
+  /** Hanya akun ini yang boleh memilih "semua" di filter kebun (Area s.d. Blok). */
+  const allowAllScope = computed(
+    () => (authStore.user?.email ?? "").trim().toLowerCase() === "superadmin@plantation.com",
+  );
   const aksesData = computed(() => (authStore.user?.akses_data ?? []) as AksesData[]);
   const transactionGrants = computed(() =>
     isSuperAdmin.value ? null : expandTransactionGrants(authStore.user?.akses_transaksi),
@@ -246,10 +256,28 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   function redactProperties(props: Record<string, any>) {
     const next = { ...props };
+    const produksi = asPlain(next.produksi_tbs);
+    if (produksi) next.produksi_tbs = produksi;
+    const category = readBudgetCategory(next);
+    // Warna peta hanya butuh kategori, tetap disimpan meski rincian produksi disembunyikan.
+    if (category) next.kategori_budget = category;
     if (!canViewAreaStatement.value) delete next.areal_statement;
     if (!canViewProduction.value) delete next.produksi_tbs;
     if (!canViewRotation.value) delete next.rotasi_terakhir;
     return next;
+  }
+
+  function asPlain(value: unknown): Record<string, any> | null {
+    if (!value) return null;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        return parsed && typeof parsed === "object" ? parsed as Record<string, any> : null;
+      } catch {
+        return null;
+      }
+    }
+    return typeof value === "object" ? value as Record<string, any> : null;
   }
 
   function redactDetail(payload: Record<string, any> | null) {
@@ -262,46 +290,58 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   // ------------------------------------------------------------------ opsi filter
+  function filterAlive(epoch: number) {
+    return epoch === filterEpoch;
+  }
+
   async function loadAreas() {
+    const epoch = filterEpoch;
     loadingOptions.value = true;
     try {
       const res = await get<{ data: Array<{ area_id: string; nama: string }> }>("/spatial/area", { limit: 100 });
+      if (!filterAlive(epoch)) return;
       const allowed = areaAllowance();
       areaOptions.value = (res?.data ?? [])
         .filter((item) => allowed === "all" || (allowed instanceof Set && allowed.has(norm(item.area_id))))
         .map((item) => ({ label: item.nama, value: item.area_id }));
     } finally {
-      loadingOptions.value = false;
+      if (filterAlive(epoch)) loadingOptions.value = false;
     }
   }
 
   async function loadCompanies() {
+    const epoch = filterEpoch;
     ptOptions.value = [];
     if (!area.value) return;
     const res = await get<{ data: CompanyItem[] }>("/spatial/pt", { area_id: area.value, limit: 100 });
+    if (!filterAlive(epoch)) return;
     ptOptions.value = (res?.data ?? [])
       .filter(isCompanyAllowed)
       .map((item) => ({ label: item.nama_pt || item.kode_pt, value: item.kode_pt }));
   }
 
   async function loadEstates() {
+    const epoch = filterEpoch;
     estateOptions.value = [];
     estatesByCode.value = new Map();
     if (!area.value) return;
     const res = await get<{ data: EstateItem[] }>("/spatial/estate", {
       area_id: area.value, kode_pt: pt.value || undefined, limit: 100,
     });
+    if (!filterAlive(epoch)) return;
     const items = (res?.data ?? []).filter(isEstateAllowed);
     estatesByCode.value = new Map(items.map((item) => [item.kode_est, item]));
     estateOptions.value = items.map((item) => ({ label: item.nama_estate, value: item.kode_est }));
   }
 
   async function loadAfdelings() {
+    const epoch = filterEpoch;
     afdelingOptions.value = [];
     if (!estate.value) return;
     const res = await get<{ data: Array<{ kode_afd: string }> }>("/spatial/afdeling", {
       kode_est: estate.value, kode_pt: pt.value || undefined, limit: 100,
     });
+    if (!filterAlive(epoch)) return;
     afdelingOptions.value = (res?.data ?? [])
       .filter((item) => isAfdelingAllowed(item.kode_afd))
       .map((item) => ({ label: item.kode_afd, value: item.kode_afd }));
@@ -517,40 +557,109 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   // ------------------------------------------------------------------ aksi filter
-  async function setArea(value: string) {
-    area.value = value || "";
+  function firstOf(options: Option[]) {
+    return options[0]?.value ?? "";
+  }
+
+  /** User biasa tidak boleh kosong: tetap di pilihan sekarang, atau data pertama. */
+  function resolveChoice(current: string, incoming: string, options: Option[]) {
+    if (allowAllScope.value) return incoming || "";
+    return incoming || current || firstOf(options);
+  }
+
+  /**
+   * Muat blok scope. User biasa yang sudah sampai afdeling langsung membuka blok pertama
+   * (atau satu-satunya blok). Akun admin boleh tetap tanpa blok (= semua blok di scope).
+   */
+  async function focusLoadedScope() {
+    const epoch = filterEpoch;
+    blokId.value = "";
+    detailSeq += 1;
+    detail.value = null;
+    detailKey = "";
+    await loadBlocks();
+    if (!filterAlive(epoch)) return;
+    const first = !allowAllScope.value && afdeling.value ? firstOf(blokOptions.value) : "";
+    if (first) {
+      await selectBlock(first);
+      return;
+    }
+    await loadHistories();
+  }
+
+  async function activateArea(value: string) {
+    const epoch = filterEpoch;
+    area.value = value;
     pt.value = "";
     estate.value = "";
     afdeling.value = "";
     afdelingOptions.value = [];
     clearAttributeFilters();
     await loadCompanies();
+    if (!filterAlive(epoch)) return;
     await loadEstates();
-    await refreshScope();
+    if (!filterAlive(epoch)) return;
+    if (!allowAllScope.value) {
+      const ptsWithEstate = new Set([...estatesByCode.value.values()].map((item) => norm(item.kode_pt)));
+      pt.value = ptOptions.value.find((option) => ptsWithEstate.has(norm(option.value)))?.value
+        ?? firstOf(ptOptions.value);
+      if (pt.value) await loadEstates();
+      if (!filterAlive(epoch)) return;
+      estate.value = firstOf(estateOptions.value);
+      if (estate.value) await loadAfdelings();
+      else afdelingOptions.value = [];
+      if (!filterAlive(epoch)) return;
+      afdeling.value = firstOf(afdelingOptions.value);
+    }
+    if (!filterAlive(epoch)) return;
+    await focusLoadedScope();
+  }
+
+  async function setArea(value: string) {
+    const next = resolveChoice(area.value, value || "", areaOptions.value);
+    if (next === area.value) return;
+    await activateArea(next);
   }
 
   async function setPt(value: string) {
-    pt.value = value || "";
+    const epoch = filterEpoch;
+    const next = resolveChoice(pt.value, value || "", ptOptions.value);
+    if (next === pt.value) return;
+    pt.value = next;
     estate.value = "";
     afdeling.value = "";
     afdelingOptions.value = [];
     clearAttributeFilters();
     await loadEstates();
-    await refreshScope();
+    if (!filterAlive(epoch)) return;
+    if (!allowAllScope.value) estate.value = firstOf(estateOptions.value);
+    if (estate.value) await loadAfdelings();
+    else afdelingOptions.value = [];
+    if (!filterAlive(epoch)) return;
+    if (!allowAllScope.value) afdeling.value = firstOf(afdelingOptions.value);
+    await focusLoadedScope();
   }
 
   async function setEstate(value: string) {
-    estate.value = value || "";
+    const epoch = filterEpoch;
+    const next = resolveChoice(estate.value, value || "", estateOptions.value);
+    if (next === estate.value) return;
+    estate.value = next;
     afdeling.value = "";
     clearAttributeFilters();
-    await loadAfdelings();
-    await refreshScope();
+    if (estate.value) await loadAfdelings();
+    else afdelingOptions.value = [];
+    if (!filterAlive(epoch)) return;
+    if (!allowAllScope.value) afdeling.value = firstOf(afdelingOptions.value);
+    await focusLoadedScope();
   }
 
   async function setAfdeling(value: string) {
-    afdeling.value = value || "";
+    const next = resolveChoice(afdeling.value, value || "", afdelingOptions.value);
+    if (next === afdeling.value) return;
+    afdeling.value = next;
     clearAttributeFilters();
-    await refreshScope();
+    await focusLoadedScope();
   }
 
   async function reloadSelectedOrScope() {
@@ -566,25 +675,47 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     }
   }
 
+  async function ensureBlockForRegularUser() {
+    if (allowAllScope.value || blokId.value) return false;
+    const first = firstOf(blokOptions.value);
+    if (!first) return false;
+    await selectBlock(first);
+    return true;
+  }
+
   async function setOwnership(value: string) {
+    const epoch = filterEpoch;
     ownership.value = value || "";
     detailKey = "";
     dropHiddenBlock();
+    if (!filterAlive(epoch)) return;
+    if (await ensureBlockForRegularUser()) return;
+    if (!filterAlive(epoch)) return;
     await reloadSelectedOrScope();
   }
 
   async function setTahunTanam(value: string) {
+    const epoch = filterEpoch;
     tahunTanam.value = value || "";
     detailKey = "";
     await loadBlocks();
+    if (!filterAlive(epoch)) return;
     dropHiddenBlock();
+    if (await ensureBlockForRegularUser()) return;
+    if (!filterAlive(epoch)) return;
     await reloadSelectedOrScope();
   }
 
   async function selectBlock(value: string) {
     if (!value) {
-      await clearBlockSelection();
-      return;
+      if (!allowAllScope.value) {
+        if (blokId.value) return;
+        value = firstOf(blokOptions.value);
+        if (!value) return;
+      } else {
+        await clearBlockSelection();
+        return;
+      }
     }
     blokId.value = value;
     const period = getCurrentPopupPeriod();
@@ -595,8 +726,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     }
   }
 
-  /** Tutup popup peta: hanya field blok yang lepas. Filter wilayah di atasnya tetap. */
+  /** Tutup popup peta. User biasa tetap di blok terpilih; admin boleh lepas ke semua blok. */
   async function clearBlockSelection() {
+    if (!allowAllScope.value) return;
     if (!blokId.value) return;
     blokId.value = "";
     detailSeq += 1;
@@ -609,11 +741,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     await loadHistories();
   }
 
-  async function reset() {
-    await setArea(areaOptions.value[0]?.value ?? "");
-  }
-
   function clearMap() {
+    filterEpoch += 1;
+    filterGeneration.value = filterEpoch;
     area.value = "";
     pt.value = "";
     estate.value = "";
@@ -623,39 +753,55 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     ptOptions.value = [];
     estateOptions.value = [];
     afdelingOptions.value = [];
+    estatesByCode.value = new Map();
     blocks.value = { type: "FeatureCollection", features: [] };
     tahunTanamCatalog.value = [];
     detail.value = null;
     production.value = null;
     areaStatement.value = null;
     rotation.value = null;
+    detailKey = "";
+    detailFlight = null;
+    errorMessage.value = "";
+    blocksSeq += 1;
+    detailSeq += 1;
+    historySeq += 1;
+    loadingBlocks.value = false;
+    loadingDetail.value = false;
+    loadingProduction.value = false;
+    loadingAreaStatement.value = false;
+    loadingRotation.value = false;
   }
 
+  async function reset() {
+    await init();
+  }
+
+  /** Setiap masuk halaman mulai dari field kosong, lalu isi level sesuai hak akses. */
   async function init() {
+    clearMap();
+    const epoch = filterEpoch;
     await loadAreas();
-    if (area.value || !areaOptions.value.length) {
-      if (!areaOptions.value.length) clearMap();
-      return;
-    }
+    if (!filterAlive(epoch) || !areaOptions.value.length) return;
     const explicitArea = scopeRows().some((row) => norm(row.kode_area));
-    if (isSuperAdmin.value || explicitArea) {
-      await setArea(areaOptions.value[0]?.value ?? "");
+    if (allowAllScope.value || explicitArea) {
+      await setArea(firstOf(areaOptions.value));
       return;
     }
     for (const option of areaOptions.value) {
+      if (!filterAlive(epoch)) return;
       area.value = option.value;
-      pt.value = "";
-      estate.value = "";
-      afdeling.value = "";
-      clearAttributeFilters();
       await loadCompanies();
+      if (!filterAlive(epoch)) return;
       await loadEstates();
-      if (estateOptions.value.length) {
-        await refreshScope();
+      if (!filterAlive(epoch)) return;
+      if (ptOptions.value.length || estateOptions.value.length) {
+        area.value = "";
+        await setArea(option.value);
         return;
       }
     }
-    clearMap();
+    if (filterAlive(epoch)) clearMap();
   }
 
   // ------------------------------------------------------------------ turunan untuk kartu
@@ -863,7 +1009,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     areaStatementView, rotationView,
     loadingOptions, loadingBlocks, loadingDetail, loadingProduction, loadingAreaStatement, loadingRotation, errorMessage,
     scopeLevel, scopeLabel, scopeParams, productionYears, productionGapBudget, productionGapSensus, slopeShares, summary,
-    canViewProduction, canViewAreaStatement, canViewRotation,
-    init, reset, setArea, setPt, setEstate, setAfdeling, setOwnership, setTahunTanam, selectBlock, loadSelectedDetail, clearBlockSelection, refreshScope,
+    canViewProduction, canViewAreaStatement, canViewRotation, allowAllScope,
+    filterGeneration,
+    init, reset, resetFilters: clearMap, setArea, setPt, setEstate, setAfdeling, setOwnership, setTahunTanam, selectBlock, loadSelectedDetail, clearBlockSelection, refreshScope,
   };
 });
