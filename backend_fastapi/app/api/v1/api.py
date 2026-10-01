@@ -3,7 +3,7 @@ from app.api.v1.endpoints import (
     access,
     activity_log,
     auth,
-    database_tables,
+    database,
     geo_catalog,
     layers,
     menu,
@@ -28,7 +28,7 @@ api_router.include_router(role.router, prefix="/roles", tags=["Role Management"]
 api_router.include_router(menu.router, prefix="/menus", tags=["Menu Management"])
 
 # Daftarkan endpoint tables di bawah prefix /database
-api_router.include_router(database_tables.router, prefix="/database", tags=["Database Metadata"])
+api_router.include_router(database.router, prefix="/database", tags=["Database Metadata"])
 
 api_router.include_router(access.router, prefix="/akses-data", tags=["Akses Data GIS"])
 

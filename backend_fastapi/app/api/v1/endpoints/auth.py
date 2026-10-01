@@ -98,7 +98,13 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
                 ]
             }
         )
-        
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"errors": [{"type": "inactive_account", "field": "auth", "msg": "Akun tidak aktif", "input": None}]},
+        )
+
     # Buat JWT Access Token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(

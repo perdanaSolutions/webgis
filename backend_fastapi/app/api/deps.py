@@ -12,8 +12,17 @@ from app.models.auth import User, Permission, Role
 # Mengatur endpoint mana yang dijadikan acuan Swagger untuk mengambil token JWT
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form" # <--- ARINGKAN KE SINI
+    tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form",  # <--- ARINGKAN KE SINI
+    auto_error=False,  # tanpa token: kita sendiri yang membalas 401 dengan format error standar
 )
+
+
+def _unauthorized(msg: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"errors": [{"type": "unauthorized", "field": "auth", "msg": msg, "input": None}]},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 def get_db() -> Generator:
     try:
@@ -22,13 +31,11 @@ def get_db() -> Generator:
     finally:
         db.close()
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
     """Dependency untuk mengambil data user yang sedang login berdasarkan JWT Token"""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token tidak valid atau telah kedaluwarsa",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    if not token:
+        raise _unauthorized("Tidak terautentikasi")
+    credentials_exception = _unauthorized("Token tidak valid atau telah kedaluwarsa")
     try:
         # Dekode token JWT menggunakan SECRET_KEY kita
         payload = decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

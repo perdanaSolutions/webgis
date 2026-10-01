@@ -80,11 +80,11 @@ def create_user(
 ):
     # Cek duplikasi username
     if db.query(User).filter(User.username == payload.username.lower()).first():
-        raise HTTPException(status_code=400, detail="Username sudah terpakai.")
+        raise HTTPException(status_code=409, detail="Username sudah terpakai.")
         
     # Cek duplikasi email
     if db.query(User).filter(User.email == payload.email.lower()).first():
-        raise HTTPException(status_code=400, detail="Email sudah terdaftar.")
+        raise HTTPException(status_code=409, detail="Email sudah terdaftar.")
 
     roles = _roles_by_ids(db, payload.role_ids)
 
