@@ -10,6 +10,9 @@ const props = defineProps<{
 const model = defineModel<string>({ required: true });
 
 const previewType = computed(() => props.previewType ?? "icon");
+const placeholder = computed(() =>
+  previewType.value === "arrow" ? "Cari warna panah" : "Cari warna icon",
+);
 
 const options = computed(() => {
   if (MENU_TEXT_OPTIONS.some((item) => item.value === model.value)) {
@@ -19,65 +22,65 @@ const options = computed(() => {
   return [
     {
       value: model.value,
-      label: "Custom",
+      label: `Tersimpan (${model.value || "kosong"})`,
       swatch: "bg-slate-icon",
-      ring: "ring-slate-300",
     },
     ...MENU_TEXT_OPTIONS,
   ];
 });
+
+function onPick(value: unknown) {
+  if (value == null || value === "") return;
+  model.value = String(value);
+}
 </script>
 
 <template>
-  <div>
-    <div class="mb-3 flex items-center justify-center rounded-xl border border-default bg-page p-4">
-      <div
+  <v-autocomplete
+    :model-value="model"
+    class="bp-autocomplete"
+    :items="options"
+    item-title="label"
+    item-value="value"
+    :placeholder="placeholder"
+    variant="solo"
+    flat
+    density="comfortable"
+    hide-details
+    single-line
+    color="#638840"
+    base-color="#d5dcc8"
+    menu-icon="mdi-chevron-down"
+    autocomplete="off"
+    no-data-text="Tidak ditemukan"
+    :menu-props="{ contentClass: 'bp-filter-menu', zIndex: 2600 }"
+    @update:model-value="onPick"
+  >
+    <template #prepend-inner>
+      <svg
         v-if="previewType === 'icon'"
-        class="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface shadow-sm"
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-5 w-5 shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        :class="model"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-7 w-7"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          :class="model"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.7"
-            :d="menuIconPath(previewIcon || 'report')"
-          />
-        </svg>
-      </div>
-      <span v-else class="text-size-2xl font-bold" :class="model">→</span>
-    </div>
-
-    <div class="grid grid-cols-5 gap-2 sm:grid-cols-7">
-      <button
-        v-for="option in options"
-        :key="option.value"
-        type="button"
-        class="flex flex-col items-center gap-1 rounded-xl border p-2 transition-all duration-200"
-        :class="
-          model === option.value
-            ? `picker-selected ring-2 ${option.ring}`
-            : 'picker-default hover:shadow-sm'
-        "
-        :title="option.label"
-        @click="model = option.value"
-      >
-        <span
-          class="h-7 w-7 rounded-full shadow-sm"
-          :class="option.swatch"
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.7"
+          :d="menuIconPath(previewIcon || 'report')"
         />
-        <span class="text-10 font-medium text-label">{{ option.label }}</span>
-      </button>
-    </div>
-
-    <p class="mt-2 text-size-xs text-muted">
-      Terpilih: <span class="font-semibold text-brand">{{ model }}</span>
-    </p>
-  </div>
+      </svg>
+      <span v-else class="text-16 font-bold" :class="model">→</span>
+    </template>
+    <template #item="{ props: itemProps, item }">
+      <v-list-item v-bind="itemProps">
+        <template #prepend>
+          <span class="h-4 w-4 shrink-0 rounded-full border border-default" :class="item.swatch" />
+        </template>
+      </v-list-item>
+    </template>
+  </v-autocomplete>
 </template>

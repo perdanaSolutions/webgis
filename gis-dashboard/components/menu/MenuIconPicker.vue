@@ -12,35 +12,61 @@ const options = computed(() => {
   return [
     {
       value: model.value,
-      label: model.value || "Custom",
+      label: model.value || "Tersimpan",
     },
     ...MENU_ICON_OPTIONS,
   ];
 });
+
+function onPick(value: unknown) {
+  if (value == null || value === "") return;
+  model.value = String(value);
+}
 </script>
 
 <template>
-  <div>
-    <div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-      <button
-        v-for="option in options"
-        :key="option.value"
-        type="button"
-        class="flex flex-col items-center gap-2 rounded-xl border p-3 transition-all duration-200"
-        :class="
-          model === option.value
-            ? 'picker-selected ring-2 ring-tan'
-            : 'picker-default hover:shadow-sm'
-        "
-        :title="option.label"
-        @click="model = option.value"
+  <v-autocomplete
+    :model-value="model"
+    class="bp-autocomplete"
+    :items="options"
+    item-title="label"
+    item-value="value"
+    placeholder="Cari icon menu"
+    variant="solo"
+    flat
+    density="comfortable"
+    hide-details
+    single-line
+    color="#638840"
+    base-color="#d5dcc8"
+    menu-icon="mdi-chevron-down"
+    autocomplete="off"
+    no-data-text="Tidak ditemukan"
+    :menu-props="{ contentClass: 'bp-filter-menu', zIndex: 2600 }"
+    @update:model-value="onPick"
+  >
+    <template #prepend-inner>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-5 w-5 shrink-0 text-brand"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
       >
-        <span
-          class="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface-warm text-brand"
-        >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.7"
+          :d="menuIconPath(model)"
+        />
+      </svg>
+    </template>
+    <template #item="{ props: itemProps, item }">
+      <v-list-item v-bind="itemProps">
+        <template #prepend>
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            class="h-6 w-6"
+            class="h-5 w-5 shrink-0 text-brand"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -49,18 +75,11 @@ const options = computed(() => {
               stroke-linecap="round"
               stroke-linejoin="round"
               stroke-width="1.7"
-              :d="menuIconPath(option.value)"
+              :d="menuIconPath(item.value)"
             />
           </svg>
-        </span>
-        <span class="text-center text-11 font-semibold text-brand">
-          {{ option.label }}
-        </span>
-      </button>
-    </div>
-
-    <p class="mt-2 text-size-xs text-muted">
-      Terpilih: <span class="font-semibold text-brand">{{ model }}</span>
-    </p>
-  </div>
+        </template>
+      </v-list-item>
+    </template>
+  </v-autocomplete>
 </template>

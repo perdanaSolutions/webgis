@@ -57,32 +57,32 @@ const summaryRows = computed(() => (grand.value ? metricRows(grand.value) : []))
 <template>
   <section class="bp-card p-5">
     <div class="mb-4 flex items-baseline justify-between gap-3">
-      <h2 class="text-18 font-bold text-[#2b2118]">Areal Statement</h2>
-      <span v-if="rangeLabel" class="shrink-0 text-12 text-[#8a7a68]">{{ rangeLabel }}</span>
+      <h2 class="text-18 font-bold text-[#1f2a18]">Areal Statement</h2>
+      <span v-if="rangeLabel" class="shrink-0 text-12 text-[#6e7866]">{{ rangeLabel }}</span>
     </div>
 
-    <div v-if="loading && !grand" class="flex h-[132px] items-center justify-center text-13 text-[#8a7a68]">Memuat…</div>
-    <p v-else-if="!grand" class="py-8 text-center text-13 text-[#8a7a68]">Belum ada data areal statement untuk scope ini.</p>
+    <div v-if="loading && !grand" class="flex h-[132px] items-center justify-center text-13 text-[#6e7866]">Memuat…</div>
+    <p v-else-if="!grand" class="py-8 text-center text-13 text-[#6e7866]">Belum ada data areal statement untuk scope ini.</p>
 
     <template v-else>
       <dl class="space-y-1.5">
         <div v-for="row in summaryRows" :key="row.label" class="flex items-baseline justify-between gap-3">
-          <dt class="text-12 text-[#8a7a68]">{{ row.label }}</dt>
-          <dd class="text-14 font-semibold tabular-nums text-[#2b2118]">{{ row.value }}</dd>
+          <dt class="text-12 text-[#6e7866]">{{ row.label }}</dt>
+          <dd class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ row.value }}</dd>
         </div>
       </dl>
 
       <div v-if="years.length" class="mt-4 max-h-[420px] space-y-4 overflow-y-auto pr-1">
         <div v-for="year in years" :key="year.tahun">
-          <p class="mb-1 text-13 font-bold text-[#2b2118]">{{ year.tahun }}</p>
+          <p class="mb-1 text-13 font-bold text-[#1f2a18]">{{ year.tahun }}</p>
           <ul>
-            <li v-for="(group, index) in year.groups" :key="`${year.tahun}-${index}`" class="border-t border-[#f3ece1] py-2">
-              <TruncatedText tag="p" class="text-14 font-semibold text-[#2b2118]" :text="groupTitle(group.group_keys)" />
-              <TruncatedText tag="p" class="text-12 text-[#8a7a68]" :text="groupMeta(group.group_keys)" />
+            <li v-for="(group, index) in year.groups" :key="`${year.tahun}-${index}`" class="border-t border-[#e4e8de] py-2">
+              <TruncatedText tag="p" class="text-14 font-semibold text-[#1f2a18]" :text="groupTitle(group.group_keys)" />
+              <TruncatedText tag="p" class="text-12 text-[#6e7866]" :text="groupMeta(group.group_keys)" />
               <dl class="mt-2 space-y-1">
                 <div v-for="row in metricRows(group.totals)" :key="row.label" class="flex items-baseline justify-between gap-3">
-                  <dt class="text-12 text-[#8a7a68]">{{ row.label }}</dt>
-                  <dd class="text-13 font-semibold tabular-nums text-[#2b2118]">{{ row.value }}</dd>
+                  <dt class="text-12 text-[#6e7866]">{{ row.label }}</dt>
+                  <dd class="text-13 font-semibold tabular-nums text-[#1f2a18]">{{ row.value }}</dd>
                 </div>
               </dl>
             </li>

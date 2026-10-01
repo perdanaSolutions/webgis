@@ -60,7 +60,7 @@ function geometryIcon(type: string) {
       <div class="grid grid-cols-3 gap-2">
         <button v-for="option in BASEMAPS" :key="option.key" type="button"
           class="group flex flex-col items-center gap-1 rounded-lg p-1 text-center"
-          :class="option.key === basemap ? 'ring-2 ring-[#2B7FFF]' : 'hover-bg-hover-slate'"
+          :class="option.key === basemap ? 'ring-2 ring-[#638840]' : 'hover-bg-hover-slate'"
           @click="emit('update:basemap', option.key)">
           <span class="h-10 w-full rounded-md border border-map-light" :style="{ background: option.preview }" />
           <span class="text-11 leading-tight"
@@ -75,7 +75,7 @@ function geometryIcon(type: string) {
       </p>
 
       <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover-bg-hover-slate">
-        <input type="checkbox" class="h-4 w-4 accent-[#2B7FFF]" :checked="showBlocks" @change="emit('toggle-blocks')">
+        <input type="checkbox" class="h-4 w-4 accent-[#638840]" :checked="showBlocks" @change="emit('toggle-blocks')">
         <span class="h-3.5 w-3.5 shrink-0 rounded-sm border border-[#1e293b]" style="background:#2e7d32aa" />
         <span class="min-w-0 flex-1 truncate text-13 font-medium text-gray-darker">Batas Blok</span>
         <span class="text-11 text-gray-muted">{{ blockCount }}</span>
@@ -83,7 +83,7 @@ function geometryIcon(type: string) {
 
       <div v-for="item in overlays" :key="item.code" class="rounded-lg">
         <label class="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover-bg-hover-slate">
-          <input type="checkbox" class="h-4 w-4 accent-[#2B7FFF]" :checked="item.enabled"
+          <input type="checkbox" class="h-4 w-4 accent-[#638840]" :checked="item.enabled"
             @change="emit('toggle-overlay', item.code)">
           <span v-if="geometryIcon(item.geometryType) === 'point'" class="h-3 w-3 shrink-0 rounded-full"
             :style="{ background: item.color }" />

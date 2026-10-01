@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import palmImage from '~/assets/image/Palm.jpeg'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import { dashboardStore, type ModuleItem } from '~/stores/dashboardStore'
-import { useAccessControl } from '~/composables/useAccessControl'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
-const { hasRole } = useAccessControl()
 
-const informasiUser = computed(() => authStore.user)
 const menuKeyword = ref('')
 
 function menuMatches(item: ModuleItem, keyword: string) {
@@ -57,10 +55,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-page text-14 text-content">
+  <main class="flex min-h-screen flex-col bg-page text-14 text-content">
     <Header :brand-title="dashboardService.dashboardConfig.brandTitle"
       :brand-subtitle="dashboardService.dashboardConfig.brandSubtitle" />
-    <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
+    <div class="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-6 py-6 lg:px-10">
       <section class="grid grid-cols-1 items-center gap-4 lg:grid-cols-[1fr_2fr]">
         <div>
           <p class="text-14 text-muted">
@@ -80,6 +78,35 @@ onMounted(async () => {
             class="h-11 flex-1 rounded-full px-5 text-14 outline-none placeholder-text-placeholder"
             aria-label="Cari menu">
         </form>
+
+      </section>
+
+      <section id="menu-modul" class="mt-7">
+        <div class="mb-4">
+          <h3 class="text-20 font-bold">
+            {{ dashboardService.dashboardConfig.moduleTitle }}
+          </h3>
+        </div>
+
+        <div v-if="dashboardService.loading" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div v-for="i in 8" :key="`skeleton-${i}`"
+            class="flex items-center gap-4 rounded-2xl border border-default bg-surface p-4 animate-pulse">
+            <div class="h-14 w-14 shrink-0 rounded-2xl bg-slate-muted" />
+
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="h-4 w-3/4 rounded bg-slate-muted" />
+              <div class="h-3 w-full rounded bg-slate-muted" />
+            </div>
+
+            <div class="h-4 w-4 rounded bg-slate-muted" />
+          </div>
+        </div>
+
+        <p v-else-if="appliedKeyword && !visibleMenus.length"
+          class="rounded-2xl border border-default bg-surface px-5 py-8 text-center text-14 text-muted">
+          Tidak ada menu yang cocok dengan "{{ menuKeyword.trim() }}".
+        </p>
+        <MenuDashboardCards v-else :items="visibleMenus" :expand-all="Boolean(appliedKeyword)" />
       </section>
 
       <section class="mt-6 grid grid-cols-1 gap-6">
@@ -108,7 +135,8 @@ onMounted(async () => {
           </div>
         </div> -->
 
-        <div class="rounded-2xl bg-brand p-5 text-on-brand">
+        <!-- PENGUMUMAN -->
+        <!-- <div class="rounded-2xl bg-brand p-5 text-on-brand">
           <div class="mb-3 flex items-center justify-between">
             <h3 class="text-16 font-bold">
               {{ dashboardService.dashboardConfig.announcementTitle }}
@@ -117,7 +145,6 @@ onMounted(async () => {
               {{ dashboardService.dashboardConfig.announcementSeeAll }}
             </button>
           </div>
-
           <div class="space-y-3 rounded-xl bg-surface p-4 text-content">
             <div v-for="(item, index) in dashboardService.announcements" :key="`announcement-${item.title}`"
               class="flex items-center gap-4 py-2" :class="{
@@ -143,46 +170,132 @@ onMounted(async () => {
               <span class="text-16 text-chevron">›</span>
             </div>
           </div>
-        </div>
+        </div> -->
       </section>
 
-      <section id="menu-modul" class="mt-7">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 class="text-20 font-bold">
-              {{ dashboardService.dashboardConfig.moduleTitle }}
-            </h3>
-            <p class="mt-1 text-14 text-muted">
-              Buka modul langsung, atau perluas kelompok menu untuk melihat submenu.
+      <section class="palm-banner" aria-label="Every Palm Matters">
+        <img :src="palmImage" alt="" class="palm-banner__photo">
+        <div class="palm-banner__veil" aria-hidden="true" />
+        <div class="palm-banner__stage">
+          <div class="palm-banner__card">
+            <p class="palm-banner__kicker">When</p>
+            <h2 class="palm-banner__title">EVERY PALM MATTERS</h2>
+            <p class="palm-banner__lead">
+              <span>Optimalisasi produktivitas</span>
+              <span>dan sumber daya dengan pendekatan</span>
+              <span>teknologi dan ilmu pengetahuan terkini</span>
+              <span>yang terhubung dengan tata kelola dan teknis</span>
+              <span>budidaya perkebunan sawit terbaik dan berkelanjutan.</span>
             </p>
           </div>
-
-          <NuxtLink v-if="hasRole('superadmin')" to="/menus"
-            class="rounded-full border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand transition hover-bg-cream-active">
-            Management Menu
-          </NuxtLink>
         </div>
-
-        <div v-if="dashboardService.loading" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div v-for="i in 8" :key="`skeleton-${i}`"
-            class="flex items-center gap-4 rounded-2xl border border-default bg-surface p-4 animate-pulse">
-            <div class="h-14 w-14 shrink-0 rounded-2xl bg-slate-muted" />
-
-            <div class="min-w-0 flex-1 space-y-2">
-              <div class="h-4 w-3/4 rounded bg-slate-muted" />
-              <div class="h-3 w-full rounded bg-slate-muted" />
-            </div>
-
-            <div class="h-4 w-4 rounded bg-slate-muted" />
-          </div>
-        </div>
-
-        <p v-else-if="appliedKeyword && !visibleMenus.length"
-          class="rounded-2xl border border-default bg-surface px-5 py-8 text-center text-14 text-muted">
-          Tidak ada menu yang cocok dengan "{{ menuKeyword.trim() }}".
-        </p>
-        <MenuDashboardCards v-else :items="visibleMenus" :expand-all="Boolean(appliedKeyword)" />
       </section>
     </div>
   </main>
 </template>
+
+<style scoped>
+.palm-banner {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 440px;
+  margin-top: 1.75rem;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 28px;
+  box-shadow: 0 18px 40px rgb(31 42 24 / 10%);
+}
+
+.palm-banner__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+.palm-banner__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgb(18 36 10 / 18%) 0%, rgb(18 36 10 / 4%) 34%, rgb(12 24 8 / 22%) 100%);
+}
+
+.palm-banner__stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1.5rem 1.25rem 1.35rem;
+}
+
+.palm-banner__card {
+  width: min(860px, 100%);
+  border-radius: 24px;
+  background: rgb(255 255 255 / 94%);
+  padding: 1.35rem 1.6rem 1.45rem;
+  text-align: left;
+  box-shadow:
+    0 22px 50px rgb(16 32 8 / 22%),
+    0 0 0 1px rgb(255 255 255 / 70%);
+  backdrop-filter: blur(10px);
+}
+
+.palm-banner__kicker {
+  margin: 0;
+  color: #3a9a32;
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.palm-banner__title {
+  margin: 0.15rem 0 0;
+  color: #111111;
+  font-size: clamp(1.85rem, 4.2vw, 3.55rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.palm-banner__lead {
+  margin: 0.95rem auto 0;
+  max-width: 40rem;
+  color: #161616;
+  font-size: clamp(0.98rem, 1.35vw, 1.15rem);
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.palm-banner__lead span {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .palm-banner {
+    min-height: 520px;
+    border-radius: 22px;
+  }
+
+  .palm-banner__card {
+    padding: 1.15rem 1rem 1.2rem;
+    border-radius: 18px;
+  }
+
+  .palm-banner__lead span {
+    display: inline;
+  }
+
+  .palm-banner__lead span:not(:last-child)::after {
+    content: " ";
+  }
+}
+</style>

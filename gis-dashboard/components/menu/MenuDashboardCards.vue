@@ -246,7 +246,7 @@ function childCount(item: ModuleItem) {
 <style scoped>
 .menu-dashboard-item--open > div {
   border-color: var(--color-border-tan);
-  box-shadow: 0 8px 24px rgb(77 57 42 / 6%);
+  box-shadow: 0 8px 24px rgb(99 136 64 / 6%);
 }
 
 .menu-chevron svg {

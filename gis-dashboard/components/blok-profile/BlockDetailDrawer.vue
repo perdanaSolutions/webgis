@@ -46,17 +46,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 <template>
   <Transition name="bp-drawer">
     <div v-if="open" class="fixed inset-0 z-[3000] flex justify-end bg-black/30" @click.self="emit('close')">
-      <aside class="flex h-full w-full max-w-[460px] flex-col bg-[#fffdf9] shadow-2xl" role="dialog" aria-modal="true"
+      <aside class="flex h-full w-full max-w-[460px] flex-col bg-[#fbfcf9] shadow-2xl" role="dialog" aria-modal="true"
         :aria-label="`Detail blok ${info.kode_blok ?? ''}`">
-        <header class="flex items-start justify-between gap-3 border-b border-[#eadfce] px-6 py-5">
+        <header class="flex items-start justify-between gap-3 border-b border-[#d5dcc8] px-6 py-5">
           <div>
-            <p class="text-12 font-semibold uppercase tracking-wider text-[#8a7a68]">Detail Blok</p>
-            <h2 class="text-[22px] font-bold text-[#2b2118]">{{ info.kode_blok ?? "-" }}</h2>
-            <p class="text-13 text-[#8a7a68]">
+            <p class="text-12 font-semibold uppercase tracking-wider text-[#6e7866]">Detail Blok</p>
+            <h2 class="text-[22px] font-bold text-[#1f2a18]">{{ info.kode_blok ?? "-" }}</h2>
+            <p class="text-13 text-[#6e7866]">
               {{ [info.hierarki?.nama_pt, info.hierarki?.nama_estate, info.hierarki?.kode_afd].filter(Boolean).join(" · ") }}
             </p>
           </div>
-          <button type="button" class="rounded-lg p-2 text-[#6b5a48] hover:bg-[#f6efe4]" aria-label="Tutup" @click="emit('close')">
+          <button type="button" class="rounded-lg p-2 text-[#55604c] hover:bg-[#eef3e7]" aria-label="Tutup" @click="emit('close')">
             <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>
         </header>
@@ -64,29 +64,29 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         <div class="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           <section v-for="section in sections" :key="section.title">
             <div class="mb-2 flex items-baseline justify-between">
-              <h3 class="text-15 font-bold text-[#2b2118]">{{ section.title }}</h3>
-              <span class="text-12 text-[#8a7a68]">{{ section.note }}</span>
+              <h3 class="text-15 font-bold text-[#1f2a18]">{{ section.title }}</h3>
+              <span class="text-12 text-[#6e7866]">{{ section.note }}</span>
             </div>
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-xl border border-[#eadfce] p-4">
+            <dl class="grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-xl border border-[#d5dcc8] p-4">
               <div v-for="[label, value] in section.rows" :key="label">
-                <dt class="text-12 text-[#8a7a68]">{{ label }}</dt>
-                <dd class="text-14 font-semibold text-[#2b2118]">{{ value }}</dd>
+                <dt class="text-12 text-[#6e7866]">{{ label }}</dt>
+                <dd class="text-14 font-semibold text-[#1f2a18]">{{ value }}</dd>
               </div>
             </dl>
           </section>
 
           <section>
             <div class="mb-2 flex items-baseline justify-between">
-              <h3 class="text-15 font-bold text-[#2b2118]">Rotasi Panen</h3>
-              <span class="text-12 text-[#8a7a68]">{{ rotasi.length }} kegiatan</span>
+              <h3 class="text-15 font-bold text-[#1f2a18]">Rotasi Panen</h3>
+              <span class="text-12 text-[#6e7866]">{{ rotasi.length }} kegiatan</span>
             </div>
-            <p v-if="!rotasi.length" class="rounded-xl border border-[#eadfce] p-4 text-13 text-[#8a7a68]">Belum ada data rotasi.</p>
-            <table v-else class="w-full overflow-hidden rounded-xl border border-[#eadfce] text-13">
-              <thead class="bg-[#f6efe4] text-left text-12 text-[#6b5a48]">
+            <p v-if="!rotasi.length" class="rounded-xl border border-[#d5dcc8] p-4 text-13 text-[#6e7866]">Belum ada data rotasi.</p>
+            <table v-else class="w-full overflow-hidden rounded-xl border border-[#d5dcc8] text-13">
+              <thead class="bg-[#eef3e7] text-left text-12 text-[#55604c]">
                 <tr><th class="px-3 py-2">Periode</th><th class="px-3 py-2 text-right">Rotasi</th><th class="px-3 py-2 text-right">Pusingan</th><th class="px-3 py-2">Status</th></tr>
               </thead>
               <tbody>
-                <tr v-for="row in rotasi" :key="row.id_rotasi_pusingan" class="border-t border-[#eadfce]">
+                <tr v-for="row in rotasi" :key="row.id_rotasi_pusingan" class="border-t border-[#d5dcc8]">
                   <td class="px-3 py-1.5">{{ String(row.tanggal ?? '').slice(0, 7) }}</td>
                   <td class="px-3 py-1.5 text-right tabular-nums">{{ num(row.rotasi_ke, 1) }}</td>
                   <td class="px-3 py-1.5 text-right tabular-nums">{{ row.pusingan_hari ?? '-' }} hr</td>

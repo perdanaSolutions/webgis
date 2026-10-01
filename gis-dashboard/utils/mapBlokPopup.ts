@@ -116,7 +116,7 @@ function getGapColor(gapValue: string): string {
   const normalized = gapValue.replace("%", "").trim().replace(",", ".");
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return "#1f2937";
-  return "#2B7FFF";
+  return "#638840";
 }
 
 function buildSelectOptions(
@@ -442,7 +442,7 @@ function buildPopupFooter(data: Pick<BlokPopupData, "bulan" | "tahun" | "blokId"
         data-popup-apply
         data-blok-id="${data.blokId}"
         data-kode-blok="${data.kodeBlok}"
-        style="width:100%;height:32px;border:none;border-radius:6px;background:${loading ? "#93c5fd" : "#2B7FFF"};color:#fff;font-size:12px;font-weight:600;cursor:${loading ? "not-allowed" : "pointer"};"
+        style="width:100%;height:32px;border:none;border-radius:6px;background:${loading ? "#b4c9a0" : "#638840"};color:#fff;font-size:12px;font-weight:600;cursor:${loading ? "not-allowed" : "pointer"};"
         ${loading ? "disabled" : ""}
       >
         ${loading ? "Memuat..." : "Apply"}

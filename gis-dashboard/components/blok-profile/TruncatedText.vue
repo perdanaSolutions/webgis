@@ -61,7 +61,7 @@ onBeforeUnmount(hide);
   </component>
   <Teleport to="body">
     <div v-if="open" role="tooltip"
-      class="pointer-events-none fixed z-[4000] whitespace-normal break-words rounded-lg border border-[#eadfce] bg-white px-2.5 py-1.5 text-13 font-medium leading-snug text-[#2b2118] shadow-lg"
+      class="pointer-events-none fixed z-[4000] whitespace-normal break-words rounded-lg border border-[#d5dcc8] bg-white px-2.5 py-1.5 text-13 font-medium leading-snug text-[#1f2a18] shadow-lg"
       :style="tipStyle">
       {{ text }}
     </div>

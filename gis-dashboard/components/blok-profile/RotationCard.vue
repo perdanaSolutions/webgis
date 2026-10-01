@@ -52,51 +52,51 @@ function num(value: number, digits = 1) {
 <template>
   <section class="bp-card p-5">
     <div class="mb-3 flex items-baseline justify-between">
-      <h2 class="text-18 font-bold text-[#2b2118]">Rotasi Pusingan</h2>
-      <span class="text-12 text-[#8a7a68]">hari</span>
+      <h2 class="text-18 font-bold text-[#1f2a18]">Rotasi Pusingan</h2>
+      <span class="text-12 text-[#6e7866]">hari</span>
     </div>
 
-    <div v-if="loading && !bars.length && !kegiatan?.length" class="flex h-[180px] items-center justify-center text-13 text-[#8a7a68]">Memuat…</div>
-    <p v-else-if="kegiatan && !kegiatan.length" class="py-10 text-center text-13 text-[#8a7a68]">Belum ada data rotasi untuk periode ini.</p>
+    <div v-if="loading && !bars.length && !kegiatan?.length" class="flex h-[180px] items-center justify-center text-13 text-[#6e7866]">Memuat…</div>
+    <p v-else-if="kegiatan && !kegiatan.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk periode ini.</p>
     <ul v-else-if="kegiatan" class="max-h-[320px] space-y-0 overflow-y-auto pr-1">
-      <li v-for="(row, index) in kegiatan" :key="`${row.tanggal}-${row.rotasi}-${index}`" class="border-t border-[#f3ece1] py-2 first:border-t-0">
+      <li v-for="(row, index) in kegiatan" :key="`${row.tanggal}-${row.rotasi}-${index}`" class="border-t border-[#e4e8de] py-2 first:border-t-0">
         <div class="flex items-baseline justify-between gap-3">
-          <p class="text-14 font-semibold text-[#2b2118]">{{ formatTanggal(row.tanggal) }}</p>
-          <p class="text-14 font-semibold tabular-nums text-[#2b2118]">{{ num(row.hari) }} hari</p>
+          <p class="text-14 font-semibold text-[#1f2a18]">{{ formatTanggal(row.tanggal) }}</p>
+          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(row.hari) }} hari</p>
         </div>
-        <TruncatedText tag="p" class="text-12 font-medium text-[#8a7a68]" :text="activityLine(row)" />
+        <TruncatedText tag="p" class="text-12 font-medium text-[#6e7866]" :text="activityLine(row)" />
       </li>
     </ul>
-    <p v-else-if="!bars.length" class="py-10 text-center text-13 text-[#8a7a68]">Belum ada data rotasi untuk scope ini.</p>
+    <p v-else-if="!bars.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk scope ini.</p>
 
     <template v-else>
       <div class="relative" role="img"
         :aria-label="`Rata-rata pusingan: ${bars.map((bar) => `${bar.tahun} ${num(bar.hari)} hari`).join(', ')}`">
-        <div class="flex h-[140px] items-end gap-1.5 border-b border-[#eadfce]">
+        <div class="flex h-[140px] items-end gap-1.5 border-b border-[#d5dcc8]">
           <div v-for="bar in bars" :key="bar.tahun" class="group relative flex h-full flex-1 flex-col items-center justify-end"
             @mouseenter="hovered = bar.tahun" @mouseleave="hovered = null">
             <span class="mb-1 text-11 tabular-nums"
-              :class="bar.latest || hovered === bar.tahun ? 'font-semibold text-[#2b2118]' : 'text-transparent'">
+              :class="bar.latest || hovered === bar.tahun ? 'font-semibold text-[#1f2a18]' : 'text-transparent'">
               {{ num(bar.hari) }}
             </span>
             <div class="w-full max-w-[36px] rounded-t-[4px] transition-colors"
-              :class="bar.latest ? 'bg-[#5a3a1c]' : hovered === bar.tahun ? 'bg-[#bfa27a]' : 'bg-[#d8c3a2]'"
+              :class="bar.latest ? 'bg-[#638840]' : hovered === bar.tahun ? 'bg-[#d87633]' : 'bg-[#c5d4b4]'"
               :style="{ height: `${bar.height}%` }" />
           </div>
         </div>
         <div class="mt-2 flex gap-1.5">
           <span v-for="bar in bars" :key="`y-${bar.tahun}`" class="flex-1 text-center text-11 tabular-nums"
-            :class="bar.latest ? 'font-semibold text-[#2b2118]' : 'text-[#8a7a68]'">{{ bar.tahun }}</span>
+            :class="bar.latest ? 'font-semibold text-[#1f2a18]' : 'text-[#6e7866]'">{{ bar.tahun }}</span>
         </div>
       </div>
 
       <ul class="mt-4 max-h-[220px] space-y-0 overflow-y-auto pr-1">
-        <li v-for="bar in [...bars].reverse()" :key="`row-${bar.tahun}`" class="border-t border-[#f3ece1] py-2">
+        <li v-for="bar in [...bars].reverse()" :key="`row-${bar.tahun}`" class="border-t border-[#e4e8de] py-2">
           <div class="flex items-baseline justify-between gap-3">
-            <p class="text-14 font-semibold text-[#2b2118]" :class="bar.latest && 'text-[#5a3a1c]'">{{ bar.tahun }}</p>
-            <p class="text-14 font-semibold tabular-nums text-[#2b2118]">{{ num(bar.hari) }} hari</p>
+            <p class="text-14 font-semibold text-[#1f2a18]" :class="bar.latest && 'text-[#638840]'">{{ bar.tahun }}</p>
+            <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(bar.hari) }} hari</p>
           </div>
-          <TruncatedText tag="p" class="text-12 font-medium text-[#8a7a68]"
+          <TruncatedText tag="p" class="text-12 font-medium text-[#6e7866]"
             :text="`Rotasi ${num(bar.rotasi)} · ${num(bar.putaran, 0)} putaran · ${num(bar.luas)} ha · ${num(bar.pokok, 0)} pokok`" />
         </li>
       </ul>

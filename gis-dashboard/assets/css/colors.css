@@ -36,8 +36,8 @@
 .bg-slate-light { background-color: var(--color-slate-light); }
 .bg-slate-muted { background-color: var(--color-slate-muted); }
 .bg-gray-light { background-color: var(--color-gray-light); }
-.bg-brand-10 { background-color: rgb(77 57 42 / 10%); }
-.bg-brand-secondary-15 { background-color: rgb(91 67 47 / 15%); }
+.bg-brand-10 { background-color: rgb(99 136 64 / 10%); }
+.bg-brand-secondary-15 { background-color: rgb(216 118 51 / 15%); }
 .bg-surface-70 { background-color: rgb(255 255 255 / 70%); }
 .bg-surface-90 { background-color: rgb(255 255 255 / 90%); }
 
@@ -95,25 +95,25 @@
 .border-green-accent { border-color: var(--color-border-green-accent); }
 .border-t-green-accent { border-top-color: var(--color-border-green-accent); }
 .bg-muted-dot { background-color: var(--color-text-muted); }
-.border-default-60 { border-color: rgb(238 230 222 / 60%); }
-.hover-bg-surface-neutral-hover-60:hover { background-color: rgb(245 241 236 / 60%); }
+.border-default-60 { border-color: rgb(226 232 216 / 60%); }
+.hover-bg-surface-neutral-hover-60:hover { background-color: rgb(238 242 232 / 60%); }
 .disabled\:bg-blue-disabled:disabled { background-color: var(--color-blue-disabled); }
 
-.border-section { border-color: #eef2f6; }
+.border-section { border-color: #e6ebdf; }
 .odd-bg-hover-slate:nth-child(odd) { background-color: var(--color-hover-slate); }
 .focus-ring-brand:focus { --tw-ring-color: var(--color-brand); }
 .border-t-brand { border-top-color: var(--color-brand); }
-.border-r-brand-secondary-60 { border-right-color: rgb(91 67 47 / 60%); }
-.bg-slate-icon { background-color: #94a3b8; }
-.text-slate-icon { color: #94a3b8; }
-.bg-menu-blue-light { background-color: #eff6ff; }
-.text-menu-blue { color: #3b82f6; }
+.border-r-brand-secondary-60 { border-right-color: rgb(216 118 51 / 60%); }
+.bg-slate-icon { background-color: #8a9a7c; }
+.text-slate-icon { color: #8a9a7c; }
+.bg-menu-blue-light { background-color: #eef4e6; }
+.text-menu-blue { color: #45612e; }
 .border-error { border-color: var(--color-border-error); }
 .border-gray { border-color: var(--color-border-gray); }
 .border-white-soft { border-color: var(--color-border-white-soft); }
 .border-brand { border-color: var(--color-brand); }
-.border-brand-10 { border-color: rgb(77 57 42 / 10%); }
-.border-brand-5 { border-color: rgb(77 57 42 / 5%); }
+.border-brand-10 { border-color: rgb(99 136 64 / 10%); }
+.border-brand-5 { border-color: rgb(99 136 64 / 5%); }
 .border-blue-primary { border-color: var(--color-blue-primary); }
 
 /* Ring */
@@ -165,12 +165,16 @@
 /* Focus */
 .focus-border-brand-secondary:focus { border-color: var(--color-brand-secondary); }
 .focus-border-accent-brown:focus { border-color: var(--color-border-accent-brown); }
-.focus-ring-brand-secondary-20:focus { --tw-ring-color: rgb(91 67 47 / 20%); }
+.focus-ring-brand-secondary-20:focus { --tw-ring-color: rgb(216 118 51 / 20%); }
 .focus-ring-gray:focus { --tw-ring-color: #d1d5db; }
-.focus-ring-blue:focus { --tw-ring-color: #3b82f6; }
+.focus-ring-blue:focus { --tw-ring-color: #638840; }
 
 /* Shadow */
-.shadow-brand-25 { --tw-shadow-color: rgb(77 57 42 / 25%); }
+.shadow-brand-25 { --tw-shadow-color: rgb(99 136 64 / 25%); }
+
+/* Swatch menu lama (cokelat) mengikuti primary baru. */
+.bg-\[\#4D392A\] { background-color: #638840 !important; }
+.text-\[\#4D392A\] { color: #638840 !important; }
 
 /* Picker selected state */
 .picker-selected {

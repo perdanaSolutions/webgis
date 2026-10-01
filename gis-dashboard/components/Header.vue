@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, ref, onUnmounted } from 'vue'
+import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
 
@@ -128,22 +129,18 @@ onUnmounted(() => {
 
 <template>
   <header class="border-b border-header bg-surface">
-    <div
-      class="mx-auto flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:px-5 sm:py-2 lg:px-8">
+    <div class="mx-auto flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:px-5 sm:py-2 lg:px-8">
       <div class="min-w-0 flex items-center gap-2">
         <button @click.stop="toggleSidebar"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
           aria-label="Buka Sidebar">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-            stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
 
-        <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-header-soft sm:h-9 sm:w-9">
-          <div class="h-5 w-5 rounded-full border-[3px] border-gold border-t-green-accent sm:h-6 sm:w-6" />
-        </div>
+        <img :src="logoImage" alt="TLDN Productivity Technology Science"
+          class="h-8 w-auto shrink-0 object-contain sm:h-9">
         <div class="min-w-0">
           <h1 class="truncate text-14 font-bold leading-none sm:text-16">
             {{ props.brandTitle }}
@@ -158,8 +155,7 @@ onUnmounted(() => {
         <div v-if="dashboardService.favoriteMenus.length" class="favorite-menu-container relative">
           <button type="button" @click="toggleFavoriteMenu"
             class="flex h-8 w-8 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
-            :aria-expanded="isFavoriteOpen"
-            aria-label="Menu favorit">
+            :aria-expanded="isFavoriteOpen" aria-label="Menu favorit">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
               stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -190,11 +186,9 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <button
-          class="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand"
+        <button class="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand"
           aria-label="Notifikasi">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-            stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
               d="M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z" />
           </svg>
@@ -290,13 +284,8 @@ onUnmounted(() => {
       <div class="border-b border-menu bg-surface-warm px-4 py-4">
         <div class="flex items-center justify-between gap-3">
           <div class="flex min-w-0 items-center gap-2.5">
-            <div
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface">
-              <div class="h-8 w-8 rounded-full border-4 border-gold border-t-green-accent" />
-            </div>
-            <h3 class="truncate text-16 font-bold leading-tight text-brand">
-              TPTS
-            </h3>
+            <img :src="logoImage" alt="TLDN Productivity Technology Science"
+              class="h-[68px] w-[94px] shrink-0 object-contain">
           </div>
           <button @click="closeSidebar"
             class="flex h-9 w-9 items-center justify-center rounded-full border border-menu bg-surface text-label transition hover-bg-cream"
@@ -309,61 +298,26 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex-1 space-y-4 overflow-y-auto px-3 py-4">
-        <section>
-          <p class="mb-2 px-2 text-11 font-semibold uppercase tracking-wide text-label">
-            Pintasan
-          </p>
-          <div class="space-y-1">
-            <button @click="navigateTo('/dashboard'); closeSidebar()"
-              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
-              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-on-brand" fill="none" viewBox="0 0 24 24"
-                  stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                    d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
-                </svg>
-              </div>
-              <div class="min-w-0">
-                <p class="truncate text-13 font-bold text-brand">
-                  Dashboard
-                </p>
-                <p class="line-clamp-1 text-11 text-muted-light">
-                  Halaman utama
-                </p>
-              </div>
-            </button>
-
-            <button v-if="authStore.isSuperAdmin" @click="navigateTo('/menus'); closeSidebar()"
-              class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
-              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-menu-blue-light">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-menu-blue" fill="none" viewBox="0 0 24 24"
-                  stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                    d="M4 7h7v7H4V7Zm9 0h7v7h-7V7ZM4 16h7v5H4v-5Zm9 2h7" />
-                </svg>
-              </div>
-              <div class="min-w-0">
-                <p class="truncate text-13 font-bold text-brand">
-                  Management Menu
-                </p>
-                <p class="line-clamp-1 text-11 text-muted-light">
-                  Kelola struktur menu
-                </p>
-              </div>
-            </button>
-          </div>
-        </section>
-
-        <section>
-          <div class="mb-2 flex items-center justify-between px-2">
-            <p class="text-11 font-semibold uppercase tracking-wide text-label">
-              Modul
-            </p>
-            <span class="rounded-full bg-surface-warm px-2 py-0.5 text-11 font-semibold text-label">
-              {{ dashboardService.moduleItems.length }}
-            </span>
-          </div>
+      <div class="flex-1 overflow-y-auto px-3 py-4">
+        <div class="space-y-1">
+          <button @click="navigateTo('/dashboard'); closeSidebar()"
+            class="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-on-brand" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
+                  d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-10.5Z" />
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-13 font-bold text-brand">
+                Home
+              </p>
+              <p class="line-clamp-1 text-11 text-muted-light">
+                Halaman utama
+              </p>
+            </div>
+          </button>
 
           <div v-if="dashboardService.loading" class="space-y-2 px-1">
             <div v-for="i in 4" :key="`sidebar-skel-${i}`"
@@ -376,13 +330,13 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <MenuSidebarNode v-else-if="dashboardService.moduleItems.length"
-            :items="dashboardService.moduleItems" @navigate="closeSidebar" />
+          <MenuSidebarNode v-else-if="dashboardService.moduleItems.length" :items="dashboardService.moduleItems"
+            @navigate="closeSidebar" />
 
           <p v-else class="rounded-xl bg-surface-warm px-3 py-4 text-center text-12 text-muted">
-            Belum ada modul yang tersedia.
+            Belum ada menu yang tersedia.
           </p>
-        </section>
+        </div>
       </div>
     </aside>
   </header>

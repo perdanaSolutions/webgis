@@ -20,9 +20,9 @@ const props = defineProps<{
 }>();
 
 const STATUS: Record<string, { label: string; tone: string }> = {
-  TM: { label: "Menghasilkan", tone: "bg-[#e7f0dc] text-[#3f6a24]" },
-  TBM: { label: "Belum Menghasilkan", tone: "bg-[#f6ecd6] text-[#8a5a14]" },
-  LC: { label: "Land Clearing", tone: "bg-[#f1e7df] text-[#7a4a2a]" },
+  TM: { label: "Menghasilkan", tone: "bg-[#e5f0d8] text-[#3f5728]" },
+  TBM: { label: "Belum Menghasilkan", tone: "bg-[#fbe8d8] text-[#b85f22]" },
+  LC: { label: "Land Clearing", tone: "bg-[#f4ebe4] text-[#8a4e28]" },
 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
@@ -70,25 +70,25 @@ const rows = computed(() => {
 
 <template>
   <section class="bp-card p-5" aria-live="polite">
-    <div class="flex flex-wrap items-start justify-between gap-2 border-b border-[#eadfce] pb-4">
+    <div class="flex flex-wrap items-start justify-between gap-2 border-b border-[#d5dcc8] pb-4">
       <div class="min-w-0 flex-1 basis-[160px]">
-        <TruncatedText tag="h2" class="text-[22px] font-bold leading-tight tracking-tight text-[#2b2118] sm:text-[26px]"
+        <TruncatedText tag="h2" class="text-[22px] font-bold leading-tight tracking-tight text-[#1f2a18] sm:text-[26px]"
           :text="summary.title || '-'" />
-        <TruncatedText tag="p" class="text-14 text-[#8a7a68]" :text="summary.subtitle" />
+        <TruncatedText tag="p" class="text-14 text-[#6e7866]" :text="summary.subtitle" />
       </div>
       <span v-if="status" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-12 font-semibold"
         :class="status.tone">
         <span class="h-1.5 w-1.5 rounded-full bg-current" />{{ status.label }}
       </span>
       <span v-else-if="summary.kind === 'scope'"
-        class="shrink-0 rounded-lg bg-[#f6efe4] px-2.5 py-1 text-12 font-semibold text-[#6b5a48]">
+        class="shrink-0 rounded-lg bg-[#eef3e7] px-2.5 py-1 text-12 font-semibold text-[#55604c]">
       </span>
     </div>
 
     <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-3" :class="loading && 'animate-pulse'">
       <div v-for="row in rows" :key="row.label" class="min-w-0">
-        <dt class="text-12 text-[#8a7a68]">{{ row.label }}</dt>
-        <TruncatedText tag="dd" class="text-15 font-semibold text-[#2b2118]" :text="String(row.value)" />
+        <dt class="text-12 text-[#6e7866]">{{ row.label }}</dt>
+        <TruncatedText tag="dd" class="text-15 font-semibold text-[#1f2a18]" :text="String(row.value)" />
       </div>
     </dl>
   </section>

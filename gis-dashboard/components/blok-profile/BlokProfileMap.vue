@@ -550,21 +550,11 @@ function applyInsets() {
   if (bl) { bl.style.marginLeft = `${props.insets.left + 14}px`; bl.style.marginBottom = `${props.insets.bottom + 4}px`; }
   const br = container.value.querySelector(".leaflet-bottom.leaflet-right") as HTMLElement | null;
   if (br) {
-    const compact = window.innerWidth < 1280;
-    if (compact) {
-      // Di tablet/mobile footer selebar peta, jadi atribusi pindah ke kiri (setelah skala) agar tidak menimpa zoom.
-      br.style.left = "0px";
-      br.style.right = "auto";
-      br.style.marginRight = "0px";
-      br.style.marginLeft = `${props.insets.left + 108}px`;
-      br.style.marginBottom = `${Math.max(props.insets.bottom - 36, 12)}px`;
-    } else {
-      br.style.left = "";
-      br.style.right = "";
-      br.style.marginLeft = "";
-      br.style.marginRight = `${props.insets.right}px`;
-      br.style.marginBottom = "0px";
-    }
+    br.style.left = "0px";
+    br.style.right = "auto";
+    br.style.marginRight = "0px";
+    br.style.marginLeft = `${props.insets.left + 108}px`;
+    br.style.marginBottom = `${props.insets.bottom + 4}px`;
   }
   map?.invalidateSize();
 }
@@ -651,7 +641,7 @@ watch(() => props.insets, applyInsets, { deep: true });
   gap: 8px;
   padding: 7px 14px;
   border-radius: 10px;
-  background: rgba(58, 38, 22, 0.92);
+  background: rgba(63, 87, 40, 0.92);
   color: #fff;
   font-size: 13px;
   font-weight: 600;
@@ -670,9 +660,9 @@ watch(() => props.insets, applyInsets, { deep: true });
 
 .bp-map .leaflet-control-scale-line {
   border: none;
-  border-top: 3px solid #6b5a48;
+  border-top: 3px solid #55604c;
   background: rgba(255, 253, 249, 0.92);
-  color: #4a3a2c;
+  color: #24301c;
   font-size: 12px;
   font-weight: 600;
   padding: 4px 10px 2px;
