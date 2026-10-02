@@ -32,10 +32,10 @@ const SUMMARY_SKIP = new Set(["status_analisis", "kesimpulan", "peringatan", "ri
 
 const SECTION_TITLES: Record<string, string> = {
   per_estate: "Ringkasan per Estate",
-  fitur_ditolak: "Fitur yang Ditolak",
-  fitur_tidak_valid: "Fitur dengan Atribut Tidak Lengkap",
-  fitur_geometri_invalid: "Fitur dengan Geometri Tidak Valid",
-  blok_terpecah: "Blok Terpecah (satu blok di beberapa fitur)",
+  data_ditolak: "Data yang Ditolak",
+  data_tidak_valid: "Data dengan Atribut Tidak Lengkap",
+  data_geometri_invalid: "Data dengan Geometri Tidak Valid",
+  blok_terpecah: "Blok Terpecah (satu blok di beberapa data)",
   blok_akan_ditimpa: "Blok yang Batasnya Akan Ditimpa",
   blok_baru_di_master: "Blok Baru di Master",
   koreksi_label_blok: "Koreksi Label Blok (dicocokkan dari posisi geometri)",
@@ -45,7 +45,7 @@ const SECTION_TITLES: Record<string, string> = {
 
 const COLUMN_LABELS: Record<string, string> = {
   no_preview: "No. Preview",
-  fitur_yang_tersimpan: "Fitur yang Tersimpan",
+  data_yang_tersimpan: "Data yang Tersimpan",
   label_file: "Label di File",
   blok_master: "Blok di Master",
 };

@@ -207,7 +207,7 @@ const executeView = computed(() => {
     : [];
 
   const totalEntry = Object.entries(body ?? {}).find(
-    ([key, value]) => key.startsWith("total_fitur") && typeof value === "number",
+    ([key, value]) => key.startsWith("total_data") && typeof value === "number",
   );
 
   const tone = statusProses === "FAILED" ? "error" : statusProses === "PARTIAL_SUCCESS" ? "warning" : "success";
@@ -451,7 +451,7 @@ const executeFinished = computed(
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
-              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} fitur diproses</span>
+              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data diproses</span>
             </p>
             <div v-if="executeView.detail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               <div v-for="row in executeView.detail" :key="row.key"
