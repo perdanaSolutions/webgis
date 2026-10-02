@@ -44,7 +44,7 @@ const SECTION_TITLES: Record<string, string> = {
 };
 
 const COLUMN_LABELS: Record<string, string> = {
-  fitur_index: "Fitur #",
+  no_preview: "No. Preview",
   fitur_yang_tersimpan: "Fitur yang Tersimpan",
   label_file: "Label di File",
   blok_master: "Blok di Master",
