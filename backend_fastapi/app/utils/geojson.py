@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any
 
+import orjson
 from fastapi import Response
 from shapely import wkb
 from shapely.errors import ShapelyError
@@ -18,10 +19,18 @@ SRID = 4326
 _MULTI = {"Point": MultiPoint, "LineString": MultiLineString, "Polygon": MultiPolygon}
 
 
+def _loads(content: bytes) -> Any:
+    """orjson (±3x lebih cepat); file dengan NaN/Infinity ditolak orjson, jadi jatuh ke json standar."""
+    try:
+        return orjson.loads(content)
+    except orjson.JSONDecodeError:
+        return json.loads(content)
+
+
 def parse_features(content: bytes) -> list[dict]:
     """Isi file GeoJSON -> list feature. FeatureCollection atau satu Feature."""
     try:
-        data = json.loads(content)
+        data = _loads(content)
     except (ValueError, UnicodeDecodeError) as exc:
         raise bad_request("Format file tidak valid atau bukan JSON.", field="file") from exc
     if not isinstance(data, dict):
@@ -31,14 +40,14 @@ def parse_features(content: bytes) -> list[dict]:
     return [data]
 
 
-def geometry_to_ewkb(geometry: dict | None, target_type: str) -> str | None:
+def prepare_geometry(geometry: dict | None, target_type: str):
     """
-    GeoJSON geometry -> hex EWKB (SRID 4326) yang cocok dengan tipe kolom tujuan.
+    GeoJSON geometry -> objek shapely yang cocok dengan tipe kolom tujuan, atau None kalau tidak bisa dipakai.
 
     `target_type` memakai nama PostGIS (POINT, MULTIPOLYGON, ...). Tipe tunggal
     otomatis dibungkus jadi Multi* bila kolom tujuan Multi*, dan geometry yang
     tidak valid diperbaiki dengan make_valid (kolom seperti block_boundaries
-    punya CHECK ST_IsValid). Mengembalikan None kalau tidak bisa dipakai.
+    punya CHECK ST_IsValid). Dipakai langsung saat analisis (tanpa serialisasi WKB).
     """
     if not geometry:
         return None
@@ -64,10 +73,21 @@ def geometry_to_ewkb(geometry: dict | None, target_type: str) -> str | None:
             geom = _MULTI[geom.geom_type]([geom])
         if geom.geom_type.upper() != target:
             return None
-        return wkb.dumps(geom, hex=True, srid=SRID)
+        return geom
     except (ShapelyError, ValueError, TypeError, AttributeError, KeyError) as exc:
         logger.debug("Geometry tidak valid, dilewati: %s", exc)
         return None
+
+
+def to_ewkb(geom) -> str:
+    """Objek shapely -> hex EWKB (SRID 4326)."""
+    return wkb.dumps(geom, hex=True, srid=SRID)
+
+
+def geometry_to_ewkb(geometry: dict | None, target_type: str) -> str | None:
+    """GeoJSON geometry -> hex EWKB (SRID 4326), atau None kalau tidak bisa dipakai (lihat prepare_geometry)."""
+    geom = prepare_geometry(geometry, target_type)
+    return None if geom is None else to_ewkb(geom)
 
 
 class RawGeometry(str):

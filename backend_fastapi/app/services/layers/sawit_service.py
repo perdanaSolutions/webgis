@@ -24,7 +24,7 @@ from app.services.upload.report import UploadReport, geometry_problem, missing_b
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
 )
-from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features
+from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features, prepare_geometry
 from app.utils.parsing import json_safe, to_float, to_int
 from app.utils.period import period_label, to_period
 
@@ -45,7 +45,7 @@ class PreparedSawit:
     report: UploadReport = field(default_factory=UploadReport)
 
 
-def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
+def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedSawit:
     features = parse_features(content)
     categories = RefResolver(db, "tree_categories", create_missing=create_refs)
     result = PreparedSawit(total=len(features), report=UploadReport(total=len(features)))
@@ -72,7 +72,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
             result.invalid_props += 1
             report.reject(i, "NILAI_TIDAK_VALID", "; ".join(problems))
             continue
-        geom = geometry_to_ewkb(feature.get("geometry"), "POINT")
+        geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), "POINT")
         if geom is None:
             result.invalid_geom += 1
             report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), "POINT"))
@@ -107,7 +107,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
 
 def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
-    prepared = _prepare(db, content, create_refs=False)
+    prepared = _prepare(db, content, create_refs=False, with_wkb=False)
     blocks = sorted({r["block_id"] for r in prepared.rows.values()})
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {TABLE} WHERE period = :p AND block_id = ANY(:b)"), {"p": period, "b": blocks}

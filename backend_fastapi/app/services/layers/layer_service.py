@@ -28,7 +28,7 @@ from app.services.upload.report import UploadReport, geometry_problem, missing_b
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
 )
-from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
+from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
 from app.utils.parsing import clean_str, json_safe, to_float, to_int
 from app.utils.period import period_label, to_period
 from app.utils.sql import quote_table
@@ -83,7 +83,7 @@ def _cast(column: Column, value, refs: dict[str, RefResolver]):
     return text_value[:100] if text_value else None
 
 
-def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: bool) -> PreparedUpload:
+def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedUpload:
     features = parse_features(content)
     refs = {c.kind[4:]: RefResolver(db, c.kind[4:], create_missing=create_refs)
             for c in spec.columns if c.kind.startswith("ref:")}
@@ -99,7 +99,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
             result.invalid_props += 1
             report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
             continue
-        geom = geometry_to_ewkb(feature.get("geometry"), spec.geometry_type)
+        geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), spec.geometry_type)
         if geom is None:
             result.invalid_geom += 1
             report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), spec.geometry_type))
@@ -155,7 +155,7 @@ def _existing_filter(spec: LayerSpec, prepared: PreparedUpload) -> tuple[str, di
 
 def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
-    prepared = prepare_features(db, spec, content, create_refs=False)
+    prepared = prepare_features(db, spec, content, create_refs=False, with_wkb=False)
     condition, params = _existing_filter(spec, prepared)
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {quote_table(spec.table)} WHERE period = :p AND {condition}"),

@@ -27,7 +27,7 @@ from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import BlockIndex, BlockMatchReport, block_label, geojson_block_keys, match_blocks
-from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features
+from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
 from app.utils.pagination import page_response
 from app.utils.parsing import clean_str, is_blank, to_float
 from app.utils.period import period_label, to_period
@@ -403,7 +403,7 @@ def _cast(value, data_type: str):
     return json.dumps(value) if isinstance(value, (dict, list)) else clean_str(value)
 
 
-def _prepare(db: Session, layer: dict, content: bytes) -> dict:
+def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True) -> dict:
     features = parse_features(content)
     columns = _attribute_columns(db, layer)
     has_block = layer["relasi_blok"]
@@ -420,7 +420,7 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
             stats["invalid_props"] += 1
             report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
             continue
-        geom = geometry_to_ewkb(feature.get("geometry"), layer["geometry_type"])
+        geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), layer["geometry_type"])
         if geom is None:
             stats["invalid_geom"] += 1
             report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), layer["geometry_type"]))
@@ -481,7 +481,7 @@ def _replace_condition(layer: dict, prepared: dict) -> tuple[str, dict]:
 
 def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
-    prepared = _prepare(db, layer, content)
+    prepared = _prepare(db, layer, content, with_wkb=False)
     s = prepared["stats"]
     will_replace = 0
     if prepared["rows"]:

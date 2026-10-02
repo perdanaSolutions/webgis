@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.utils.geojson import to_ewkb
 from app.utils.parsing import clean_str, norm_key
 
 ALIAS_TABLES = {"seed_varieties", "soil_types", "topography_types", "rotation_statuses"}
@@ -70,7 +71,7 @@ def locate_blocks_by_geometry(db: Session, items: list[tuple[str, int | None]]) 
     Jika estate fitur dikenali, hanya blok di estate itu yang dipertimbangkan.
     Polygon memilih blok dengan irisan terluas; titik/garis memilih yang bersinggungan.
 
-    `items` = [(hex_ewkb, estate_id | None)], hasil berurutan sesuai input.
+    `items` = [(hex_ewkb | objek shapely, estate_id | None)], hasil berurutan sesuai input.
     """
     if not items:
         return []
@@ -96,7 +97,7 @@ def locate_blocks_by_geometry(db: Session, items: list[tuple[str, int | None]]) 
             ) AS block_id
             FROM f ORDER BY f.i
         """),
-        {"hexes": [h for h, _ in items], "ests": [e for _, e in items]},
+        {"hexes": [h if isinstance(h, str) else to_ewkb(h) for h, _ in items], "ests": [e for _, e in items]},
     ).all()
     return [r.block_id for r in rows]
 

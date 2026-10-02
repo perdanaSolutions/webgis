@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.resolvers import BlockIndex, RefResolver
-from app.utils.geojson import geometry_to_ewkb, parse_features
+from app.utils.geojson import geometry_to_ewkb, parse_features, prepare_geometry
 from app.utils.parsing import clean_str, norm_key
 from app.utils.period import period_label, to_period
 from app.utils.sql import quote_table
@@ -35,10 +35,10 @@ class BlockFeature:
     division: str
     block: str
     block_type: str | None
-    geom: str | None
+    geom: str | None  # hex EWKB; objek shapely bila with_wkb=False (analisis tidak perlu serialisasi)
 
 
-def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
+def _read_feature(props: dict, geometry: dict | None, with_wkb: bool = True) -> BlockFeature | None:
     estate_code = clean_str(props.get("Est_ID") or props.get("EstID") or props.get("Est") or props.get("Estate"))
     division, block = clean_str(props.get("Afdeling")), clean_str(props.get("Blok"))
     if not (estate_code and division and block):
@@ -51,7 +51,7 @@ def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
         division=division,
         block=block,
         block_type=clean_str(props.get("Kategori") or props.get("TipeBlok")),
-        geom=geometry_to_ewkb(geometry, "MULTIPOLYGON"),
+        geom=geometry_to_ewkb(geometry, "MULTIPOLYGON") if with_wkb else prepare_geometry(geometry, "MULTIPOLYGON"),
     )
 
 
@@ -108,7 +108,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     by_block: dict[tuple, dict] = {}
     for i, feature in enumerate(features):
         props = feature.get("properties") or {}
-        item = _read_feature(props, feature.get("geometry"))
+        item = _read_feature(props, feature.get("geometry"), with_wkb=False)
         if item is None:
             invalid_rows.append({"no_preview": i + 1, "atribut_kosong": _missing_attributes(props)})
             continue
