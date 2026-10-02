@@ -2,6 +2,7 @@
 import { computed, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
+import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
 defineOptions({
@@ -9,6 +10,9 @@ defineOptions({
 });
 
 const documentUploadStore = useDocumentUploadStore();
+const { hasPermission } = useAccessControl();
+const canCreateTheme = computed(() => hasPermission("upload:geojson"));
+const isOpenCreateTheme = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const isBusy = computed(
@@ -263,6 +267,10 @@ const executeFinished = computed(
               <p v-if="selectedCategoryDescription" class="mt-2 text-size-sm text-muted">
                 {{ selectedCategoryDescription }}
               </p>
+              <button v-if="canCreateTheme" type="button"
+                class="mt-2 text-size-sm font-semibold text-brand underline" @click="isOpenCreateTheme = true">
+                + Buat tema baru
+              </button>
             </div>
           </div>
 
@@ -491,6 +499,8 @@ const executeFinished = computed(
       </section>
     </div>
   </main>
+
+  <CreateThemeModal v-if="isOpenCreateTheme" @close="isOpenCreateTheme = false" />
 
   <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
     <!-- Modal Card -->

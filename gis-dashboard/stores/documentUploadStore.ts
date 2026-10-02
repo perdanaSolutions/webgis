@@ -27,6 +27,29 @@ type UploadCategory = {
   endpoints: GeoCatalogEndpoints;
 };
 
+export type ThemeColumn = {
+  nama_properti: string;
+  nama_kolom: string;
+  tipe: "boolean" | "integer" | "float" | "date" | "text";
+  nullable: boolean;
+};
+
+export type SampleAnalysis = {
+  geometry_type: string;
+  jumlah_data_dianalisis: number;
+  jumlah_data_total_di_file: number;
+  kolom: ThemeColumn[];
+};
+
+export type CreateThemePayload = {
+  kode: string;
+  nama: string;
+  deskripsi: string | null;
+  geometry_type: string;
+  relasi_blok: boolean;
+  kolom: ThemeColumn[];
+};
+
 function mapCatalogToCategory(item: GeoCatalogItem): UploadCategory {
   return {
     value: item.kode,
@@ -215,6 +238,27 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       } finally {
         this.isLoadingCategories = false;
       }
+    },
+
+    async analyzeSample(file: File): Promise<SampleAnalysis> {
+      const { $api } = useNuxtApp();
+      const formData = new FormData();
+      formData.append("file", file);
+      return await $api<SampleAnalysis>(
+        `${getApiBaseUrl()}/v1/spatial/geo/jenis/analyze-sample`,
+        { method: "POST", body: formData },
+      );
+    },
+
+    async createTheme(payload: CreateThemePayload) {
+      const { $api } = useNuxtApp();
+      const created = await $api<{ kode: string }>(
+        `${getApiBaseUrl()}/v1/spatial/geo/jenis`,
+        { method: "POST", headers: getAuthHeaders(), body: payload },
+      );
+      await this.initDataKategori();
+      this.setCategory(created.kode);
+      return created;
     },
 
     async submitUpload() {
