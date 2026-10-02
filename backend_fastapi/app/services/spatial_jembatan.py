@@ -53,7 +53,7 @@ def analyze_geojson_jembatan(db: Session, geojson_content: bytes, bulan: int, ta
     return {
         "tipe_upload": "SPATIAL_POINT_JEMBATAN",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_jembatan": total_data,
+        "total_data_jembatan": total_data,
         "jembatan_siap_diunggah": jembatan_siap_insert,
         "jembatan_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid
@@ -228,7 +228,7 @@ def execute_bulk_jembatan(db: Session, geojson_content: bytes, filename: str, bu
     
     return {
         "batch_id": batch_id,
-        "total_fitur_jembatan_diproses": total_input,
+        "total_data_jembatan_diproses": total_input,
         "status_proses": final_status,
         "detail_status": meta_payload["detail_statistik"]
     }

@@ -24,7 +24,7 @@ class LayerSpec:
     table: str                      # schema.tabel
     geometry_type: str              # tipe PostGIS kolom geom
     columns: tuple[Column, ...] = field(default_factory=tuple)
-    upload_label: str = ""          # dipakai di nama key statistik lama, mis. 'slope' -> total_fitur_slope
+    upload_label: str = ""          # dipakai di nama key statistik lama, mis. 'slope' -> total_data_slope
     unique_objectid: bool = True    # ada UNIQUE (period, objectid)
 
     @property

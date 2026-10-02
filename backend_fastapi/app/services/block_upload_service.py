@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.resolvers import BlockIndex, RefResolver
-from app.utils.geojson import geometry_to_ewkb, parse_features
+from app.utils.geojson import geometry_to_ewkb, parse_features, prepare_geometry
 from app.utils.parsing import clean_str, norm_key
 from app.utils.period import period_label, to_period
 from app.utils.sql import quote_table
@@ -35,10 +35,10 @@ class BlockFeature:
     division: str
     block: str
     block_type: str | None
-    geom: str | None
+    geom: str | None  # hex EWKB; objek shapely bila with_wkb=False (analisis tidak perlu serialisasi)
 
 
-def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
+def _read_feature(props: dict, geometry: dict | None, with_wkb: bool = True) -> BlockFeature | None:
     estate_code = clean_str(props.get("Est_ID") or props.get("EstID") or props.get("Est") or props.get("Estate"))
     division, block = clean_str(props.get("Afdeling")), clean_str(props.get("Blok"))
     if not (estate_code and division and block):
@@ -51,7 +51,7 @@ def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
         division=division,
         block=block,
         block_type=clean_str(props.get("Kategori") or props.get("TipeBlok")),
-        geom=geometry_to_ewkb(geometry, "MULTIPOLYGON"),
+        geom=geometry_to_ewkb(geometry, "MULTIPOLYGON") if with_wkb else prepare_geometry(geometry, "MULTIPOLYGON"),
     )
 
 
@@ -92,7 +92,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     """
     Analisis (tanpa menyimpan) file batas blok. Selain angka ringkas, dilaporkan juga
     rinciannya supaya pengunggah tahu fitur mana yang bermasalah dan apa akibatnya.
-    Nomor fitur (`fitur_index`) dimulai dari 0, sama dengan urutan tabel atribut di QGIS.
+    Nomor fitur (`no_preview`) dimulai dari 1, sama dengan nomor baris di tabel preview FE.
     """
     period = to_period(bulan, tahun)
     label = period_label(period)
@@ -108,12 +108,12 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     by_block: dict[tuple, dict] = {}
     for i, feature in enumerate(features):
         props = feature.get("properties") or {}
-        item = _read_feature(props, feature.get("geometry"))
+        item = _read_feature(props, feature.get("geometry"), with_wkb=False)
         if item is None:
-            invalid_rows.append({"fitur_index": i, "atribut_kosong": _missing_attributes(props)})
+            invalid_rows.append({"no_preview": i + 1, "atribut_kosong": _missing_attributes(props)})
             continue
         if item.geom is None:
-            invalid_geom_rows.append({"fitur_index": i, "blok": _block_label(item)})
+            invalid_geom_rows.append({"no_preview": i + 1, "blok": _block_label(item)})
             continue
         areas.add(norm_key(item.area))
         companies.add(norm_key(item.company))
@@ -153,20 +153,20 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     if invalid_rows:
         warnings.append({
             "kode": "ATRIBUT_TIDAK_LENGKAP", "level": "PERINGATAN", "jumlah": len(invalid_rows),
-            "pesan": f"{len(invalid_rows)} fitur tidak punya Estate/Afdeling/Blok lengkap dan akan DILEWATI. "
-                     "Lengkapi atributnya di file sumber bila fitur ini memang blok.",
+            "pesan": f"{len(invalid_rows)} data tidak punya Estate/Afdeling/Blok lengkap dan akan DILEWATI. "
+                     "Lengkapi atributnya di file sumber bila data ini memang blok.",
         })
     if invalid_geom_rows:
         warnings.append({
             "kode": "GEOMETRI_TIDAK_VALID", "level": "PERINGATAN", "jumlah": len(invalid_geom_rows),
-            "pesan": f"{len(invalid_geom_rows)} fitur geometrinya kosong/bukan poligon dan akan DILEWATI.",
+            "pesan": f"{len(invalid_geom_rows)} data geometrinya kosong/bukan poligon dan akan DILEWATI.",
         })
     if split:
         extra = sum(len(b["fitur"]) for b in split) - len(split)
         warnings.append({
             "kode": "BLOK_TERPECAH", "level": "PERINGATAN", "jumlah": len(split),
-            "pesan": f"{len(split)} blok muncul di lebih dari satu fitur (total {extra + len(split)} fitur). "
-                     f"Saat disimpan, hanya fitur TERAKHIR tiap blok yang dipakai; {extra} fitur lainnya tertimpa. "
+            "pesan": f"{len(split)} blok muncul di lebih dari satu data (total {extra + len(split)} data). "
+                     f"Saat disimpan, hanya data TERAKHIR tiap blok yang dipakai; {extra} data lainnya tertimpa. "
                      "Gabungkan poligon blok yang sama (dissolve) di file sumber, atau periksa apakah kodenya salah label.",
         })
     if overwritten:
@@ -183,15 +183,15 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
 
     if not blocks:
         status = "TIDAK_ADA_DATA_VALID"
-        conclusion = (f"Tidak ada fitur yang bisa disimpan dari {len(features)} fitur. Pastikan file berisi poligon batas "
+        conclusion = (f"Tidak ada data yang bisa disimpan dari {len(features)} data. Pastikan file berisi poligon batas "
                       "blok dengan atribut Est_ID/EstID, Afdeling, dan Blok.")
         conclusion += _wrong_file_hint(features)
     else:
         status = "SIAP_DENGAN_CATATAN" if any(w["level"] == "PERINGATAN" for w in warnings) else "SIAP"
-        parts = [f"Dari {len(features)} fitur, {len(blocks)} blok akan disimpan untuk periode {label} "
+        parts = [f"Dari {len(features)} data, {len(blocks)} blok akan disimpan untuk periode {label} "
                  f"({len(blocks) - len(overwritten)} batas baru, {len(overwritten)} menimpa batas lama)."]
         if invalid_rows or invalid_geom_rows:
-            parts.append(f"{len(invalid_rows) + len(invalid_geom_rows)} fitur dilewati.")
+            parts.append(f"{len(invalid_rows) + len(invalid_geom_rows)} data dilewati.")
         if split:
             parts.append(f"{len(split)} blok terdiri dari beberapa poligon; hanya poligon terakhir yang tersimpan.")
         conclusion = " ".join(parts)
@@ -201,10 +201,10 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         "periode": label,
         "status_analisis": status,
         "kesimpulan": conclusion,
-        "total_fitur": len(features),
-        "fitur_valid": valid_features,
+        "total_data": len(features),
+        "data_valid": valid_features,
         "jumlah_blok_akan_disimpan": len(blocks),
-        # Field lama (dipakai FE); dihitung per BLOK, bukan per fitur.
+        # Field lama (dipakai FE); dihitung per BLOK, bukan per data.
         "data_baru_di_periode_ini": len(blocks) - len(overwritten),
         "data_akan_ditimpa_di_periode_ini": len(overwritten),
         "blok_baru_di_master": len(new_master),
@@ -221,17 +221,15 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         "peringatan": warnings,
         "rincian": {
             "per_estate": sorted(per_estate.values(), key=lambda r: r["estate"]),
-            "fitur_tidak_valid": invalid_rows[:DETAIL_LIMIT],
-            "fitur_geometri_invalid": invalid_geom_rows[:DETAIL_LIMIT],
+            "data_tidak_valid": invalid_rows[:DETAIL_LIMIT],
+            "data_geometri_invalid": invalid_geom_rows[:DETAIL_LIMIT],
             "blok_terpecah": [
-                {"blok": _block_label(b["item"]), "jumlah_fitur": len(b["fitur"]), "fitur_index": b["fitur"],
-                 "fitur_yang_tersimpan": b["fitur"][-1]}
+                {"blok": _block_label(b["item"]), "jumlah_data": len(b["fitur"]), "no_preview": [n + 1 for n in b["fitur"]],
+                 "data_yang_tersimpan": b["fitur"][-1] + 1}
                 for b in split[:DETAIL_LIMIT]
             ],
             "blok_akan_ditimpa": [_block_label(b["item"]) for b in overwritten[:DETAIL_LIMIT]],
             "blok_baru_di_master": [_block_label(b["item"]) for b in new_master[:DETAIL_LIMIT]],
-            "catatan": f"Tiap daftar dibatasi {DETAIL_LIMIT} baris; jumlah lengkapnya ada di 'peringatan'. "
-                       "fitur_index dimulai dari 0 (urutan fitur di file / tabel atribut QGIS).",
         },
     }
 
@@ -359,8 +357,8 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         "tipe_blok_baru": block_types.created,
     }
     finish_batch(db, batch_id, status, success,
-                 last_error or (None if status == "SUCCESS" else "Sebagian fitur tidak valid."), {"detail_statistik": stats})
-    return {"batch_id": str(batch_id), "total_fitur_diproses": len(features), "status_proses": status, "detail_status": stats}
+                 last_error or (None if status == "SUCCESS" else "Sebagian data tidak valid."), {"detail_statistik": stats})
+    return {"batch_id": str(batch_id), "total_data_diproses": len(features), "status_proses": status, "detail_status": stats}
 
 
 def cleanup_period(db: Session, bulan: int, tahun: int, generic_tables: list[tuple[str, str]]) -> dict:

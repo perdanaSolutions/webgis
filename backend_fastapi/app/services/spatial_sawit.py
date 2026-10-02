@@ -99,7 +99,7 @@ def analyze_geojson_sawit(db: Session, geojson_content: bytes, bulan: int, tahun
     return {
         "tipe_upload": "SPATIAL_POINT_SAWIT",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_sawit": total_data,
+        "total_data_sawit": total_data,
         "sawit_siap_diunggah": sawit_siap_insert,
         "sawit_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid,
@@ -166,10 +166,10 @@ def execute_bulk_sawit(
 
     if total_input == 0:
         detail_statistik = _empty_detail_statistik()
-        _finalize_log(db, batch_id, "FAILED", "File tidak berisi fitur GeoJSON.", detail_statistik)
+        _finalize_log(db, batch_id, "FAILED", "File tidak berisi data GeoJSON.", detail_statistik)
         return {
             "batch_id": batch_id,
-            "total_fitur_sawit_diproses": 0,
+            "total_data_sawit_diproses": 0,
             "status_proses": "FAILED",
             "detail_status": detail_statistik,
         }
@@ -283,7 +283,7 @@ def execute_bulk_sawit(
 
     return {
         "batch_id": batch_id,
-        "total_fitur_sawit_diproses": total_input,
+        "total_data_sawit_diproses": total_input,
         "status_proses": final_status,
         "detail_status": detail_statistik,
     }

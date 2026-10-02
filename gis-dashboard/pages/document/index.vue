@@ -2,6 +2,7 @@
 import { computed, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
+import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
 defineOptions({
@@ -9,6 +10,9 @@ defineOptions({
 });
 
 const documentUploadStore = useDocumentUploadStore();
+const { hasPermission } = useAccessControl();
+const canCreateTheme = computed(() => hasPermission("upload:geojson"));
+const isOpenCreateTheme = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const isBusy = computed(
@@ -34,33 +38,17 @@ const searchQuery = ref("");
 const isOpenModalValidasi = ref(false);
 const isThereReplaceData = ref(false);
 
-const previewRows = computed(() =>
-  documentUploadStore.allPreviewRows.map((feature, index) => ({
-    feature,
-    number: index + 1,
-  })),
-);
-
 const filteredPreviewRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
-  if (!query) return previewRows.value;
+  if (!query) return documentUploadStore.allPreviewRows;
 
-  const headers = previewHeaders.value;
-  return previewRows.value.filter(({ feature, number }) => {
+  return documentUploadStore.allPreviewRows.filter((feature) => {
     const geometryType = String(feature.geometry?.type ?? "").toLowerCase();
-    const headerText = ["no", "geometry", ...headers].join(" ").toLowerCase();
-    const propertiesValues = headers
-      .map((header) => `${header} ${String(feature.properties?.[header] ?? "")}`)
-      .join(" ")
-      .toLowerCase();
-
-    const matchesNumber = /^\d+$/.test(query)
-      ? String(number) === query
-      : String(number).includes(query);
+    const propertiesValues = Object.values(feature.properties ?? {})
+      .map((value) => String(value ?? "").toLowerCase())
+      .join(" ");
 
     return (
-      matchesNumber ||
-      headerText.includes(query) ||
       geometryType.includes(query) ||
       propertiesValues.includes(query)
     );
@@ -186,19 +174,8 @@ const replaceCount = computed(() =>
   Number(analysis.value.data_periode_ini_akan_diganti ?? analysis.value.data_akan_ditimpa_di_periode_ini ?? 0),
 );
 
-function asDataWord(text: string) {
-  return text
-    .replace(/\bFeatures\b/g, "Data")
-    .replace(/\bFeature\b/g, "Data")
-    .replace(/\bFitur\b/g, "Data")
-    .replace(/\bfeatures\b/g, "data")
-    .replace(/\bfeature\b/g, "data")
-    .replace(/\bfitur\b/g, "data");
-}
-
 function humanizeLabel(key: string) {
-  const label = key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  return asDataWord(label);
+  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatDetailValue(value: unknown) {
@@ -223,7 +200,6 @@ const executeView = computed(() => {
     else if (statusProses === "FAILED") message = "Submit analisis gagal. Tidak ada data yang tersimpan.";
     else message = "Submit analisis selesai.";
   }
-  message = asDataWord(message);
 
   const detailSource = body?.detail_status;
   const detail = detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
@@ -235,7 +211,7 @@ const executeView = computed(() => {
     : [];
 
   const totalEntry = Object.entries(body ?? {}).find(
-    ([key, value]) => key.startsWith("total_fitur") && typeof value === "number",
+    ([key, value]) => key.startsWith("total_data") && typeof value === "number",
   );
 
   const tone = statusProses === "FAILED" ? "error" : statusProses === "PARTIAL_SUCCESS" ? "warning" : "success";
@@ -291,6 +267,10 @@ const executeFinished = computed(
               <p v-if="selectedCategoryDescription" class="mt-2 text-size-sm text-muted">
                 {{ selectedCategoryDescription }}
               </p>
+              <button v-if="canCreateTheme" type="button" class="mt-2 text-size-sm font-semibold text-brand underline"
+                @click="isOpenCreateTheme = true">
+                + Buat tema baru
+              </button>
             </div>
           </div>
 
@@ -331,8 +311,8 @@ const executeFinished = computed(
           </div>
         </div>
 
-        <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center" @drop="onDrop"
-          @dragover="onDragOver">
+        <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center"
+          @drop="onDrop" @dragover="onDragOver">
           <input ref="fileInputRef" type="file" accept=".geojson,.json,application/geo+json,application/json"
             class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">
@@ -357,8 +337,7 @@ const executeFinished = computed(
             <span class="text-muted">{{ documentUploadStore.uploadProgress }}%</span>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
-            <div
-              class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
+            <div class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
               :style="{ width: `${documentUploadStore.uploadProgress}%` }" />
           </div>
         </div>
@@ -378,15 +357,15 @@ const executeFinished = computed(
               <h3 class="text-18 font-bold text-brand">Preview Data GeoJSON</h3>
               <p class="text-size-sm text-muted">
                 Menampilkan {{ startItem }} - {{ endItem }} dari
-                {{ totalPreviewRows }} data
+                {{ totalPreviewRows }} feature
                 <span v-if="searchQuery.trim()">
-                  (hasil pencarian dari total {{ documentUploadStore.featureCount }} data)
+                  (hasil pencarian dari total {{ documentUploadStore.featureCount }} feature)
                 </span>.
               </p>
             </div>
 
             <div class="w-full md:w-[320px]">
-              <input v-model="searchQuery" type="text" placeholder="Cari nomor atau semua kolom..."
+              <input v-model="searchQuery" type="text" placeholder="Cari di geometry / semua kolom..."
                 class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown" />
             </div>
           </div>
@@ -403,14 +382,11 @@ const executeFinished = computed(
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="paginatedPreviewRows.length === 0">
-                  <td :colspan="previewHeaders.length + 2" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
-                </tr>
-                <tr v-for="row in paginatedPreviewRows" :key="row.number" class="border-t border-row">
-                  <td class="px-3 py-2">{{ row.number }}</td>
-                  <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
-                  <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
-                    {{ row.feature.properties?.[header] ?? "-" }}
+                <tr v-for="(feature, index) in paginatedPreviewRows" :key="index" class="border-t border-row">
+                  <td class="px-3 py-2">{{ (currentPage - 1) * itemsPerPage + index + 1 }}</td>
+                  <td class="px-3 py-2">{{ feature.geometry?.type ?? "-" }}</td>
+                  <td v-for="header in previewHeaders" :key="`${index}-${header}`" class="px-3 py-2">
+                    {{ feature.properties?.[header] ?? "-" }}
                   </td>
                 </tr>
               </tbody>
@@ -442,8 +418,7 @@ const executeFinished = computed(
           </div>
 
           <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length === 0" class="mt-4 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
@@ -462,8 +437,7 @@ const executeFinished = computed(
           </div>
 
           <div v-if="executeView?.tone !== 'success'" class="mt-4 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
@@ -477,12 +451,14 @@ const executeFinished = computed(
             :class="executeView.tone === 'error' ? 'border-error bg-error-light' : executeView.tone === 'warning' ? 'border-default bg-warning-light' : 'border-default bg-success-light'">
             <p class="font-bold"
               :class="executeView.tone === 'error' ? 'text-error-dark' : executeView.tone === 'warning' ? 'text-warning' : 'text-success'">
-              {{ executeView.tone === 'error' ? 'Submit analisis gagal' : executeView.tone === 'warning' ? 'Submit analisis selesai sebagian' : 'Submit analisis berhasil' }}
+              {{ executeView.tone === 'error' ? 'Submit analisis gagal' : executeView.tone === 'warning' ? 'Submit
+              analisis selesai sebagian' : 'Submit analisis berhasil' }}
             </p>
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
-              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data diproses</span>
+              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data
+                diproses</span>
             </p>
             <div v-if="executeView.detail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               <div v-for="row in executeView.detail" :key="row.key"
@@ -523,10 +499,13 @@ const executeFinished = computed(
     </div>
   </main>
 
+  <CreateThemeModal v-if="isOpenCreateTheme" @close="isOpenCreateTheme = false" />
+
   <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
     <!-- Modal Card -->
     <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
         <!-- Dialog Card -->
         <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl transition-all">
           <!-- Header Modal -->

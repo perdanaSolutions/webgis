@@ -32,9 +32,9 @@ const SUMMARY_SKIP = new Set(["status_analisis", "kesimpulan", "peringatan", "ri
 
 const SECTION_TITLES: Record<string, string> = {
   per_estate: "Ringkasan per Estate",
-  fitur_ditolak: "Data yang Ditolak",
-  fitur_tidak_valid: "Data dengan Atribut Tidak Lengkap",
-  fitur_geometri_invalid: "Data dengan Geometri Tidak Valid",
+  data_ditolak: "Data yang Ditolak",
+  data_tidak_valid: "Data dengan Atribut Tidak Lengkap",
+  data_geometri_invalid: "Data dengan Geometri Tidak Valid",
   blok_terpecah: "Blok Terpecah (satu blok di beberapa data)",
   blok_akan_ditimpa: "Blok yang Batasnya Akan Ditimpa",
   blok_baru_di_master: "Blok Baru di Master",
@@ -44,8 +44,8 @@ const SECTION_TITLES: Record<string, string> = {
 };
 
 const COLUMN_LABELS: Record<string, string> = {
-  fitur_index: "Data #",
-  fitur_yang_tersimpan: "Data yang Tersimpan",
+  no_preview: "No. Preview",
+  data_yang_tersimpan: "Data yang Tersimpan",
   label_file: "Label di File",
   blok_master: "Blok di Master",
 };
@@ -180,16 +180,11 @@ function filteredItems(section: Section) {
     <!-- Peringatan -->
     <div v-if="warnings.length" class="space-y-2">
       <p class="px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Peringatan & Informasi</p>
-      <div
-        v-for="warning in warnings"
-        :key="warning.kode"
+      <div v-for="warning in warnings" :key="warning.kode"
         class="flex gap-3 rounded-xl border border-default p-3 text-size-sm"
-        :class="warning.level === 'INFO' ? 'bg-surface-neutral' : 'bg-warning-light'"
-      >
-        <span
-          class="h-fit shrink-0 rounded-md border border-default bg-surface px-2 py-0.5 text-size-xs font-bold"
-          :class="warning.level === 'INFO' ? 'text-label' : 'text-warning'"
-        >
+        :class="warning.level === 'INFO' ? 'bg-surface-neutral' : 'bg-warning-light'">
+        <span class="h-fit shrink-0 rounded-md border border-default bg-surface px-2 py-0.5 text-size-xs font-bold"
+          :class="warning.level === 'INFO' ? 'text-label' : 'text-warning'">
           {{ warning.level === "INFO" ? "INFO" : "PERHATIAN" }}
         </span>
         <span class="text-label">{{ asDataWord(warning.pesan) }}</span>
@@ -200,15 +195,11 @@ function filteredItems(section: Section) {
     <div v-if="summaryRows.length">
       <p class="mb-2 px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Ringkasan Angka</p>
       <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-        <div
-          v-for="row in summaryRows"
-          :key="row.key"
-          class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface-neutral p-3"
-        >
+        <div v-for="row in summaryRows" :key="row.key"
+          class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface-neutral p-3">
           <span class="text-size-sm font-medium text-label">{{ row.label }}</span>
           <span
-            class="shrink-0 rounded-lg border border-default bg-surface px-3 py-1 text-size-sm font-bold text-content-brown"
-          >
+            class="shrink-0 rounded-lg border border-default bg-surface px-3 py-1 text-size-sm font-bold text-content-brown">
             {{ row.value }}
           </span>
         </div>
@@ -218,27 +209,20 @@ function filteredItems(section: Section) {
     <!-- Rincian -->
     <div v-if="sections.length" class="space-y-2">
       <p class="px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Rincian</p>
-      <details
-        v-for="section in sections"
-        :key="section.key"
-        class="rounded-xl border border-default bg-surface"
-        :open="section.key === 'per_estate'"
-      >
+      <details v-for="section in sections" :key="section.key" class="rounded-xl border border-default bg-surface"
+        :open="section.key === 'per_estate'">
         <summary class="cursor-pointer select-none px-4 py-3 text-size-sm font-semibold text-brand">
           {{ section.title }}
           <span class="ml-1 font-normal text-muted">({{ section.count.toLocaleString("id-ID") }})</span>
         </summary>
         <div class="border-t border-default p-3">
           <div class="mb-3">
-            <input
-              v-model="sectionQueries[section.key]"
-              type="text"
-              placeholder="Cari di semua kolom..."
-              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]"
-            />
+            <input v-model="sectionQueries[section.key]" type="text" placeholder="Cari di semua kolom..."
+              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]" />
             <p v-if="sectionQuery(section.key).trim()" class="mt-1 text-size-xs text-muted">
               Menampilkan
-              {{ (section.rows.length ? filteredRows(section).length : filteredItems(section).length).toLocaleString("id-ID") }}
+              {{ (section.rows.length ? filteredRows(section).length :
+                filteredItems(section).length).toLocaleString("id-ID") }}
               dari {{ section.count.toLocaleString("id-ID") }} data
             </p>
           </div>
@@ -266,11 +250,8 @@ function filteredItems(section: Section) {
           <div v-else>
             <p v-if="filteredItems(section).length === 0" class="text-size-sm text-muted">Tidak ada data yang cocok.</p>
             <div v-else class="flex flex-wrap gap-2">
-              <span
-                v-for="item in filteredItems(section)"
-                :key="item"
-                class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label"
-              >
+              <span v-for="item in filteredItems(section)" :key="item"
+                class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
                 {{ item }}
               </span>
             </div>

@@ -24,7 +24,7 @@ from app.services.upload.report import UploadReport, geometry_problem, missing_b
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
 )
-from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features
+from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features, prepare_geometry
 from app.utils.parsing import json_safe, to_float, to_int
 from app.utils.period import period_label, to_period
 
@@ -45,7 +45,7 @@ class PreparedSawit:
     report: UploadReport = field(default_factory=UploadReport)
 
 
-def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
+def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedSawit:
     features = parse_features(content)
     categories = RefResolver(db, "tree_categories", create_missing=create_refs)
     result = PreparedSawit(total=len(features), report=UploadReport(total=len(features)))
@@ -72,7 +72,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
             result.invalid_props += 1
             report.reject(i, "NILAI_TIDAK_VALID", "; ".join(problems))
             continue
-        geom = geometry_to_ewkb(feature.get("geometry"), "POINT")
+        geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), "POINT")
         if geom is None:
             result.invalid_geom += 1
             report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), "POINT"))
@@ -97,7 +97,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
         if row["objectid"] in result.rows:
             result.duplicates += 1
             report.reject(indexes[row["objectid"]], "OBJECTID_GANDA",
-                          f"OBJECTID {row['objectid']} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+                          f"OBJECTID {row['objectid']} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
         result.rows[row["objectid"]] = row
         indexes[row["objectid"]] = i
     result.new_categories = categories.created
@@ -107,7 +107,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
 
 def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
-    prepared = _prepare(db, content, create_refs=False)
+    prepared = _prepare(db, content, create_refs=False, with_wkb=False)
     blocks = sorted({r["block_id"] for r in prepared.rows.values()})
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {TABLE} WHERE period = :p AND block_id = ANY(:b)"), {"p": period, "b": blocks}
@@ -127,7 +127,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         "periode": period_label(period),
         "status_analisis": detail["status_analisis"],
         "kesimpulan": detail["kesimpulan"],
-        "total_fitur_sawit": prepared.total,
+        "total_data_sawit": prepared.total,
         "sawit_siap_diunggah": len(prepared.rows),
         "sawit_tertahan_karena_blok_belum_ada": prepared.match.missing,
         "data_properti_invalid": prepared.invalid_props,
@@ -194,9 +194,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         "nilai_referensi_baru": {"tree_categories": prepared.new_categories} if prepared.new_categories else {},
         "sistem_error": 0,
     }
-    error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} fitur tidak diunggah."
+    error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} data tidak diunggah."
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})
-    return {"batch_id": str(batch_id), "total_fitur_sawit_diproses": prepared.total, "status_proses": status, "detail_status": stats}
+    return {"batch_id": str(batch_id), "total_data_sawit_diproses": prepared.total, "status_proses": status, "detail_status": stats}
 
 
 _SELECT = """

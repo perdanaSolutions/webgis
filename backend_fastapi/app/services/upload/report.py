@@ -2,7 +2,7 @@
 Laporan analisis upload GeoJSON yang bisa dipahami pengunggah: status, kesimpulan,
 peringatan (apa masalahnya + saran), dan rincian (fitur mana yang ditolak & kenapa).
 
-Nomor fitur (`fitur_index`) dimulai dari 0 = urutan fitur di file / tabel atribut QGIS.
+Nomor fitur (`no_preview`) dimulai dari 1 = nomor baris di tabel preview FE.
 """
 from collections import Counter
 from collections.abc import Iterable
@@ -21,25 +21,25 @@ DETAIL_LIMIT = 100
 REJECTIONS = {
     "ATRIBUT_BLOK_KOSONG": (
         "atribut Estate/Afdeling/Blok tidak lengkap",
-        "fitur tidak punya Estate (EstID/Est/Estate), Afdeling, atau Blok, sehingga tidak bisa dikaitkan ke blok. "
+        "data tidak punya Estate (EstID/Est/Estate), Afdeling, atau Blok, sehingga tidak bisa dikaitkan ke blok. "
         "Lengkapi atributnya di file sumber.",
     ),
     "GEOMETRI_TIDAK_VALID": (
         "geometri kosong / tipenya tidak sesuai",
-        "fitur geometrinya kosong atau tipenya tidak sesuai layer ini. Periksa tipe geometri di file sumber.",
+        "data geometrinya kosong atau tipenya tidak sesuai layer ini. Periksa tipe geometri di file sumber.",
     ),
     "NILAI_TIDAK_VALID": (
         "nilai atribut wajib kosong / tidak valid",
-        "fitur punya nilai atribut wajib yang kosong atau tidak valid (lihat alasan per fitur di rincian).",
+        "data punya nilai atribut wajib yang kosong atau tidak valid (lihat alasan per data di rincian).",
     ),
     "BLOK_TIDAK_DITEMUKAN": (
         "blok tidak ditemukan di master",
-        "fitur menunjuk blok yang tidak ada di master, dan posisinya juga tidak berada di batas blok mana pun. "
+        "data menunjuk blok yang tidak ada di master, dan posisinya juga tidak berada di batas blok mana pun. "
         "Periksa kode Estate/Afdeling/Blok, atau upload batas bloknya lebih dulu.",
     ),
     "OBJECTID_GANDA": (
         "OBJECTID ganda di file",
-        "fitur memakai OBJECTID yang sama dengan fitur lain di file; hanya fitur TERAKHIR yang dipakai. "
+        "data memakai OBJECTID yang sama dengan data lain di file; hanya data TERAKHIR yang dipakai. "
         "Pastikan OBJECTID unik.",
     ),
 }
@@ -51,7 +51,7 @@ class UploadReport:
     rejected: list[dict] = field(default_factory=list)
 
     def reject(self, index: int, code: str, reason: str) -> None:
-        self.rejected.append({"fitur_index": index, "kode": code, "alasan": reason})
+        self.rejected.append({"no_preview": index + 1, "kode": code, "alasan": reason})
 
     def counts(self) -> Counter:
         return Counter(r["kode"] for r in self.rejected)
@@ -89,9 +89,9 @@ def estate_summary(db: Session, block_ids: Iterable[int]) -> list[dict]:
     """), {"ids": list(counts)}).all()
     per_estate: dict[str, dict] = {}
     for block_id, code, name in rows:
-        row = per_estate.setdefault(code, {"estate": code, "nama_estate": name, "jumlah_blok": 0, "fitur_siap": 0})
+        row = per_estate.setdefault(code, {"estate": code, "nama_estate": name, "jumlah_blok": 0, "data_siap": 0})
         row["jumlah_blok"] += 1
-        row["fitur_siap"] += counts[block_id]
+        row["data_siap"] += counts[block_id]
     return sorted(per_estate.values(), key=lambda r: r["estate"])
 
 
@@ -122,7 +122,7 @@ def build(
     if match and match.spatial_matches:
         warnings.append({
             "kode": "KOREKSI_LABEL_BLOK", "level": "INFO", "jumlah": match.spatial_matches,
-            "pesan": f"{match.spatial_matches} fitur labelnya tidak cocok dengan master, sehingga bloknya ditentukan "
+            "pesan": f"{match.spatial_matches} data labelnya tidak cocok dengan master, sehingga bloknya ditentukan "
                      "dari posisi geometri. Lihat 'koreksi_label_blok' dan perbaiki labelnya di file sumber.",
         })
     if replaced:
@@ -135,14 +135,14 @@ def build(
     blocks = len(set(block_ids)) if block_ids is not None else None
     if ready == 0:
         status = "TIDAK_ADA_DATA_VALID"
-        conclusion = f"Tidak ada fitur yang bisa diunggah dari {report.total} fitur ke layer {layer}."
+        conclusion = f"Tidak ada data yang bisa diunggah dari {report.total} data ke layer {layer}."
     else:
         status = "SIAP_DENGAN_CATATAN" if any(w["level"] == "PERINGATAN" for w in warnings) else "SIAP"
         target = f" ke {blocks} blok" if blocks is not None else ""
-        conclusion = f"Dari {report.total} fitur, {ready} siap diunggah{target} untuk layer {layer} periode {label}."
+        conclusion = f"Dari {report.total} data, {ready} siap diunggah{target} untuk layer {layer} periode {label}."
     if report.rejected:
         reasons = ", ".join(f"{n} {REJECTIONS[code][0]}" for code, n in counts.most_common())
-        conclusion += f" {len(report.rejected)} fitur ditolak ({reasons})."
+        conclusion += f" {len(report.rejected)} data ditolak ({reasons})."
     if replaced and ready:
         conclusion += f" {replaced} data lama periode ini {replace_scope} akan diganti."
 
@@ -152,8 +152,6 @@ def build(
         "peringatan": warnings,
         "rincian": {
             "per_estate": estate_summary(db, block_ids or []),
-            "fitur_ditolak": sorted(report.rejected, key=lambda r: r["fitur_index"])[:DETAIL_LIMIT],
-            "catatan": f"Daftar fitur_ditolak dibatasi {DETAIL_LIMIT} baris; jumlah lengkapnya ada di 'peringatan'. "
-                       "fitur_index dimulai dari 0 (urutan fitur di file / tabel atribut QGIS).",
+            "data_ditolak": sorted(report.rejected, key=lambda r: r["no_preview"])[:DETAIL_LIMIT],
         },
     }

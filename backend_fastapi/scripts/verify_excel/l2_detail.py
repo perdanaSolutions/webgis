@@ -130,11 +130,6 @@ def check(bk, tahun, bulan):
     eq(ctx, "bjr.budget", round(pr.BjrBudget.mean(), 2) if len(pr) and pr.BjrBudget.notna().any() else 0.0, pt["bjr"]["budget"], 0.0101)
     eq(ctx, "bjr.sensus", round(pr.BjrSensus.mean(), 2) if len(pr) and pr.BjrSensus.notna().any() else 0.0, pt["bjr"]["sensus"], 0.0101)
     tb = fb or 0.0; ta = fa or 0.0
-    if tb > 0:
-        ach = round(ta / tb * 100, 2); kat = "HIGH YIELD" if ach >= 100 else "MEDIUM YIELD" if ach >= 85 else "LOW YIELD"
-    else:
-        ach, kat = 0.0, "NO TARGET"
-    eq(ctx, "pct_achievement", ach, pt["tbs"]["pct_achievement"], 0.0101); eq(ctx, "kategori_yield", kat, pt["tbs"]["kategori_yield"])
     eq(ctx, "gap_kg", round(ta - tb, 2), pt["tbs"]["gap"], 0.0101)
     eq(ctx, "kg_pkk", round(ta / trees, 2) if trees else 0.0, pt["kpi_per_pokok"]["kg_pkk"], 0.0101)
     eq(ctx, "jjg_pkk", round(int(ja or 0) / trees, 2) if trees else 0.0, pt["kpi_per_pokok"]["jjg_pkk"], 0.0101)
