@@ -53,7 +53,7 @@ def analyze_geojson_slope(db: Session, geojson_content: bytes, bulan: int, tahun
     return {
         "tipe_upload": "SPATIAL_MULTIPOLYGON_SLOPE",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_slope": total_data,
+        "total_data_slope": total_data,
         "slope_siap_diunggah": slope_siap_insert,
         "slope_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid
@@ -235,7 +235,7 @@ def execute_bulk_slope(db: Session, geojson_content: bytes, filename: str, bulan
     
     return {
         "batch_id": batch_id,
-        "total_fitur_slope_diproses": total_input,
+        "total_data_slope_diproses": total_input,
         "status_proses": final_status,
         "detail_status": meta_payload["detail_statistik"]
     }

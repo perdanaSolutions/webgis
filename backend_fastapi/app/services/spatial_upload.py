@@ -152,7 +152,7 @@ def analyze_geojson_tph(db: Session, geojson_content: bytes, bulan: int, tahun: 
     return {
         "tipe_upload": "SPATIAL_POINT_TPH",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_tph": total_data,
+        "total_data_tph": total_data,
         "tph_siap_diunggah": tph_siap_insert,
         "tph_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid,
@@ -221,7 +221,7 @@ def execute_bulk_tph(db: Session, geojson_content: bytes, bulan: int, tahun: int
     db.commit()
 
     return {
-        "total_fitur_tph_diproses": total_input,
+        "total_data_tph_diproses": total_input,
         "detail_status": {
             "tph_berhasil_diunggah": success_count,
             "tph_tertahan_karena_blok_belum_ada": missing_blok_count,
@@ -275,7 +275,7 @@ def analyze_geojson_geometry_blok(db: Session, geojson_content: bytes, bulan: in
     return {
         "tipe_upload": "GEOMETRI_BLOK_AND_MASTER_DATA",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur": total_data,
+        "total_data": total_data,
         "data_baru_di_periode_ini": data_baru,
         "data_akan_ditimpa_di_periode_ini": data_update,
         "data_tidak_valid": data_invalid,
@@ -597,7 +597,7 @@ def execute_bulk_geometry_blok(
 
     return {
         "batch_id": batch_id,
-        "total_fitur_diproses": total_input,
+        "total_data_diproses": total_input,
         "status_proses": final_status,
         "detail_status": meta_payload["detail_statistik"],
     }

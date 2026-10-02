@@ -53,7 +53,7 @@ def analyze_geojson_landuse(db: Session, geojson_content: bytes, bulan: int, tah
     return {
         "tipe_upload": "SPATIAL_MULTIPOLYGON_LANDUSE",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_landuse": total_data,
+        "total_data_landuse": total_data,
         "landuse_siap_diunggah": landuse_siap_insert,
         "landuse_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid
@@ -236,7 +236,7 @@ def execute_bulk_landuse(db: Session, geojson_content: bytes, filename: str, bul
     
     return {
         "batch_id": batch_id,
-        "total_fitur_landuse_diproses": total_input,
+        "total_data_landuse_diproses": total_input,
         "status_proses": final_status,
         "detail_status": meta_payload["detail_statistik"]
     }

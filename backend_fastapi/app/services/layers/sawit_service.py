@@ -97,7 +97,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
         if row["objectid"] in result.rows:
             result.duplicates += 1
             report.reject(indexes[row["objectid"]], "OBJECTID_GANDA",
-                          f"OBJECTID {row['objectid']} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
+                          f"OBJECTID {row['objectid']} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
         result.rows[row["objectid"]] = row
         indexes[row["objectid"]] = i
     result.new_categories = categories.created
@@ -127,7 +127,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         "periode": period_label(period),
         "status_analisis": detail["status_analisis"],
         "kesimpulan": detail["kesimpulan"],
-        "total_fitur_sawit": prepared.total,
+        "total_data_sawit": prepared.total,
         "sawit_siap_diunggah": len(prepared.rows),
         "sawit_tertahan_karena_blok_belum_ada": prepared.match.missing,
         "data_properti_invalid": prepared.invalid_props,
@@ -194,9 +194,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         "nilai_referensi_baru": {"tree_categories": prepared.new_categories} if prepared.new_categories else {},
         "sistem_error": 0,
     }
-    error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} fitur tidak diunggah."
+    error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} data tidak diunggah."
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})
-    return {"batch_id": str(batch_id), "total_fitur_sawit_diproses": prepared.total, "status_proses": status, "detail_status": stats}
+    return {"batch_id": str(batch_id), "total_data_sawit_diproses": prepared.total, "status_proses": status, "detail_status": stats}
 
 
 _SELECT = """

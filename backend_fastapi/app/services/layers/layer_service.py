@@ -133,7 +133,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
             if objectid in by_objectid:
                 result.duplicates += 1
                 report.reject(by_objectid[objectid][0], "OBJECTID_GANDA",
-                              f"OBJECTID {objectid} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
+                              f"OBJECTID {objectid} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
             by_objectid[objectid] = (i, row)
         else:
             result.rows.append(row)
@@ -178,7 +178,7 @@ def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int
         "periode": period_label(period),
         "status_analisis": detail["status_analisis"],
         "kesimpulan": detail["kesimpulan"],
-        f"total_fitur_{code}": prepared.total,
+        f"total_data_{code}": prepared.total,
         f"{code}_siap_diunggah": len(prepared.rows),
         f"{code}_tertahan_karena_blok_belum_ada": prepared.missing_block,
         "data_properti_invalid": prepared.invalid_props,
@@ -219,11 +219,11 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
     status = final_status(success, prepared.total)
     stats = prepared.stats(success, replaced)
     error = None if status == "SUCCESS" else (
-        f"{prepared.total - success} dari {prepared.total} fitur tidak diunggah." if prepared.total else "File tidak berisi fitur.")
+        f"{prepared.total - success} dari {prepared.total} data tidak diunggah." if prepared.total else "File tidak berisi data.")
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})
     return {
         "batch_id": str(batch_id),
-        f"total_fitur_{spec.code}_diproses": prepared.total,
+        f"total_data_{spec.code}_diproses": prepared.total,
         "status_proses": status,
         "detail_status": stats,
     }

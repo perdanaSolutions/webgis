@@ -45,9 +45,9 @@ def test_block_geometry_upload(client, auth, sample_block, block_geometry):
         {"type": "Feature", "properties": {"Blok": "X"}, "geometry": block_geometry["polygon"]},  # properti kurang
     )
     analyze = _upload(client, auth, "/blok-geometry/upload-analyze", content).json()
-    assert analyze["total_fitur"] == 2 and analyze["data_tidak_valid"] == 1
+    assert analyze["total_data"] == 2 and analyze["data_tidak_valid"] == 1
     assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN" and analyze["jumlah_blok_akan_disimpan"] == 1
-    assert analyze["rincian"]["fitur_tidak_valid"] == [
+    assert analyze["rincian"]["data_tidak_valid"] == [
         {"no_preview": 2, "atribut_kosong": ["Estate (Est_ID/EstID/Est/Estate)", "Afdeling"]}]
 
     # Blok yang sama di dua fitur dilaporkan sebagai blok terpecah, dihitung sekali sebagai blok.
@@ -107,10 +107,10 @@ def test_layer_analyze_reports_rejected_features(client, auth, sample_block, blo
     analyze = _upload(client, auth, "/jembatan/upload-analyze", content).json()["data"]
     assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN"
     assert analyze["jembatan_siap_diunggah"] == 1
-    rejected = {r["no_preview"]: r["kode"] for r in analyze["rincian"]["fitur_ditolak"]}
+    rejected = {r["no_preview"]: r["kode"] for r in analyze["rincian"]["data_ditolak"]}
     assert rejected == {1: "OBJECTID_GANDA", 2: "ATRIBUT_BLOK_KOSONG", 3: "GEOMETRI_TIDAK_VALID"}
     assert {w["kode"] for w in analyze["peringatan"]} >= {"OBJECTID_GANDA", "ATRIBUT_BLOK_KOSONG", "GEOMETRI_TIDAK_VALID"}
-    assert "3 fitur ditolak" in analyze["kesimpulan"]
+    assert "3 data ditolak" in analyze["kesimpulan"]
 
 
 def test_wrong_block_label_is_matched_by_geometry(client, auth, sample_block, block_geometry):

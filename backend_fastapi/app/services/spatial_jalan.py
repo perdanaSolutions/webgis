@@ -53,7 +53,7 @@ def analyze_geojson_jalan(db: Session, geojson_content: bytes, bulan: int, tahun
     return {
         "tipe_upload": "SPATIAL_MULTILINESTRING_JALAN",
         "periode": f"{bulan}-{tahun}",
-        "total_fitur_jalan": total_data,
+        "total_data_jalan": total_data,
         "jalan_siap_diunggah": jalan_siap_insert,
         "jalan_tertahan_karena_blok_belum_ada": induk_blok_missing,
         "data_properti_invalid": data_invalid
@@ -234,7 +234,7 @@ def execute_bulk_jalan(db: Session, geojson_content: bytes, filename: str, bulan
     
     return {
         "batch_id": batch_id,
-        "total_fitur_jalan_diproses": total_input,
+        "total_data_jalan_diproses": total_input,
         "status_proses": final_status,
         "detail_status": meta_payload["detail_statistik"]
     }

@@ -161,7 +161,7 @@ def _column_name(raw: str) -> str:
 def analyze_sample(content: bytes) -> dict:
     features = parse_features(content)
     if not features:
-        raise bad_request("Sample tidak berisi fitur.", field="file")
+        raise bad_request("Sample tidak berisi data.", field="file")
     sample = features[:MAX_SAMPLE]
     geometry_types, types, order = set(), {}, []
     for feature in sample:
@@ -191,8 +191,8 @@ def analyze_sample(content: bytes) -> dict:
     ])
     return {
         "geometry_type": geometry_type,
-        "jumlah_fitur_dianalisis": len(sample),
-        "jumlah_fitur_total_di_file": len(features),
+        "jumlah_data_dianalisis": len(sample),
+        "jumlah_data_total_di_file": len(features),
         "kolom": columns,
     }
 
@@ -453,7 +453,7 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
             if row["objectid"] in by_objectid:
                 stats["duplicates"] += 1
                 report.reject(by_objectid[row["objectid"]][0], "OBJECTID_GANDA",
-                              f"OBJECTID {row['objectid']} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
+                              f"OBJECTID {row['objectid']} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
             by_objectid[row["objectid"]] = (i, row)
         else:
             rows.append(row)
@@ -495,7 +495,7 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
         notices.append({
             "kode": "NILAI_ATRIBUT_INVALID", "level": "PERINGATAN", "jumlah": s["invalid_values"],
             "pesan": f"{s['invalid_values']} nilai atribut tidak cocok dengan tipe kolomnya dan akan disimpan KOSONG "
-                     f"(fiturnya tetap diunggah). Contoh: {'; '.join(prepared['invalid_samples'])}.",
+                     f"(datanya tetap diunggah). Contoh: {'; '.join(prepared['invalid_samples'])}.",
         })
     detail = upload_report.build(
         db, prepared["report"], layer=layer["nama"], period=period, ready=len(prepared["rows"]),
@@ -507,7 +507,7 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
     return {
         "jenis": layer["kode"], "periode": period_label(period),
         "status_analisis": detail["status_analisis"], "kesimpulan": detail["kesimpulan"],
-        "total_fitur": s["total"],
+        "total_data": s["total"],
         "siap_diunggah": len(prepared["rows"]),
         "tertahan_karena_blok_belum_ada": s["missing_block"] if layer["relasi_blok"] else None,
         "data_properti_invalid": s["invalid_props"], "data_geometri_invalid": s["invalid_geom"],
@@ -559,8 +559,8 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
         **prepared["match"].as_dict(), "sistem_error": 0,
     }
     finish_batch(db, batch_id, status, success,
-                 None if status == "SUCCESS" else f"{stats['total'] - success} fitur tidak diunggah.", {"detail_statistik": detail})
-    return {"batch_id": str(batch_id), "jenis": layer["kode"], "total_fitur_diproses": stats["total"],
+                 None if status == "SUCCESS" else f"{stats['total'] - success} data tidak diunggah.", {"detail_statistik": detail})
+    return {"batch_id": str(batch_id), "jenis": layer["kode"], "total_data_diproses": stats["total"],
             "status_proses": status, "detail_status": detail}
 
 

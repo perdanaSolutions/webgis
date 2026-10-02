@@ -111,7 +111,7 @@ class BlockMatchReport:
     def as_dict(self) -> dict:
         return {
             "dicocokkan_spasial": self.spatial_matches,
-            "koreksi_label_blok": [{"label_file": k.split(" -> ")[0], "blok_master": k.split(" -> ")[1], "jumlah_fitur": n}
+            "koreksi_label_blok": [{"label_file": k.split(" -> ")[0], "blok_master": k.split(" -> ")[1], "jumlah_data": n}
                                    for k, n in self.corrections.items()],
         }
 
