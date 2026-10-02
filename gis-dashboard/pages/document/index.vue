@@ -34,17 +34,33 @@ const searchQuery = ref("");
 const isOpenModalValidasi = ref(false);
 const isThereReplaceData = ref(false);
 
+const previewRows = computed(() =>
+  documentUploadStore.allPreviewRows.map((feature, index) => ({
+    feature,
+    number: index + 1,
+  })),
+);
+
 const filteredPreviewRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
-  if (!query) return documentUploadStore.allPreviewRows;
+  if (!query) return previewRows.value;
 
-  return documentUploadStore.allPreviewRows.filter((feature) => {
+  const headers = previewHeaders.value;
+  return previewRows.value.filter(({ feature, number }) => {
     const geometryType = String(feature.geometry?.type ?? "").toLowerCase();
-    const propertiesValues = Object.values(feature.properties ?? {})
-      .map((value) => String(value ?? "").toLowerCase())
-      .join(" ");
+    const headerText = ["no", "geometry", ...headers].join(" ").toLowerCase();
+    const propertiesValues = headers
+      .map((header) => `${header} ${String(feature.properties?.[header] ?? "")}`)
+      .join(" ")
+      .toLowerCase();
+
+    const matchesNumber = /^\d+$/.test(query)
+      ? String(number) === query
+      : String(number).includes(query);
 
     return (
+      matchesNumber ||
+      headerText.includes(query) ||
       geometryType.includes(query) ||
       propertiesValues.includes(query)
     );
@@ -170,8 +186,19 @@ const replaceCount = computed(() =>
   Number(analysis.value.data_periode_ini_akan_diganti ?? analysis.value.data_akan_ditimpa_di_periode_ini ?? 0),
 );
 
+function asDataWord(text: string) {
+  return text
+    .replace(/\bFeatures\b/g, "Data")
+    .replace(/\bFeature\b/g, "Data")
+    .replace(/\bFitur\b/g, "Data")
+    .replace(/\bfeatures\b/g, "data")
+    .replace(/\bfeature\b/g, "data")
+    .replace(/\bfitur\b/g, "data");
+}
+
 function humanizeLabel(key: string) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const label = key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return asDataWord(label);
 }
 
 function formatDetailValue(value: unknown) {
@@ -196,6 +223,7 @@ const executeView = computed(() => {
     else if (statusProses === "FAILED") message = "Submit analisis gagal. Tidak ada data yang tersimpan.";
     else message = "Submit analisis selesai.";
   }
+  message = asDataWord(message);
 
   const detailSource = body?.detail_status;
   const detail = detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
@@ -350,15 +378,15 @@ const executeFinished = computed(
               <h3 class="text-18 font-bold text-brand">Preview Data GeoJSON</h3>
               <p class="text-size-sm text-muted">
                 Menampilkan {{ startItem }} - {{ endItem }} dari
-                {{ totalPreviewRows }} feature
+                {{ totalPreviewRows }} data
                 <span v-if="searchQuery.trim()">
-                  (hasil pencarian dari total {{ documentUploadStore.featureCount }} feature)
+                  (hasil pencarian dari total {{ documentUploadStore.featureCount }} data)
                 </span>.
               </p>
             </div>
 
             <div class="w-full md:w-[320px]">
-              <input v-model="searchQuery" type="text" placeholder="Cari di geometry / semua kolom..."
+              <input v-model="searchQuery" type="text" placeholder="Cari nomor atau semua kolom..."
                 class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown" />
             </div>
           </div>
@@ -375,11 +403,14 @@ const executeFinished = computed(
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(feature, index) in paginatedPreviewRows" :key="index" class="border-t border-row">
-                  <td class="px-3 py-2">{{ (currentPage - 1) * itemsPerPage + index + 1 }}</td>
-                  <td class="px-3 py-2">{{ feature.geometry?.type ?? "-" }}</td>
-                  <td v-for="header in previewHeaders" :key="`${index}-${header}`" class="px-3 py-2">
-                    {{ feature.properties?.[header] ?? "-" }}
+                <tr v-if="paginatedPreviewRows.length === 0">
+                  <td :colspan="previewHeaders.length + 2" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                </tr>
+                <tr v-for="row in paginatedPreviewRows" :key="row.number" class="border-t border-row">
+                  <td class="px-3 py-2">{{ row.number }}</td>
+                  <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
+                  <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
+                    {{ row.feature.properties?.[header] ?? "-" }}
                   </td>
                 </tr>
               </tbody>
@@ -451,7 +482,7 @@ const executeFinished = computed(
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
-              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} fitur diproses</span>
+              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data diproses</span>
             </p>
             <div v-if="executeView.detail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               <div v-for="row in executeView.detail" :key="row.key"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 
 defineOptions({
   name: "UploadAnalysisResult",
@@ -32,10 +32,10 @@ const SUMMARY_SKIP = new Set(["status_analisis", "kesimpulan", "peringatan", "ri
 
 const SECTION_TITLES: Record<string, string> = {
   per_estate: "Ringkasan per Estate",
-  fitur_ditolak: "Fitur yang Ditolak",
-  fitur_tidak_valid: "Fitur dengan Atribut Tidak Lengkap",
-  fitur_geometri_invalid: "Fitur dengan Geometri Tidak Valid",
-  blok_terpecah: "Blok Terpecah (satu blok di beberapa fitur)",
+  fitur_ditolak: "Data yang Ditolak",
+  fitur_tidak_valid: "Data dengan Atribut Tidak Lengkap",
+  fitur_geometri_invalid: "Data dengan Geometri Tidak Valid",
+  blok_terpecah: "Blok Terpecah (satu blok di beberapa data)",
   blok_akan_ditimpa: "Blok yang Batasnya Akan Ditimpa",
   blok_baru_di_master: "Blok Baru di Master",
   koreksi_label_blok: "Koreksi Label Blok (dicocokkan dari posisi geometri)",
@@ -44,14 +44,25 @@ const SECTION_TITLES: Record<string, string> = {
 };
 
 const COLUMN_LABELS: Record<string, string> = {
-  fitur_index: "Fitur #",
-  fitur_yang_tersimpan: "Fitur yang Tersimpan",
+  fitur_index: "Data #",
+  fitur_yang_tersimpan: "Data yang Tersimpan",
   label_file: "Label di File",
   blok_master: "Blok di Master",
 };
 
+function asDataWord(text: string): string {
+  return String(text ?? "")
+    .replace(/\bFeatures\b/g, "Data")
+    .replace(/\bFeature\b/g, "Data")
+    .replace(/\bFitur\b/g, "Data")
+    .replace(/\bfeatures\b/g, "data")
+    .replace(/\bfeature\b/g, "data")
+    .replace(/\bfitur\b/g, "data");
+}
+
 function humanize(key: string): string {
-  return COLUMN_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const label = COLUMN_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return asDataWord(label);
 }
 
 function formatValue(value: unknown): string {
@@ -118,7 +129,7 @@ const sections = computed<Section[]>(() => {
       count: value.length,
       columns,
       rows: objects,
-      items: objects.length ? [] : value.map((v) => formatValue(v)),
+      items: objects.length ? [] : value.map((v) => asDataWord(formatValue(v))),
     });
   }
   return result;
@@ -126,9 +137,36 @@ const sections = computed<Section[]>(() => {
 
 const footnote = computed(() =>
   isPlainObject(props.analysis.rincian) && typeof props.analysis.rincian.catatan === "string"
-    ? props.analysis.rincian.catatan
+    ? asDataWord(props.analysis.rincian.catatan)
     : "",
 );
+
+const sectionQueries = reactive<Record<string, string>>({});
+
+function sectionQuery(key: string) {
+  return sectionQueries[key] ?? "";
+}
+
+function filteredRows(section: Section) {
+  const query = sectionQuery(section.key).trim().toLowerCase();
+  if (!query) return section.rows;
+  return section.rows.filter((row) => {
+    const haystack = section.columns
+      .flatMap((column) => [column, humanize(column), formatValue(row[column])])
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function filteredItems(section: Section) {
+  const query = sectionQuery(section.key).trim().toLowerCase();
+  if (!query) return section.items;
+  return section.items.filter((item) => {
+    const haystack = `${section.title} ${item}`.toLowerCase();
+    return haystack.includes(query);
+  });
+}
 </script>
 
 <template>
@@ -136,7 +174,7 @@ const footnote = computed(() =>
     <!-- Status & kesimpulan -->
     <div v-if="status" class="rounded-2xl border p-4" :class="status.box">
       <p class="font-bold" :class="status.text">{{ status.title }}</p>
-      <p v-if="analysis.kesimpulan" class="mt-1 text-size-sm text-label">{{ analysis.kesimpulan }}</p>
+      <p v-if="analysis.kesimpulan" class="mt-1 text-size-sm text-label">{{ asDataWord(analysis.kesimpulan) }}</p>
     </div>
 
     <!-- Peringatan -->
@@ -154,7 +192,7 @@ const footnote = computed(() =>
         >
           {{ warning.level === "INFO" ? "INFO" : "PERHATIAN" }}
         </span>
-        <span class="text-label">{{ warning.pesan }}</span>
+        <span class="text-label">{{ asDataWord(warning.pesan) }}</span>
       </div>
     </div>
 
@@ -191,6 +229,19 @@ const footnote = computed(() =>
           <span class="ml-1 font-normal text-muted">({{ section.count.toLocaleString("id-ID") }})</span>
         </summary>
         <div class="border-t border-default p-3">
+          <div class="mb-3">
+            <input
+              v-model="sectionQueries[section.key]"
+              type="text"
+              placeholder="Cari di semua kolom..."
+              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]"
+            />
+            <p v-if="sectionQuery(section.key).trim()" class="mt-1 text-size-xs text-muted">
+              Menampilkan
+              {{ (section.rows.length ? filteredRows(section).length : filteredItems(section).length).toLocaleString("id-ID") }}
+              dari {{ section.count.toLocaleString("id-ID") }} data
+            </p>
+          </div>
           <div v-if="section.rows.length" class="max-h-80 overflow-auto rounded-lg border border-default">
             <table class="min-w-full text-size-sm">
               <thead class="sticky top-0 bg-surface-warm text-left text-brand">
@@ -201,7 +252,10 @@ const footnote = computed(() =>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, index) in section.rows" :key="index" class="border-t border-row">
+                <tr v-if="filteredRows(section).length === 0">
+                  <td :colspan="section.columns.length" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                </tr>
+                <tr v-for="(row, index) in filteredRows(section)" :key="index" class="border-t border-row">
                   <td v-for="column in section.columns" :key="column" class="px-3 py-2 align-top">
                     {{ formatValue(row[column]) }}
                   </td>
@@ -209,14 +263,17 @@ const footnote = computed(() =>
               </tbody>
             </table>
           </div>
-          <div v-else class="flex flex-wrap gap-2">
-            <span
-              v-for="item in section.items"
-              :key="item"
-              class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label"
-            >
-              {{ item }}
-            </span>
+          <div v-else>
+            <p v-if="filteredItems(section).length === 0" class="text-size-sm text-muted">Tidak ada data yang cocok.</p>
+            <div v-else class="flex flex-wrap gap-2">
+              <span
+                v-for="item in filteredItems(section)"
+                :key="item"
+                class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label"
+              >
+                {{ item }}
+              </span>
+            </div>
           </div>
         </div>
       </details>
