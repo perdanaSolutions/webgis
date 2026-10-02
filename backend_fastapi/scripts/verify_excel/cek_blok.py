@@ -61,7 +61,6 @@ rows = [
     ("luas", luas, pt["luas"]), ("ton", round(ta / 1000, 2), pt["ton"]), ("ton_ha", round(ta / 1000 / luas, 2), pt["ton_ha"]),
     ("ton_ha_budget", round(tb / 1000 / luas, 2), pt["ton_ha_budget"]), ("ton_ha_sensus", round(ts / 1000 / luas, 2), pt["ton_ha_sensus"]),
     ("kg_pkk", round(ta / trees, 2), pt["kpi_per_pokok"]["kg_pkk"]), ("jjg_pkk", round(int(ja) / trees, 2), pt["kpi_per_pokok"]["jjg_pkk"]),
-    ("pct_achievement", round(ta / tb * 100, 2), pt["tbs"]["pct_achievement"]),
 ]
 print(f"\n{'field':18s}{'Excel':>18s}{'API':>18s}  status")
 bad = 0

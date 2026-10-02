@@ -92,7 +92,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     """
     Analisis (tanpa menyimpan) file batas blok. Selain angka ringkas, dilaporkan juga
     rinciannya supaya pengunggah tahu fitur mana yang bermasalah dan apa akibatnya.
-    Nomor fitur (`fitur_index`) dimulai dari 0, sama dengan urutan tabel atribut di QGIS.
+    Nomor fitur (`no_preview`) dimulai dari 1, sama dengan nomor baris di tabel preview FE.
     """
     period = to_period(bulan, tahun)
     label = period_label(period)
@@ -110,10 +110,10 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         props = feature.get("properties") or {}
         item = _read_feature(props, feature.get("geometry"))
         if item is None:
-            invalid_rows.append({"fitur_index": i, "atribut_kosong": _missing_attributes(props)})
+            invalid_rows.append({"no_preview": i + 1, "atribut_kosong": _missing_attributes(props)})
             continue
         if item.geom is None:
-            invalid_geom_rows.append({"fitur_index": i, "blok": _block_label(item)})
+            invalid_geom_rows.append({"no_preview": i + 1, "blok": _block_label(item)})
             continue
         areas.add(norm_key(item.area))
         companies.add(norm_key(item.company))
@@ -224,14 +224,14 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
             "fitur_tidak_valid": invalid_rows[:DETAIL_LIMIT],
             "fitur_geometri_invalid": invalid_geom_rows[:DETAIL_LIMIT],
             "blok_terpecah": [
-                {"blok": _block_label(b["item"]), "jumlah_fitur": len(b["fitur"]), "fitur_index": b["fitur"],
-                 "fitur_yang_tersimpan": b["fitur"][-1]}
+                {"blok": _block_label(b["item"]), "jumlah_fitur": len(b["fitur"]), "no_preview": [n + 1 for n in b["fitur"]],
+                 "fitur_yang_tersimpan": b["fitur"][-1] + 1}
                 for b in split[:DETAIL_LIMIT]
             ],
             "blok_akan_ditimpa": [_block_label(b["item"]) for b in overwritten[:DETAIL_LIMIT]],
             "blok_baru_di_master": [_block_label(b["item"]) for b in new_master[:DETAIL_LIMIT]],
             "catatan": f"Tiap daftar dibatasi {DETAIL_LIMIT} baris; jumlah lengkapnya ada di 'peringatan'. "
-                       "fitur_index dimulai dari 0 (urutan fitur di file / tabel atribut QGIS).",
+                       "no_preview dimulai dari 1 (nomor baris di tabel preview FE).",
         },
     }
 

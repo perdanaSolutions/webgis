@@ -453,7 +453,7 @@ def _prepare(db: Session, layer: dict, content: bytes) -> dict:
             if row["objectid"] in by_objectid:
                 stats["duplicates"] += 1
                 report.reject(by_objectid[row["objectid"]][0], "OBJECTID_GANDA",
-                              f"OBJECTID {row['objectid']} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+                              f"OBJECTID {row['objectid']} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
             by_objectid[row["objectid"]] = (i, row)
         else:
             rows.append(row)

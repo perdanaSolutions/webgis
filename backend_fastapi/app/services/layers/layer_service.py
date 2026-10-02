@@ -133,7 +133,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
             if objectid in by_objectid:
                 result.duplicates += 1
                 report.reject(by_objectid[objectid][0], "OBJECTID_GANDA",
-                              f"OBJECTID {objectid} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+                              f"OBJECTID {objectid} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
             by_objectid[objectid] = (i, row)
         else:
             result.rows.append(row)

@@ -2,7 +2,7 @@
 Laporan analisis upload GeoJSON yang bisa dipahami pengunggah: status, kesimpulan,
 peringatan (apa masalahnya + saran), dan rincian (fitur mana yang ditolak & kenapa).
 
-Nomor fitur (`fitur_index`) dimulai dari 0 = urutan fitur di file / tabel atribut QGIS.
+Nomor fitur (`no_preview`) dimulai dari 1 = nomor baris di tabel preview FE.
 """
 from collections import Counter
 from collections.abc import Iterable
@@ -51,7 +51,7 @@ class UploadReport:
     rejected: list[dict] = field(default_factory=list)
 
     def reject(self, index: int, code: str, reason: str) -> None:
-        self.rejected.append({"fitur_index": index, "kode": code, "alasan": reason})
+        self.rejected.append({"no_preview": index + 1, "kode": code, "alasan": reason})
 
     def counts(self) -> Counter:
         return Counter(r["kode"] for r in self.rejected)
@@ -152,8 +152,8 @@ def build(
         "peringatan": warnings,
         "rincian": {
             "per_estate": estate_summary(db, block_ids or []),
-            "fitur_ditolak": sorted(report.rejected, key=lambda r: r["fitur_index"])[:DETAIL_LIMIT],
+            "fitur_ditolak": sorted(report.rejected, key=lambda r: r["no_preview"])[:DETAIL_LIMIT],
             "catatan": f"Daftar fitur_ditolak dibatasi {DETAIL_LIMIT} baris; jumlah lengkapnya ada di 'peringatan'. "
-                       "fitur_index dimulai dari 0 (urutan fitur di file / tabel atribut QGIS).",
+                       "no_preview dimulai dari 1 (nomor baris di tabel preview FE).",
         },
     }

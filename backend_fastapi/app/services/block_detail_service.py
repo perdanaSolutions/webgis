@@ -152,12 +152,6 @@ def get_block_detail(
     tbs_act, tbs_bgt = num(prod.get("tbs_aktual")), num(prod.get("tbs_budget"))
     jjg_act = whole(prod.get("jjg_aktual"))
     trees = whole(master["tree_count"])
-    if tbs_bgt > 0:
-        achievement = round(tbs_act / tbs_bgt * 100, 2)
-        category = "HIGH YIELD" if achievement >= 100 else "MEDIUM YIELD" if achievement >= 85 else "LOW YIELD"
-    else:
-        achievement, category = 0.0, "NO TARGET"
-
     # Yield & varians: rumus dan kunci sama dengan GET /history (dihitung dari data DB).
     luas = num(master["planted_area_ha"])
 
@@ -211,7 +205,7 @@ def get_block_detail(
             **varians,
             "tbs": {
                 "aktual": tbs_act, "budget": tbs_bgt, "sensus": num(prod.get("tbs_sensus")),
-                "gap": round(tbs_act - tbs_bgt, 2), "pct_achievement": achievement, "kategori_yield": category,
+                "gap": round(tbs_act - tbs_bgt, 2),
             },
             "janjang": {"aktual": jjg_act, "budget": whole(prod.get("jjg_budget")), "sensus": whole(prod.get("jjg_sensus"))},
             "bjr": {

@@ -97,7 +97,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool) -> PreparedSawit:
         if row["objectid"] in result.rows:
             result.duplicates += 1
             report.reject(indexes[row["objectid"]], "OBJECTID_GANDA",
-                          f"OBJECTID {row['objectid']} juga dipakai fitur #{i}; fitur #{i} yang dipakai.")
+                          f"OBJECTID {row['objectid']} juga dipakai fitur #{i + 1}; fitur #{i + 1} yang dipakai.")
         result.rows[row["objectid"]] = row
         indexes[row["objectid"]] = i
     result.new_categories = categories.created

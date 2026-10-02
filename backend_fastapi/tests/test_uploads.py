@@ -48,13 +48,13 @@ def test_block_geometry_upload(client, auth, sample_block, block_geometry):
     assert analyze["total_fitur"] == 2 and analyze["data_tidak_valid"] == 1
     assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN" and analyze["jumlah_blok_akan_disimpan"] == 1
     assert analyze["rincian"]["fitur_tidak_valid"] == [
-        {"fitur_index": 1, "atribut_kosong": ["Estate (Est_ID/EstID/Est/Estate)", "Afdeling"]}]
+        {"no_preview": 2, "atribut_kosong": ["Estate (Est_ID/EstID/Est/Estate)", "Afdeling"]}]
 
     # Blok yang sama di dua fitur dilaporkan sebagai blok terpecah, dihitung sekali sebagai blok.
     feature = {"type": "Feature", "properties": _props(sample_block), "geometry": block_geometry["polygon"]}
     split = _upload(client, auth, "/blok-geometry/upload-analyze", _fc(feature, feature)).json()
     assert split["jumlah_blok_akan_disimpan"] == 1 and split["blok_terpecah"] == 1
-    assert split["rincian"]["blok_terpecah"][0]["fitur_index"] == [0, 1]
+    assert split["rincian"]["blok_terpecah"][0]["no_preview"] == [1, 2]
     assert any(w["kode"] == "BLOK_TERPECAH" for w in split["peringatan"])
 
     result = _upload(client, auth, "/blok-geometry/upload-execute", content).json()["data"]
@@ -107,8 +107,8 @@ def test_layer_analyze_reports_rejected_features(client, auth, sample_block, blo
     analyze = _upload(client, auth, "/jembatan/upload-analyze", content).json()["data"]
     assert analyze["status_analisis"] == "SIAP_DENGAN_CATATAN"
     assert analyze["jembatan_siap_diunggah"] == 1
-    rejected = {r["fitur_index"]: r["kode"] for r in analyze["rincian"]["fitur_ditolak"]}
-    assert rejected == {0: "OBJECTID_GANDA", 1: "ATRIBUT_BLOK_KOSONG", 2: "GEOMETRI_TIDAK_VALID"}
+    rejected = {r["no_preview"]: r["kode"] for r in analyze["rincian"]["fitur_ditolak"]}
+    assert rejected == {1: "OBJECTID_GANDA", 2: "ATRIBUT_BLOK_KOSONG", 3: "GEOMETRI_TIDAK_VALID"}
     assert {w["kode"] for w in analyze["peringatan"]} >= {"OBJECTID_GANDA", "ATRIBUT_BLOK_KOSONG", "GEOMETRI_TIDAK_VALID"}
     assert "3 fitur ditolak" in analyze["kesimpulan"]
 
@@ -274,7 +274,7 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth,
                         params={"blok_id": sample_block["id"], "bulan": BULAN, "tahun": TAHUN}).json()
     assert detail["produksi_tbs"]["tbs"]["aktual"] == 12000
-    assert detail["produksi_tbs"]["tbs"]["kategori_yield"] == "HIGH YIELD"
+    assert detail["produksi_tbs"]["kategori_budget"] == "OPTIMUM"  # aktual 12000 >= budget 10000 (gap > 0%)
     assert detail["areal_statement"]["grand_total"]["total_pokok"] == 3500
     assert detail["rotasi_pusingan"]["total_kegiatan"] == 1
 
