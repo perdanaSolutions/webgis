@@ -215,8 +215,14 @@ const executeView = computed(() => {
   );
 
   const tone = statusProses === "FAILED" ? "error" : statusProses === "PARTIAL_SUCCESS" ? "warning" : "success";
+  const title = tone === "error"
+    ? "Submit analisis gagal"
+    : tone === "warning"
+      ? "Submit analisis selesai sebagian"
+      : "Submit analisis berhasil";
   return {
     tone,
+    title,
     message,
     statusProses,
     total: totalEntry?.[1] ?? null,
@@ -451,8 +457,7 @@ const executeFinished = computed(
             :class="executeView.tone === 'error' ? 'border-error bg-error-light' : executeView.tone === 'warning' ? 'border-default bg-warning-light' : 'border-default bg-success-light'">
             <p class="font-bold"
               :class="executeView.tone === 'error' ? 'text-error-dark' : executeView.tone === 'warning' ? 'text-warning' : 'text-success'">
-              {{ executeView.tone === 'error' ? 'Submit analisis gagal' : executeView.tone === 'warning' ? 'Submit
-              analisis selesai sebagian' : 'Submit analisis berhasil' }}
+              {{ executeView.title }}
             </p>
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
