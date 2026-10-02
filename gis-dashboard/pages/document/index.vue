@@ -145,6 +145,7 @@ const actionSubmit = async () => {
 function onCancelPreview() {
   documentUploadStore.cancelPreview();
   currentPage.value = 1;
+  searchQuery.value = "";
   if (fileInputRef.value) {
     fileInputRef.value.value = "";
   }
@@ -167,6 +168,60 @@ const hasNoValidData = computed(() => analysis.value.status_analisis === "TIDAK_
 // Jumlah data lama di periode itu yang akan diganti (nama field berbeda per jenis upload).
 const replaceCount = computed(() =>
   Number(analysis.value.data_periode_ini_akan_diganti ?? analysis.value.data_akan_ditimpa_di_periode_ini ?? 0),
+);
+
+function humanizeLabel(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatDetailValue(value: unknown) {
+  if (typeof value === "number") return value.toLocaleString("id-ID");
+  if (typeof value === "boolean") return value ? "Ya" : "Tidak";
+  if (value == null || value === "") return "-";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+const executeView = computed(() => {
+  const response = documentUploadStore.executeResponse;
+  if (!response) return null;
+
+  const body = (response.data ?? response.detail ?? response) as Record<string, any>;
+  const statusProses = String(body?.status_proses ?? "");
+  const apiMessage = typeof response.message === "string" ? response.message.trim() : "";
+  let message = apiMessage;
+  if (!message) {
+    if (statusProses === "SUCCESS") message = "Submit analisis berhasil diproses.";
+    else if (statusProses === "PARTIAL_SUCCESS") message = "Submit analisis selesai. Sebagian data tidak tersimpan.";
+    else if (statusProses === "FAILED") message = "Submit analisis gagal. Tidak ada data yang tersimpan.";
+    else message = "Submit analisis selesai.";
+  }
+
+  const detailSource = body?.detail_status;
+  const detail = detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
+    ? Object.entries(detailSource as Record<string, unknown>).map(([key, value]) => ({
+      key,
+      label: humanizeLabel(key),
+      value: formatDetailValue(value),
+    }))
+    : [];
+
+  const totalEntry = Object.entries(body ?? {}).find(
+    ([key, value]) => key.startsWith("total_fitur") && typeof value === "number",
+  );
+
+  const tone = statusProses === "FAILED" ? "error" : statusProses === "PARTIAL_SUCCESS" ? "warning" : "success";
+  return {
+    tone,
+    message,
+    statusProses,
+    total: totalEntry?.[1] ?? null,
+    detail,
+  };
+});
+
+const executeFinished = computed(
+  () => Boolean(documentUploadStore.executeResponse) || Boolean(documentUploadStore.executeError),
 );
 
 </script>
@@ -363,7 +418,7 @@ const replaceCount = computed(() =>
             </button>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="isBusy" @click="onSubmitUpload">
-              {{ documentUploadStore.isUploading ? "Uploading..." : "Submit" }}
+              {{ documentUploadStore.isUploading ? "Menganalisa..." : "Submit Analisa" }}
             </button>
           </div>
         </section>
@@ -375,7 +430,7 @@ const replaceCount = computed(() =>
             <UploadAnalysisResult :analysis="analysis" />
           </div>
 
-          <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-4 flex justify-end gap-2">
+          <div v-if="executeView?.tone !== 'success'" class="mt-4 flex justify-end gap-2">
             <button type="button"
               class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
@@ -383,7 +438,40 @@ const replaceCount = computed(() =>
             </button>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="isBusy || hasNoValidData" @click="onSubmitUpload">
-              {{ documentUploadStore.isUploading ? "Uploading..." : "Submit Analisis" }}
+              {{ documentUploadStore.isUploading ? "Menyimpan..." : "Submit Analisis" }}
+            </button>
+          </div>
+
+          <div v-if="executeView" class="rounded-2xl border p-4"
+            :class="executeView.tone === 'error' ? 'border-error bg-error-light' : executeView.tone === 'warning' ? 'border-default bg-warning-light' : 'border-default bg-success-light'">
+            <p class="font-bold"
+              :class="executeView.tone === 'error' ? 'text-error-dark' : executeView.tone === 'warning' ? 'text-warning' : 'text-success'">
+              {{ executeView.tone === 'error' ? 'Submit analisis gagal' : executeView.tone === 'warning' ? 'Submit analisis selesai sebagian' : 'Submit analisis berhasil' }}
+            </p>
+            <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
+            <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
+              Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
+              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} fitur diproses</span>
+            </p>
+            <div v-if="executeView.detail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div v-for="row in executeView.detail" :key="row.key"
+                class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface px-3 py-2">
+                <span class="text-size-sm text-label">{{ row.label }}</span>
+                <span class="text-size-sm font-bold text-content-brown">{{ row.value }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="documentUploadStore.executeError"
+            class="rounded-2xl border border-error bg-error-light px-4 py-3 text-error">
+            {{ documentUploadStore.executeError }}
+          </div>
+
+          <div v-if="executeFinished" class="flex justify-end">
+            <button type="button"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand disabled:opacity-50"
+              :disabled="isBusy" @click="onCancelPreview">
+              Hapus Analisa File
             </button>
           </div>
 

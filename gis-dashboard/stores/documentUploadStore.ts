@@ -59,6 +59,18 @@ function getApiBaseUrl() {
   return config.public.apiBaseUrlPython || "/api";
 }
 
+function readUploadError(error: unknown, fallback: string) {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (data) {
+    try {
+      return getErrorMessage(error, fallback);
+    } catch {
+      return fallback;
+    }
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export const useDocumentUploadStore = defineStore("document-upload", {
   state: () => ({
     categories: [] as UploadCategory[],
@@ -72,6 +84,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     errorMessage: "" as string,
     successMessage: "" as string,
     summaryAnalyze: {} as Record<string, any>,
+    executeResponse: null as Record<string, any> | null,
+    executeError: "" as string,
     isParsing: false,
     isUploading: false,
     uploadProgress: 0,
@@ -91,6 +105,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.errorMessage = "";
       this.successMessage = "";
       this.summaryAnalyze = {};
+      this.executeResponse = null;
+      this.executeError = "";
     },
 
     resetSelection() {
@@ -202,8 +218,14 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     },
 
     async submitUpload() {
-      if (Object.keys(this.summaryAnalyze).length === 0) {
+      const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
+      if (isAnalyze) {
         this.resetMessages();
+      } else {
+        this.executeResponse = null;
+        this.executeError = "";
+        this.errorMessage = "";
+        this.successMessage = "";
       }
 
       const { $api } = useNuxtApp();
@@ -223,63 +245,58 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         return;
       }
 
-      // const apiBaseUrl = getApiBaseUrl();
-      // console.log("Selected Category :", this.selectedCategory);
-      // console.log("base url :", apiBaseUrl);
-
-      var dataFindOneCategory = this.categories.find(
+      const dataFindOneCategory = this.categories.find(
         (category) => category.value === this.selectedCategory,
       );
 
-      // console.log(
-      //   `Data Find One Category : ${JSON.stringify(dataFindOneCategory)}`,
-      // );
-      if (dataFindOneCategory) {
-        // Data DITEMUKAN
-        this.isUploading = true;
-        this.uploadProgress = 15;
+      if (!dataFindOneCategory) {
+        this.errorMessage = "Kategori data tidak ditemukan.";
+        return;
+      }
 
-        try {
-          const apiBaseUrl = getApiBaseUrl();
-          const formData = new FormData();
+      const action = isAnalyze
+        ? dataFindOneCategory.endpoints.upload_analyze
+        : dataFindOneCategory.endpoints.upload_execute;
 
-          const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
-          const action = isAnalyze
-            ? (dataFindOneCategory.endpoints.upload_analyze ?? "/")
-            : (dataFindOneCategory.endpoints.upload_execute ?? "/");
-          const urlUploadByCategory = `/v1/spatial${action}`;
+      if (!action) {
+        const message = isAnalyze
+          ? "Endpoint analisis tidak tersedia pada kategori ini."
+          : "Endpoint submit analisis tidak tersedia pada kategori ini.";
+        if (isAnalyze) this.errorMessage = message;
+        else this.executeError = message;
+        return;
+      }
 
-          formData.append("file", this.selectedFile);
-          // formData.append("feature_count", String(this.featureCount));
+      this.isUploading = true;
+      this.uploadProgress = 15;
 
-          this.uploadProgress = 45;
+      try {
+        const apiBaseUrl = getApiBaseUrl();
+        const formData = new FormData();
+        formData.append("file", this.selectedFile);
+        this.uploadProgress = 45;
 
-          var response = await $api(
-            `${apiBaseUrl}${urlUploadByCategory}?bulan=${this.month}&tahun=${this.year}`,
-            {
-              method: "POST",
-              body: formData,
-            },
-          );
+        const response = await $api<Record<string, any>>(
+          `${apiBaseUrl}/v1/spatial${action}?bulan=${this.month}&tahun=${this.year}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
 
-          this.uploadProgress = 100;
-          if (Object.keys(this.summaryAnalyze).length > 0) {
-            this.successMessage = "Upload GeoJSON berhasil diproses.";
-            this.summaryAnalyze = {};
-            this.selectedFile = null;
-            this.parsedGeoJson = null;
-            this.selectedCategory = "";
-            this.month = "";
-            this.year = "";
-          } else {
-            this.summaryAnalyze = response as any;
-          }
-        } catch (error) {
-          this.errorMessage =
-            error instanceof Error ? error.message : "Upload GeoJSON gagal.";
-        } finally {
-          this.isUploading = false;
+        this.uploadProgress = 100;
+        if (isAnalyze) {
+          this.summaryAnalyze = response ?? {};
+        } else {
+          this.executeResponse = response ?? {};
         }
+      } catch (error) {
+        const fallback = isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.";
+        const message = readUploadError(error, fallback);
+        if (isAnalyze) this.errorMessage = message;
+        else this.executeError = message;
+      } finally {
+        this.isUploading = false;
       }
     },
   },
