@@ -152,10 +152,17 @@ def block_item(r: dict) -> dict:
     }
 
 
-def list_blocks(db: Session, search: str | None, flt: BlockFilter, as_of: date | None, page: int, limit: int) -> dict:
+def list_blocks(
+    db: Session, search: str | None, flt: BlockFilter, as_of: date | None, page: int, limit: int,
+    tahun_tanam: int | None = None,
+) -> dict:
     joins, where_sql, params = flt.sql()
     clauses = [where_sql.removeprefix("WHERE ")] if where_sql else []
     _search_clause(["bl.code"], search, clauses, params)
+    if tahun_tanam is not None:
+        # Cocokkan dengan statement yang ditampilkan (as_of), sama dengan kolom tahun_tanam di hasil.
+        clauses.append("st.planting_year = :f_tahun_tanam")
+        params["f_tahun_tanam"] = tahun_tanam
     if as_of:
         params["as_of"] = as_of
     sql = f"""
