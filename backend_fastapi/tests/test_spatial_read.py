@@ -25,6 +25,52 @@ def test_block_list_accepts_empty_params(client, auth, sample_block):
     assert block["kode_blok"] == sample_block["code"]
 
 
+def test_block_list_filters_by_tahun_tanam(client, auth, sample_block):
+    base = {"kode_est": sample_block["estate"], "kode_afd": sample_block["division"], "limit": 100}
+    all_blocks = client.get("/api/v1/spatial/blok", headers=auth, params=base).json()["data"]
+    years = {b["tahun_tanam"] for b in all_blocks if b.get("tahun_tanam")}
+    assert years, "Sampel tidak punya blok dengan tahun tanam"
+
+    year = sorted(years)[0]
+    response = client.get("/api/v1/spatial/blok", headers=auth, params={**base, "tahun_tanam": year})
+    assert response.status_code == 200, response.text
+    filtered = response.json()["data"]
+    assert filtered and all(b["tahun_tanam"] == year for b in filtered)
+    assert len(filtered) == sum(1 for b in all_blocks if b["tahun_tanam"] == year)
+
+    empty = client.get("/api/v1/spatial/blok", headers=auth, params={**base, "tahun_tanam": 1901}).json()
+    assert empty["data"] == []
+
+
+def test_block_list_tahun_tanam_with_periode(client, auth, sample_block):
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        periods = [r[0] for r in conn.execute(text(
+            "SELECT DISTINCT period FROM trx.area_statements WHERE block_id = :b ORDER BY period"
+        ), {"b": sample_block["id"]})]
+    period = periods[-1]  # periode terakhir statement sampel; periode lebih awal bila ada
+    base = {"kode_est": sample_block["estate"], "kode_afd": sample_block["division"], "limit": 100,
+            "bulan": period.month, "tahun": period.year}
+
+    all_blocks = client.get("/api/v1/spatial/blok", headers=auth, params=base).json()["data"]
+    years = {b["tahun_tanam"] for b in all_blocks if b.get("tahun_tanam")}
+    assert years
+    year = sorted(years)[0]
+
+    response = client.get("/api/v1/spatial/blok", headers=auth, params={**base, "tahun_tanam": year})
+    assert response.status_code == 200, response.text
+    filtered = response.json()["data"]
+    assert filtered and all(b["tahun_tanam"] == year for b in filtered)
+    assert len(filtered) == sum(1 for b in all_blocks if b["tahun_tanam"] == year)
+
+    # bulan+tahun sebelum statement pertama: tidak ada snapshot, jadi tidak ada blok yang cocok
+    early = client.get("/api/v1/spatial/blok", headers=auth,
+                       params={**base, "bulan": 1, "tahun": 1900, "tahun_tanam": year}).json()
+    assert early["data"] == []
+
+
 def test_blocks_geojson(client, auth, sample_block):
     fc = client.get("/api/v1/spatial/geojson", headers=auth,
                     params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"])}).json()
@@ -110,3 +156,30 @@ def test_catalog(client, auth):
             path = "/api/v1/spatial" + item["endpoints"][key]
             path = path.replace(f"/geo/{item['kode']}/", "/geo/{kode}/")
             assert path in paths, f"{item['kode']}.{key} -> {path} tidak ada"
+
+
+def test_sawit_list_filters_by_tahun_tanam(client, auth):
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        period = conn.execute(text("SELECT max(period) FROM spatial.tree_censuses")).scalar()
+        years = [r[0] for r in conn.execute(text("""
+            SELECT DISTINCT a.planting_year FROM spatial.tree_censuses tc
+            JOIN trx.area_statements a ON a.block_id = tc.block_id
+            WHERE tc.period = :p AND a.planting_year IS NOT NULL ORDER BY 1
+        """), {"p": period})]
+    assert period and years, "Sampel tidak punya sensus sawit"
+    base = {"bulan": period.month, "tahun": period.year}
+
+    total = client.get("/api/v1/spatial/sawit/list", headers=auth, params=base).json()["total_records"]
+    per_year = {}
+    for year in years:
+        response = client.get("/api/v1/spatial/sawit/list", headers=auth, params={**base, "tahun_tanam": year})
+        assert response.status_code == 200, response.text
+        per_year[year] = response.json()["total_records"]
+    assert 0 < sum(per_year.values()) <= total
+    assert max(per_year.values()) < total or len(years) == 1
+
+    empty = client.get("/api/v1/spatial/sawit/list", headers=auth, params={**base, "tahun_tanam": 1901}).json()
+    assert empty["total_records"] == 0

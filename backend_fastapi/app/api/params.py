@@ -11,6 +11,7 @@ Page = Annotated[int, Query(ge=1)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Bulan = Annotated[int | None, Query(ge=1, le=12, description="Bulan (1-12)")]
 Tahun = Annotated[int | None, Query(ge=1900, le=2100, description="Tahun")]
+TahunTanam = Annotated[int | None, Query(ge=0, le=2100, description="Tahun tanam. Kosong = semua")]
 UploadedFile = Annotated[UploadFile, File(description="File yang diunggah")]
 BulanWajib = Annotated[int, Query(ge=1, le=12, description="Bulan periode (1-12)")]
 TahunWajib = Annotated[int, Query(ge=1900, le=2100, description="Tahun periode")]
@@ -23,7 +24,7 @@ def block_filter(
     kode_afd: Annotated[str | None, Query(description="Kode/ID afdeling")] = None,
     kode_blok: Annotated[str | None, Query(description="ID blok (numerik), kode blok, atau ID blok lama v2")] = None,
     ownership: Annotated[str | None, Query(description="Tipe blok / kepemilikan. Kosong = semua")] = None,
-    tahun_tanam: Annotated[int | None, Query(ge=0, le=2100, description="Tahun tanam. Kosong = semua")] = None,
+    tahun_tanam: TahunTanam = None,
 ) -> BlockFilter:
     return BlockFilter(
         area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,

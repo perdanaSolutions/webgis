@@ -102,6 +102,7 @@ def get_blok_list(
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
+    tahun_tanam: Optional[int] = Query(None, ge=1900, le=2100, description="Filter tahun tanam blok"),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
     page: int = Query(1, ge=1),
@@ -111,7 +112,7 @@ def get_blok_list(
 ):
     flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
     user_access.apply_data_scope(db, current_user, flt)
-    return hierarchy_service.list_blocks(db, search, flt, as_of_period(bulan, tahun), page, limit)
+    return hierarchy_service.list_blocks(db, search, flt, as_of_period(bulan, tahun), page, limit, tahun_tanam)
 
 
 @router.get("/geojson")
