@@ -4,10 +4,9 @@ dan tabel transaksi (auth.permissions dengan resource = '<schema>.<tabel>', acti
 
 Scope data di v3 menunjuk tepat SATU node hierarki (area / company / estate /
 division) lewat id. FE lama bekerja dengan kode (kode_area, kode_pt, kode_est,
-kode_afd), jadi scope diekspansi ke kode lewat master.v_block_hierarchy.
-Area tidak ada di hierarki master -- area sebuah company/estate/division
-diambil dari area statement terbaru blok-bloknya, sehingga satu scope bisa
-menghasilkan >1 baris kalau wilayahnya tersebar di beberapa area.
+kode_afd). Area sebuah company/estate/division diambil dari area statement
+terbaru blok di scope itu saja, supaya login dan /auth/me tidak memindai
+semua blok lewat master.v_block_hierarchy.
 """
 import json
 from collections import OrderedDict
@@ -24,12 +23,36 @@ TRANSACTION_SCHEMAS = ("trx", "spatial")
 NON_TRANSACTION_TABLES = {"spatial.layer_types", "spatial.palm_trees"}
 
 _SCOPE_EXPANSION_SQL = """
-WITH h AS (
-    SELECT DISTINCT area_id, area_code, company_id, estate_id, division_id
-    FROM master.v_block_hierarchy
-),
-s AS (
+WITH s AS (
     SELECT * FROM auth.role_data_scopes WHERE role_id = ANY(CAST(:role_ids AS uuid[]))
+),
+scoped_blocks AS MATERIALIZED (
+    SELECT bl.id AS block_id,
+           dv.id AS division_id,
+           es.id AS estate_id,
+           co.id AS company_id
+    FROM master.blocks bl
+    JOIN master.divisions dv ON dv.id = bl.division_id
+    JOIN master.estates es ON es.id = dv.estate_id
+    JOIN master.companies co ON co.id = es.company_id
+    WHERE EXISTS (
+        SELECT 1
+        FROM s
+        WHERE s.company_id = co.id
+           OR s.estate_id = es.id
+           OR s.division_id = dv.id
+    )
+),
+h AS (
+    SELECT DISTINCT la.area_id, sb.company_id, sb.estate_id, sb.division_id
+    FROM scoped_blocks sb
+    LEFT JOIN LATERAL (
+        SELECT a.area_id
+        FROM trx.area_statements a
+        WHERE a.block_id = sb.block_id
+        ORDER BY a.period DESC
+        LIMIT 1
+    ) la ON true
 )
 SELECT s.id, s.role_id, s.created_at, 'area' AS level,
        ar.code AS area_code, ar.name AS area_name,

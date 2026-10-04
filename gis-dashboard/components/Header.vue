@@ -8,8 +8,10 @@ const authStore = useAuthStore()
 const dashboardService = dashboardStore()
 
 onMounted(async () => {
-  if (!authStore.token) {
-    await navigateTo('/login')
+  const session = await authStore.ensureSession()
+  if (!session) {
+    window.location.replace('/login')
+    return
   }
   if (!dashboardService.moduleItems.length) {
     dashboardService.initDataMenu()

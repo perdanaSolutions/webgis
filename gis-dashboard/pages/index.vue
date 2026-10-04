@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
+import { isAccessTokenExpired } from '~/utils/authSession'
 
 defineOptions({
   name: 'IndexPage',
 })
 
-const authStore = useAuthStore()
-
-onMounted(async () => {
-  const me = await authStore.validateToken()
-  if (me) {
-    await navigateTo('/dashboard')
-  }
+definePageMeta({
+  middleware: [
+    function () {
+      const authStore = useAuthStore()
+      if (!authStore.token || isAccessTokenExpired(authStore.token)) {
+        authStore.clearAuthData()
+        return navigateTo('/login', { replace: true })
+      }
+      return navigateTo('/dashboard')
+    },
+  ],
 })
 </script>
 
@@ -38,9 +42,9 @@ onMounted(async () => {
           class="relative z-10 h-[4.5rem] w-auto object-contain">
       </div>
 
-      <h1 class="text-size-xl font-bold tracking-tight text-content-dark sm:text-size-2xl">
+      <!-- <h1 class="text-size-xl font-bold tracking-tight text-content-dark sm:text-size-2xl">
         GIS PWA
-      </h1>
+      </h1> -->
       <p class="mt-2 text-size-sm text-muted-ios">
         Memverifikasi sesi Anda
       </p>

@@ -88,7 +88,13 @@ def _uuid_role_ids(user) -> list[UUID]:
     return result
 
 
+_table_locations: dict[str, list[str]] | None = None
+
+
 def _locate(db: Session) -> dict[str, list[str]]:
+    global _table_locations
+    if _table_locations is not None:
+        return _table_locations
     rows = db.execute(
         text(
             """
@@ -110,6 +116,7 @@ def _locate(db: Session) -> dict[str, list[str]]:
         bucket = found.setdefault(name, [])
         if qualified not in bucket:
             bucket.append(qualified)
+    _table_locations = found
     return found
 
 

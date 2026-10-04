@@ -18,6 +18,7 @@ import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import { BASEMAPS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { isAccessTokenExpired } from "~/utils/authSession";
 
 defineOptions({ name: "BlokProfilePage" });
 
@@ -171,12 +172,15 @@ onMounted(async () => {
     if (saved && BASEMAPS.some((b) => b.key === saved)) basemap.value = saved;
   } catch { /* abaikan */ }
 
-  if (!authStore.token) {
-    await navigateTo("/login");
+  if (!authStore.token || isAccessTokenExpired(authStore.token)) {
+    window.location.replace("/login");
     return;
   }
-  const session = await authStore.validateToken();
-  if (!session) return;
+  const session = await authStore.ensureSession();
+  if (!session) {
+    window.location.replace("/login");
+    return;
+  }
   if (!dashboardService.moduleItems.length) void dashboardService.initDataMenu();
   await Promise.all([store.init(), overlays.loadCatalog()]);
 });
