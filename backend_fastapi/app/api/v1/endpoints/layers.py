@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
-from app.api.params import BlockFilterDep, Bulan, BulanWajib, Tahun, TahunWajib, UploadedFile, read_upload
+from app.api.params import BlockFilterDep, Bulan, BulanWajib, Tahun, TahunTanam, TahunWajib, UploadedFile, read_upload
 from app.services import user_access
 from app.services.layers import layer_service, sawit_service
 from app.services.layers.specs import LAYER_SPECS, SAWIT_LABEL, LayerSpec
@@ -66,9 +66,10 @@ def _sawit_router() -> APIRouter:
         return {"status": "success", "message": f"Proses bulk upload spasial sawit periode {bulan}-{tahun} selesai.",
                 "detail": stats}
 
-    def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
+    def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None,
+                  tahun_tanam: TahunTanam = None):
         user_access.require_layer(db, user, "sawit")
-        return sawit_service.list_rows(db, bulan, tahun, blok_id)
+        return sawit_service.list_rows(db, bulan, tahun, blok_id, tahun_tanam)
 
     def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
         user_access.require_layer(db, user, "sawit")

@@ -218,15 +218,16 @@ def _query(db: Session, flt: BlockFilter, period):
     return db.execute(text(_SELECT.format(joins=joins, where=" AND ".join(clauses))), {**params, "p": period}).mappings()
 
 
-def list_rows(db: Session, bulan: int, tahun: int, blok: str | None) -> dict:
+def list_rows(db: Session, bulan: int, tahun: int, blok: str | None, tahun_tanam: int | None = None) -> dict:
     period = to_period(bulan, tahun)
+    flt = BlockFilter(blok=blok, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam))
     data = [
         {
             "id": r["id"], "blok_id": r["block_id"], "kode_blok": r["kode_blok"], "objectid": r["objectid"],
             "diameter": r["diameter"], "jarak": r["spacing"], "kategori": r["kategori"],
             "geometry": json.loads(r["geometry_json"]) if r["geometry_json"] else None,
         }
-        for r in _query(db, BlockFilter(blok=blok), period)
+        for r in _query(db, flt, period)
     ]
     return {"status": "success", "total_records": len(data), "periode": period_label(period), "data": data}
 

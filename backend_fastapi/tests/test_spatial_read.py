@@ -156,3 +156,30 @@ def test_catalog(client, auth):
             path = "/api/v1/spatial" + item["endpoints"][key]
             path = path.replace(f"/geo/{item['kode']}/", "/geo/{kode}/")
             assert path in paths, f"{item['kode']}.{key} -> {path} tidak ada"
+
+
+def test_sawit_list_filters_by_tahun_tanam(client, auth):
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        period = conn.execute(text("SELECT max(period) FROM spatial.tree_censuses")).scalar()
+        years = [r[0] for r in conn.execute(text("""
+            SELECT DISTINCT a.planting_year FROM spatial.tree_censuses tc
+            JOIN trx.area_statements a ON a.block_id = tc.block_id
+            WHERE tc.period = :p AND a.planting_year IS NOT NULL ORDER BY 1
+        """), {"p": period})]
+    assert period and years, "Sampel tidak punya sensus sawit"
+    base = {"bulan": period.month, "tahun": period.year}
+
+    total = client.get("/api/v1/spatial/sawit/list", headers=auth, params=base).json()["total_records"]
+    per_year = {}
+    for year in years:
+        response = client.get("/api/v1/spatial/sawit/list", headers=auth, params={**base, "tahun_tanam": year})
+        assert response.status_code == 200, response.text
+        per_year[year] = response.json()["total_records"]
+    assert 0 < sum(per_year.values()) <= total
+    assert max(per_year.values()) < total or len(years) == 1
+
+    empty = client.get("/api/v1/spatial/sawit/list", headers=auth, params={**base, "tahun_tanam": 1901}).json()
+    assert empty["total_records"] == 0
