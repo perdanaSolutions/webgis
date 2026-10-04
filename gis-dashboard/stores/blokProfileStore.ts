@@ -20,6 +20,7 @@ import { readBudgetCategory } from "~/utils/mapLayers";
  * - Ownership menyaring blok yang sudah termuat, tanpa fetch GeoJSON.
  * - Tahun tanam memuat ulang semua GeoJSON (batas blok dan layer peta). Nilainya
  *   dikirim sebagai query `tahun`, bukan `tahun_tanam`.
+ * - Opsi dropdown tahun tanam dari GET /spatial/history/tahun-tanam (bukan dari GeoJSON).
  * Keduanya mulai dari string kosong (= semua).
  * Pilihan dibatasi `akses_data` user (superadmin bebas).
  * User biasa tidak punya opsi "semua" pada Area s.d. Blok: tiap level
@@ -157,6 +158,76 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const filterGeneration = ref(0);
   let detailKey = "";
   let detailFlight: { key: string; promise: Promise<Record<string, any>> } | null = null;
+  /** True saat kartu kanan sedang menampilkan blok yang diklik di peta, bukan hasil Filter Kebun. */
+  let mapDrillActive = false;
+
+  const LAST_SEARCH_KEY = "blok-profile-last-search";
+  type SavedSearch = {
+    area: string;
+    pt: string;
+    estate: string;
+    afdeling: string;
+    blokId: string;
+    ownership: string;
+    tahunTanam: string;
+    detail: Record<string, any> | null;
+    production: Record<string, any> | null;
+    areaStatement: AreaStatementHistory | null;
+    rotation: RotationHistory | null;
+  };
+  let memorySearch: SavedSearch | null = null;
+
+  function cloneData<T>(value: T): T {
+    if (value == null) return value;
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  function persistSearch(snapshot: SavedSearch) {
+    memorySearch = snapshot;
+    if (!import.meta.client) return;
+    try {
+      localStorage.setItem(LAST_SEARCH_KEY, JSON.stringify(snapshot));
+    } catch { /* penyimpanan penuh atau mode privat */ }
+  }
+
+  /** Hasil Filter Kebun terakhir: isian filter + data kartu kanan. */
+  function captureSearch() {
+    persistSearch({
+      area: area.value,
+      pt: pt.value,
+      estate: estate.value,
+      afdeling: afdeling.value,
+      blokId: blokId.value,
+      ownership: ownership.value,
+      tahunTanam: tahunTanam.value,
+      detail: cloneData(detail.value),
+      production: cloneData(production.value),
+      areaStatement: cloneData(areaStatement.value),
+      rotation: cloneData(rotation.value),
+    });
+  }
+
+  /** Histori scope yang selesai setelah klik peta tetap masuk ke pencarian tersimpan, bukan ke tampilan blok. */
+  function patchSavedHistories() {
+    if (!mapDrillActive || !memorySearch) return;
+    memorySearch.production = cloneData(production.value);
+    memorySearch.areaStatement = cloneData(areaStatement.value);
+    memorySearch.rotation = cloneData(rotation.value);
+    persistSearch(memorySearch);
+  }
+
+  function readSavedSearch(): SavedSearch | null {
+    if (memorySearch) return memorySearch;
+    if (!import.meta.client) return null;
+    try {
+      const raw = localStorage.getItem(LAST_SEARCH_KEY);
+      if (!raw) return null;
+      memorySearch = JSON.parse(raw) as SavedSearch;
+      return memorySearch;
+    } catch {
+      return null;
+    }
+  }
 
   // ------------------------------------------------------------------ API
   function baseUrl() {
@@ -391,22 +462,35 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     { label: "plasma", value: "plasma" },
   ];
 
-  /** Diisi dari GeoJSON wilayah (tanpa `tahun`), supaya pilihan tidak hilang setelah filter tahun. */
+  /** Diisi dari GET /spatial/history/tahun-tanam sesuai scope wilayah aktif. */
   const tahunTanamCatalog = ref<Option[]>([]);
 
-  function tahunOptionsFrom(features: BlockFeature[]): Option[] {
-    const values = new Set<string>();
-    for (const feature of features) {
-      const raw = feature.properties?.tahun_tanam;
-      if (raw === null || raw === undefined || String(raw).trim() === "") continue;
-      values.add(String(raw));
-    }
-    return [...values]
-      .sort((a, b) => Number(b) - Number(a))
-      .map((value) => ({ label: value, value }));
-  }
-
   const tahunTanamOptions = computed(() => tahunTanamCatalog.value);
+
+  async function loadTahunTanamOptions() {
+    const epoch = filterEpoch;
+    try {
+      const kodeBlok = String(selectedFeature.value?.properties?.kode_blok ?? "").trim();
+      const res = await get<{ data?: Array<number | string> }>("/spatial/history/tahun-tanam", {
+        area_id: area.value || undefined,
+        kode_pt: pt.value || undefined,
+        kode_est: estate.value || undefined,
+        kode_afd: afdeling.value || undefined,
+        blok_id: blokId.value || undefined,
+        kode_blok: kodeBlok || undefined,
+        ownership: ownership.value || undefined,
+      });
+      if (!filterAlive(epoch)) return;
+      const years = Array.isArray(res?.data) ? res.data : [];
+      tahunTanamCatalog.value = years
+        .map((year) => String(year).trim())
+        .filter(Boolean)
+        .map((value) => ({ label: value, value }));
+    } catch {
+      if (!filterAlive(epoch)) return;
+      tahunTanamCatalog.value = [];
+    }
+  }
 
   const blokOptions = computed<Option[]>(() =>
     [...blockFeatures.value]
@@ -435,11 +519,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         .filter((feature) => featureAllowed((feature.properties ?? {}) as Record<string, any>))
         .map((feature) => ({ ...feature, properties: redactProperties((feature.properties ?? {}) as Record<string, any>) }));
       blocks.value = { type: "FeatureCollection", features };
-      if (!tahunTanam.value) tahunTanamCatalog.value = tahunOptionsFrom(features);
     } catch {
       if (seq !== blocksSeq) return;
       blocks.value = { type: "FeatureCollection", features: [] };
-      if (!tahunTanam.value) tahunTanamCatalog.value = [];
       errorMessage.value = "Gagal memuat batas blok.";
     } finally {
       if (seq === blocksSeq) loadingBlocks.value = false;
@@ -522,7 +604,11 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       loading.value = true;
       jobs.push(
         get<T>("/spatial/history", { table, ...params })
-          .then((res) => { if (seq === historySeq) target.value = res; })
+          .then((res) => {
+            if (seq !== historySeq) return;
+            target.value = res;
+            patchSavedHistories();
+          })
           .catch(() => { if (seq === historySeq) target.value = null; })
           .finally(() => { if (seq === historySeq) loading.value = false; }),
       );
@@ -573,11 +659,12 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
    */
   async function focusLoadedScope() {
     const epoch = filterEpoch;
+    mapDrillActive = false;
     blokId.value = "";
     detailSeq += 1;
     detail.value = null;
     detailKey = "";
-    await loadBlocks();
+    await Promise.all([loadBlocks(), loadTahunTanamOptions()]);
     if (!filterAlive(epoch)) return;
     const first = !allowAllScope.value && afdeling.value ? firstOf(blokOptions.value) : "";
     if (first) {
@@ -585,6 +672,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       return;
     }
     await loadHistories();
+    if (!filterAlive(epoch)) return;
+    captureSearch();
   }
 
   async function activateArea(value: string) {
@@ -685,17 +774,23 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   async function setOwnership(value: string) {
     const epoch = filterEpoch;
+    mapDrillActive = false;
     ownership.value = value || "";
     detailKey = "";
     dropHiddenBlock();
     if (!filterAlive(epoch)) return;
+    await loadTahunTanamOptions();
+    if (!filterAlive(epoch)) return;
     if (await ensureBlockForRegularUser()) return;
     if (!filterAlive(epoch)) return;
     await reloadSelectedOrScope();
+    if (!filterAlive(epoch)) return;
+    captureSearch();
   }
 
   async function setTahunTanam(value: string) {
     const epoch = filterEpoch;
+    mapDrillActive = false;
     tahunTanam.value = value || "";
     detailKey = "";
     await loadBlocks();
@@ -704,9 +799,17 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (await ensureBlockForRegularUser()) return;
     if (!filterAlive(epoch)) return;
     await reloadSelectedOrScope();
+    if (!filterAlive(epoch)) return;
+    captureSearch();
   }
 
-  async function selectBlock(value: string) {
+  async function selectBlock(value: string, source: "filter" | "map" = "filter") {
+    if (source === "map") {
+      if (!mapDrillActive) captureSearch();
+      mapDrillActive = true;
+    } else {
+      mapDrillActive = false;
+    }
     if (!value) {
       if (!allowAllScope.value) {
         if (blokId.value) return;
@@ -714,16 +817,46 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         if (!value) return;
       } else {
         await clearBlockSelection();
+        captureSearch();
         return;
       }
     }
     blokId.value = value;
     const period = getCurrentPopupPeriod();
     try {
-      await loadSelectedDetail(value, period.bulan, period.tahun);
+      await Promise.all([
+        loadSelectedDetail(value, period.bulan, period.tahun),
+        loadTahunTanamOptions(),
+      ]);
     } catch {
       detail.value = null;
     }
+    if (source !== "map") captureSearch();
+  }
+
+  /** Tutup popup peta: kembalikan Filter Kebun dan kartu kanan ke pencarian terakhir, tanpa menggeser peta. */
+  function restoreLastSearch() {
+    mapDrillActive = false;
+    const saved = readSavedSearch();
+    detailSeq += 1;
+    detailFlight = null;
+    loadingDetail.value = false;
+    loadingProduction.value = false;
+    loadingAreaStatement.value = false;
+    loadingRotation.value = false;
+    if (!saved) return;
+    area.value = saved.area;
+    pt.value = saved.pt;
+    estate.value = saved.estate;
+    afdeling.value = saved.afdeling;
+    ownership.value = saved.ownership;
+    tahunTanam.value = saved.tahunTanam;
+    blokId.value = saved.blokId;
+    detail.value = saved.detail;
+    detailKey = "";
+    production.value = saved.production;
+    areaStatement.value = saved.areaStatement;
+    rotation.value = saved.rotation;
   }
 
   /** Tutup popup peta. User biasa tetap di blok terpilih; admin boleh lepas ke semua blok. */
@@ -738,7 +871,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     production.value = null;
     areaStatement.value = null;
     rotation.value = null;
-    await loadHistories();
+    await Promise.all([loadHistories(), loadTahunTanamOptions()]);
   }
 
   function clearMap() {
@@ -781,7 +914,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function init() {
     clearMap();
     const epoch = filterEpoch;
-    await loadAreas();
+    await Promise.all([loadAreas(), loadTahunTanamOptions()]);
     if (!filterAlive(epoch) || !areaOptions.value.length) return;
     const explicitArea = scopeRows().some((row) => norm(row.kode_area));
     if (allowAllScope.value || explicitArea) {
@@ -1011,6 +1144,6 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     scopeLevel, scopeLabel, scopeParams, productionYears, productionGapBudget, productionGapSensus, slopeShares, summary,
     canViewProduction, canViewAreaStatement, canViewRotation, allowAllScope,
     filterGeneration,
-    init, reset, resetFilters: clearMap, setArea, setPt, setEstate, setAfdeling, setOwnership, setTahunTanam, selectBlock, loadSelectedDetail, clearBlockSelection, refreshScope,
+    init, reset, resetFilters: clearMap, setArea, setPt, setEstate, setAfdeling, setOwnership, setTahunTanam, selectBlock, loadSelectedDetail, clearBlockSelection, restoreLastSearch, refreshScope,
   };
 });

@@ -9,6 +9,8 @@ export type UserItem = {
   nama_lengkap: string;
   roles: RoleItem[];
   is_active: boolean;
+  /** True jika user punya log di audit.user_activities — tidak boleh dihapus */
+  has_activity?: boolean;
   created_at?: string;
   updated_at?: string;
 };

@@ -129,11 +129,14 @@ const slopeLayerOn = computed(() => layers.value.some((l) => l.code === "slope" 
 // ------------------------------------------------------------------ aksi
 function onSelectBlock(id: string) {
   if (!id || store.blokId === id) return;
-  void store.selectBlock(id);
+  void store.selectBlock(id, "map");
 }
 
 function onDeselectBlock() {
-  void store.clearBlockSelection();
+  const before = store.blokId;
+  mapRef.value?.suppressNextPan();
+  store.restoreLastSearch();
+  if (store.blokId === before) mapRef.value?.releasePanSkip();
 }
 
 function downloadGeoJSON() {

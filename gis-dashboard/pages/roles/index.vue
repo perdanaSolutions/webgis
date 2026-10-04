@@ -471,6 +471,54 @@ const toggleAllMenu = () => {
   }
 };
 
+const getMenuDescendantIds = (menuId) => {
+  const menus = manageRoleStore.allDataMenu ?? [];
+  const ids = [];
+  const walk = (parentId) => {
+    menus.forEach((menu) => {
+      if (String(menu.parent_id ?? "") === String(parentId)) {
+        const childId = String(menu.id);
+        ids.push(childId);
+        walk(childId);
+      }
+    });
+  };
+  walk(menuId);
+  return ids;
+};
+
+const getMenuAncestorIds = (menuId) => {
+  const menus = manageRoleStore.allDataMenu ?? [];
+  const byId = new Map(menus.map((menu) => [String(menu.id), menu]));
+  const ids = [];
+  let current = byId.get(String(menuId));
+
+  while (current?.parent_id) {
+    const parentId = String(current.parent_id);
+    ids.push(parentId);
+    current = byId.get(parentId);
+  }
+
+  return ids;
+};
+
+const toggleMenuPermission = (menuId) => {
+  const id = String(menuId);
+  const selected = new Set(form.menu_ids.map((value) => String(value)));
+  const isSelected = selected.has(id);
+
+  if (isSelected) {
+    selected.delete(id);
+    getMenuDescendantIds(id).forEach((childId) => selected.delete(childId));
+  } else {
+    selected.add(id);
+    getMenuDescendantIds(id).forEach((childId) => selected.add(childId));
+    getMenuAncestorIds(id).forEach((parentId) => selected.add(parentId));
+  }
+
+  form.menu_ids = Array.from(selected);
+};
+
 const getAreaId = (area) =>
   String(area?.area_id ?? area?.kode_area ?? area?.id_area ?? area?.id ?? "");
 
@@ -1471,7 +1519,7 @@ onMounted(async () => {
                   class="flex items-center gap-2 rounded-lg border border-default p-2"
                   :style="{ marginLeft: `${(Number(menu.level || 1) - 1) * 20}px` }">
                   <input :checked="form.menu_ids.map((id) => String(id)).includes(String(menu.id))" type="checkbox" class="h-4 w-4"
-                    @change="togglePermission(menu.id)" />
+                    @change="toggleMenuPermission(menu.id)" />
                   <span>
                     <span v-if="Number(menu.level) > 1" class="text-muted">↳ </span>
                     {{ menu.title }}

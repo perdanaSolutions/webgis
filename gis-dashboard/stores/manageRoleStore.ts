@@ -5,20 +5,27 @@ import type { PermissionItem } from "~/stores/managePermissionStore";
 
 function flattenMenusForAccess(
   items: any[] | null | undefined,
+  parentId: string | null = null,
   parentTitle = "",
 ): MenuAccessItem[] {
   const result: MenuAccessItem[] = [];
   for (const menu of items ?? []) {
+    const id = String(menu?.id ?? "");
     result.push({
-      id: String(menu?.id ?? ""),
+      id,
       title: String(menu?.title ?? ""),
       to: String(menu?.to ?? ""),
       level: Number(menu?.level ?? 1),
+      parent_id: parentId,
       parentTitle,
     });
     if (Array.isArray(menu?.children) && menu.children.length) {
       result.push(
-        ...flattenMenusForAccess(menu.children, String(menu?.title ?? "")),
+        ...flattenMenusForAccess(
+          menu.children,
+          id,
+          String(menu?.title ?? ""),
+        ),
       );
     }
   }
@@ -50,6 +57,7 @@ export type MenuAccessItem = {
   title: string;
   to: string;
   level: number;
+  parent_id: string | null;
   parentTitle: string;
 };
 

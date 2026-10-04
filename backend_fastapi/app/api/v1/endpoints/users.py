@@ -19,7 +19,7 @@ def list_users(db: DbSession, _: CurrentUser, search: str | None = Query(None, d
 
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(user_id: UUID, db: DbSession, _: CurrentUser):
-    return user_service.get_user(db, user_id)
+    return user_service.get_user_response(db, user_id)
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

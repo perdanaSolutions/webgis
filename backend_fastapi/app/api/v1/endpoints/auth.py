@@ -92,7 +92,7 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
                     {
                         "type": "invalid_credentials",
                         "field": "auth",
-                        "msg": "Username, email atau password yang Anda masukkan salah",
+                        "msg": "Email atau Password yang Anda masukkan salah",
                         "input": None
                     }
                 ]

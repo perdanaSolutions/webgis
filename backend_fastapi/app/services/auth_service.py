@@ -35,7 +35,7 @@ def login(db: Session, identifier: str, password: str, ip_address: str | None) -
     if user is None or not security.verify_password(password, user.hashed_password):
         log_activity(db, user_id=user.id if user else None, action="LOGIN", resource="auth", status="FAILED",
                      detail={"identifier": identifier, "reason": "invalid_credentials"}, ip_address=ip_address)
-        raise AppError(status.HTTP_401_UNAUTHORIZED, "Username, email atau password yang Anda masukkan salah",
+        raise AppError(status.HTTP_401_UNAUTHORIZED, "Email atau Password yang Anda masukkan salah",
                        type_="invalid_credentials", field="auth")
     if not user.is_active:
         log_activity(db, user_id=user.id, action="LOGIN", resource="auth", status="FAILED",

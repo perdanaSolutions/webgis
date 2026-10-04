@@ -69,6 +69,8 @@ class UserResponse(BaseModel):
     created_at: datetime
     roles: List[RoleInUser] = []
     role: Optional[RoleInUser] = None
+    # True jika user punya baris di audit.user_activities (tidak boleh dihapus)
+    has_activity: bool = False
 
     class Config:
         from_attributes = True

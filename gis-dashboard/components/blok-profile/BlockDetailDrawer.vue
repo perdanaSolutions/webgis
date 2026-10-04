@@ -29,7 +29,7 @@ const sections = computed(() => [
     note: props.detail?.periode?.label_periode ?? "",
     rows: [
       ["TBS Aktual", `${num((prod.value.tbs?.aktual ?? 0) / 1000)} ton`], ["TBS Budget", `${num((prod.value.tbs?.budget ?? 0) / 1000)} ton`],
-      ["Pencapaian", `${num(prod.value.tbs?.pct_achievement, 1)}%`], ["Kategori", prod.value.tbs?.kategori_yield ?? "-"],
+      ["Pencapaian", `${num(prod.value.tbs?.pct_achievement, 1)}%`], ["Kategori", prod.value.kategori_budget ?? "-"],
       ["Janjang Aktual", num(prod.value.janjang?.aktual, 0)], ["BJR Aktual", `${num(prod.value.bjr?.aktual)} kg`],
       ["Kg / Pokok", num(prod.value.kpi_per_pokok?.kg_pkk)], ["Janjang / Pokok", num(prod.value.kpi_per_pokok?.jjg_pkk)],
     ],

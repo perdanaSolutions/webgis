@@ -49,6 +49,7 @@ const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
 const popupLoadSeq = new Map<string, number>();
 const popupCache = new Map<string, { bulan: string; tahun: string; popupData: BlokPopupData }>();
 let panOnSelect = true;
+let skipViewAdjust = false;
 /** Saat layer batas diganti, popup tertutup karena layer hilang — bukan aksi tutup user. */
 let rebuilding = false;
 
@@ -230,6 +231,8 @@ async function loadBlockPopup(
     const detail = await props.requestDetail(blokId, bulan, tahun);
     if (popupLoadSeq.get(blokId) !== seq) return;
     const popupData = blokPopupFromDetail(detail, { bulan, tahun });
+    const painted = readBudgetCategory((feature.properties ?? {}) as Record<string, any>);
+    if (painted) popupData.kategoriYield = painted;
     popupCache.set(blokId, { bulan, tahun, popupData });
     showBlockPopup(layer, feature, popupData, undefined, periodAvailabilityNotice(detail, { bulan, tahun }));
   } catch (error) {
@@ -535,6 +538,8 @@ function applyOverlayOpacity(geo: import("leaflet").GeoJSON, layer: OverlayLayer
 // ------------------------------------------------------------------ kontrol
 function zoomIn() { map?.zoomIn(); }
 function zoomOut() { map?.zoomOut(); }
+function suppressNextPan() { skipViewAdjust = true; }
+function releasePanSkip() { skipViewAdjust = false; }
 function fitScope() {
   if (!map) return;
   const target = props.selectedId
@@ -559,7 +564,7 @@ function applyInsets() {
   map?.invalidateSize();
 }
 
-defineExpose({ zoomIn, zoomOut, fitScope });
+defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip });
 
 // ------------------------------------------------------------------ siklus hidup
 onMounted(async () => {
@@ -593,10 +598,12 @@ onBeforeUnmount(() => {
 
 watch(() => props.blocks, () => renderBlocks(true));
 watch(() => props.selectedId, (id, previous) => {
-  const pan = panOnSelect && !!id;
+  const adjust = !skipViewAdjust;
+  skipViewAdjust = false;
+  const pan = adjust && panOnSelect && !!id;
   panOnSelect = true;
   renderSelected(pan);
-  if (!id && previous) fitVisibleBlocks();
+  if (adjust && !id && previous) fitVisibleBlocks();
 });
 watch(() => props.showBlocks, () => {
   if (!map || !blockLayer) return;
