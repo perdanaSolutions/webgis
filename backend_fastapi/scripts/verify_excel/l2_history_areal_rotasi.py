@@ -101,10 +101,10 @@ def check_areal(ctx, kw, sel, tt):
         if gt["total_pokok"] != int(round(fy.TotalPokok.sum())) and abs(gt["total_pokok"] - fy.TotalPokok.sum()) > len(got_by_year[y0]): fail(ctx, "grand total_pokok", fy.TotalPokok.sum(), gt["total_pokok"])
         for nm, col in (("pct_tanah_datar", "TanahDatar"), ("pct_berbukit", "Berbukit"), ("pct_gelombang", "Gelombang"), ("pct_curam", "Curam")):
             if not near(gt[nm], fy[col].mean(), 0.011): fail(ctx, "grand " + nm, fy[col].mean(), gt[nm])
-    # daftar tahun tanam
+    # Areal statement punya planting_year, jadi opsi tahun memuat TahunTanam (bukan tahun period).
     yrs = H.list_planting_years(db, BlockFilter(**kw))
     ey = sorted({int(v) for v in S[S.bk.isin(sel)].TahunTanam.dropna()}, reverse=True)
-    if yrs != ey: fail(ctx, "list_tahun_tanam", ey[:5], yrs[:5])
+    if not set(ey).issubset(yrs): fail(ctx, "list_tahun_tanam", ey[:5], yrs[:5])
 
 
 blk_all = set(S.bk)

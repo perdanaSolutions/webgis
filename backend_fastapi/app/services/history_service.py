@@ -9,6 +9,7 @@ Karena area statement adalah snapshot bulanan, agregasi luas/pokok memakai
 snapshot (bukan penjumlahan semua bulan seperti versi lama yang membuat
 angka membengkak 12x).
 """
+import re
 from collections import OrderedDict
 
 from sqlalchemy import text
@@ -44,30 +45,126 @@ def resolve_history_table(table: str) -> tuple[str, str]:
     return key, HISTORY_TABLES[key]["table"]
 
 
+_TRX_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _trx_year_columns(db: Session) -> dict[str, str]:
+    """nama tabel trx -> kolom filter tahun.
+
+    Ada `planting_year` -> pakai kolom itu. Tidak ada -> tahun dari `period`.
+    Hanya tabel data yang bisa dibatasi per blok.
+    """
+    rows = db.execute(text("""
+        SELECT c.table_name, c.column_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema
+         AND t.table_name = c.table_name
+         AND t.table_type = 'BASE TABLE'
+        JOIN information_schema.columns b
+          ON b.table_schema = c.table_schema
+         AND b.table_name = c.table_name
+         AND b.column_name = 'block_id'
+        WHERE c.table_schema = 'trx'
+          AND c.column_name IN ('planting_year', 'period')
+    """)).all()
+    found: dict[str, set[str]] = {}
+    for name, column in rows:
+        if _TRX_IDENT.fullmatch(name):
+            found.setdefault(name, set()).add(column)
+    chosen: dict[str, str] = {}
+    for name, columns in found.items():
+        if "planting_year" in columns:
+            chosen[name] = "planting_year"
+        elif "period" in columns:
+            chosen[name] = "period"
+    return chosen
+
+
 def list_planting_years(db: Session, flt: BlockFilter) -> list[int]:
-    """Tahun tanam unik dari trx.area_statements (terbaru dulu), dibatasi filter wilayah/scope user."""
+    """Tahun unik untuk filter histori, mengikuti kolom masing-masing tabel trx.
+
+    Tabel yang punya planting_year menyumbang nilai kolom itu. Tabel yang tidak
+    punya menyumbang tahun kolom period. Dibatasi blok pada filter wilayah.
+    """
+    columns = _trx_year_columns(db)
+    if not columns:
+        return []
     blocks_sql, params = flt.block_ids_subquery()
+    parts = []
+    for name, column in sorted(columns.items()):
+        if column == "planting_year":
+            parts.append(
+                f"SELECT planting_year::int AS tahun FROM trx.{name} "
+                f"WHERE planting_year IS NOT NULL AND block_id IN (SELECT id FROM blocks)"
+            )
+        else:
+            parts.append(
+                f"SELECT extract(year FROM period)::int AS tahun FROM trx.{name} "
+                f"WHERE period IS NOT NULL AND block_id IN (SELECT id FROM blocks)"
+            )
     rows = db.execute(text(f"""
-        SELECT DISTINCT a.planting_year FROM trx.area_statements a
-        WHERE a.planting_year IS NOT NULL AND a.block_id IN ({blocks_sql})
-        ORDER BY a.planting_year DESC
+        WITH blocks AS ({blocks_sql})
+        SELECT DISTINCT tahun FROM ({' UNION ALL '.join(parts)}) src
+        WHERE tahun IS NOT NULL
+        ORDER BY tahun DESC
     """), params).scalars().all()
     return [int(y) for y in rows]
 
 
-def get_history(db: Session, table: str, tahun: int | None, flt: BlockFilter) -> dict:
-    key, _physical = resolve_history_table(table)
+def get_history(
+    db: Session,
+    table: str,
+    tahun: int | None,
+    flt: BlockFilter,
+    *,
+    period_year: int | None = None,
+) -> dict:
+    """Histori satu tabel trx.
+
+    `period_year` (query tahun_tanam) menyaring baris tabel itu:
+    planting_year bila kolomnya ada, selain itu tahun kolom period.
+    `tahun` tetap drill bulanan tahun kalender untuk tabel yang disaring lewat period.
+    Untuk areal statement, `tahun` tetap jendela planting_year bila tahun_tanam kosong.
+    """
+    key, physical = resolve_history_table(table)
+    year_column = _trx_year_columns(db).get(physical.split(".")[-1], "period")
 
     blocks_sql, params = flt.block_ids_subquery()
     filter_info = {
         "area_id": flt.area, "kode_pt": flt.kode_pt, "kode_est": flt.kode_est, "kode_afd": flt.kode_afd,
-        "blok_id": flt.blok, "ownership": flt.ownership, "tahun_tanam": flt.tahun_tanam,
+        "blok_id": flt.blok, "ownership": flt.ownership,
+        "tahun_tanam": str(period_year) if period_year is not None else flt.tahun_tanam,
     }
+    if year_column == "planting_year":
+        planting = period_year if period_year is not None else tahun
+        if key == "trx_produksi_tbs":
+            return _production(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
+        if key == "trx_rotasi_pusingan":
+            return _rotation(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
+        return _area_statement(db, blocks_sql, params, planting, filter_info)
+
+    year, monthly = _period_filter(tahun, period_year)
     if key == "trx_produksi_tbs":
-        return _production(db, blocks_sql, params, tahun, filter_info)
+        return _production(db, blocks_sql, params, year, filter_info, monthly=monthly)
     if key == "trx_rotasi_pusingan":
-        return _rotation(db, blocks_sql, params, tahun, filter_info)
-    return _area_statement(db, blocks_sql, params, tahun, filter_info)
+        return _rotation(db, blocks_sql, params, year, filter_info, monthly=monthly)
+    return _area_statement(db, blocks_sql, params, None, filter_info, period_year=year)
+
+
+def _period_filter(tahun: int | None, period_year: int | None) -> tuple[int | None, bool]:
+    """(tahun period yang disaring, apakah dipecah per bulan).
+
+    `tahun` saja tetap drill bulanan. `period_year` saja menyaring tahun
+    kolom period dan agregasinya tetap tahunan.
+    """
+    if period_year is not None and tahun is None:
+        return period_year, False
+    if tahun is not None and (period_year is None or period_year == tahun):
+        return tahun, True
+    if period_year is not None:
+        return period_year, False
+    return None, False
 
 
 GAP_CATEGORIES = (
@@ -144,11 +241,23 @@ def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_fil
     }
 
 
-def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, filter_info: dict) -> dict:
-    monthly = tahun is not None
-    params = {**params, "tahun": tahun}
-    year_filter = "AND extract(year FROM p.period) = :tahun" if monthly else ""
-    as_of_filter = "AND a.period <= make_date(:tahun, 12, 1)" if monthly else ""
+def _production(
+    db: Session,
+    blocks_sql: str,
+    params: dict,
+    tahun: int | None,
+    filter_info: dict,
+    *,
+    monthly: bool | None = None,
+    planting_year: int | None = None,
+) -> dict:
+    if monthly is None:
+        monthly = tahun is not None
+    params = {**params, "tahun": tahun, "planting_year": planting_year}
+    year_filter = "AND extract(year FROM p.period) = :tahun" if tahun is not None else ""
+    if planting_year is not None:
+        year_filter += " AND p.planting_year = :planting_year"
+    as_of_filter = "AND a.period <= make_date(:tahun, 12, 1)" if tahun is not None else ""
 
     slope = db.execute(text(f"""
         WITH st AS (
@@ -229,10 +338,22 @@ def _production(db: Session, blocks_sql: str, params: dict, tahun: int | None, f
     }
 
 
-def _rotation(db: Session, blocks_sql: str, params: dict, tahun: int | None, filter_info: dict) -> dict:
-    monthly = tahun is not None
+def _rotation(
+    db: Session,
+    blocks_sql: str,
+    params: dict,
+    tahun: int | None,
+    filter_info: dict,
+    *,
+    monthly: bool | None = None,
+    planting_year: int | None = None,
+) -> dict:
+    if monthly is None:
+        monthly = tahun is not None
     time_cols = "extract(year FROM h.period)::int AS tahun, " + (
         "extract(month FROM h.period)::int AS bulan" if monthly else "NULL::int AS bulan")
+    planting_sql = "AND h.planting_year = :planting_year" if planting_year is not None else ""
+    period_sql = "AND extract(year FROM h.period) = :tahun" if tahun is not None else ""
     rows = db.execute(text(f"""
         SELECT {time_cols},
                COUNT(*) AS total_rotasi,
@@ -241,9 +362,9 @@ def _rotation(db: Session, blocks_sql: str, params: dict, tahun: int | None, fil
                SUM(h.area_ha) AS total_luas_rotasi,
                SUM(h.tree_count) AS total_pokok_rotasi
         FROM trx.harvest_rotations h
-        WHERE h.block_id IN ({blocks_sql}) {"AND extract(year FROM h.period) = :tahun" if monthly else ""}
+        WHERE h.block_id IN ({blocks_sql}) {period_sql} {planting_sql}
         GROUP BY 1, 2 ORDER BY 1, 2
-    """), {**params, "tahun": tahun}).mappings().all()
+    """), {**params, "tahun": tahun, "planting_year": planting_year}).mappings().all()
 
     return {
         "table": "trx_rotasi_pusingan",
@@ -264,24 +385,47 @@ def _rotation(db: Session, blocks_sql: str, params: dict, tahun: int | None, fil
     }
 
 
-def _area_statement(db: Session, blocks_sql: str, params: dict, tahun_tanam: int | None, filter_info: dict) -> dict:
+def _area_statement(
+    db: Session,
+    blocks_sql: str,
+    params: dict,
+    tahun_tanam: int | None,
+    filter_info: dict,
+    *,
+    period_year: int | None = None,
+) -> dict:
     # Snapshot akhir tahun per blok: baris dengan period terbesar di tiap tahun.
+    # period_year menyaring tahun kolom period (semua tabel trx memakai aturan yang sama).
+    period_sql = "AND extract(year FROM a.period) = :periode_tahun" if period_year is not None else ""
     snapshot_cte = f"""
         snap AS (
             SELECT DISTINCT ON (a.block_id, extract(year FROM a.period)) a.*
             FROM trx.area_statements a
-            WHERE a.block_id IN ({blocks_sql})
+            WHERE a.block_id IN ({blocks_sql}) {period_sql}
             ORDER BY a.block_id, extract(year FROM a.period), a.period DESC
         )
     """
-    if tahun_tanam:
+    query_params = {**params, "periode_tahun": period_year}
+    if period_year is not None:
+        planting_sql = ""
+        mode = "SPESIFIK TAHUN PERIODE"
+        applied_tt: int | str = period_year
+    elif tahun_tanam:
         start_tt = end_tt = tahun_tanam
+        planting_sql = "WHERE st.planting_year BETWEEN :start_tt AND :end_tt"
+        query_params["start_tt"] = start_tt
+        query_params["end_tt"] = end_tt
         mode = "SPESIFIK TAHUN TANAM"
+        applied_tt = tahun_tanam
     else:
-        end_tt = db.execute(text(f"WITH {snapshot_cte} SELECT max(planting_year) FROM snap"), params).scalar()
+        end_tt = db.execute(text(f"WITH {snapshot_cte} SELECT max(planting_year) FROM snap"), query_params).scalar()
         end_tt = end_tt or 0
         start_tt = end_tt - 4
+        planting_sql = "WHERE st.planting_year BETWEEN :start_tt AND :end_tt"
+        query_params["start_tt"] = start_tt
+        query_params["end_tt"] = end_tt
         mode = "AKUMULASI TAHUN TANAM (5 Tahun Tanam Terakhir)"
+        applied_tt = f"{start_tt} - {end_tt}"
 
     rows = db.execute(text(f"""
         WITH {snapshot_cte},
@@ -292,7 +436,7 @@ def _area_statement(db: Session, blocks_sql: str, params: dict, tahun_tanam: int
             LEFT JOIN ref.planting_statuses ps ON ps.id = st.planting_status_id
             LEFT JOIN ref.soil_types so ON so.id = st.soil_type_id
             LEFT JOIN ref.topography_types tp ON tp.id = st.topography_type_id
-            WHERE st.planting_year BETWEEN :start_tt AND :end_tt
+            {planting_sql}
         )
         SELECT extract(year FROM period)::int AS tahun, status_tanam, planting_month, planting_year,
                jenis_bibit, jenis_topografi, jenis_tanah,
@@ -304,7 +448,7 @@ def _area_statement(db: Session, blocks_sql: str, params: dict, tahun_tanam: int
         FROM f
         GROUP BY 1, 2, 3, 4, 5, 6, 7
         ORDER BY 1 DESC, 4 DESC, 2
-    """), {**params, "start_tt": start_tt, "end_tt": end_tt}).mappings().all()
+    """), query_params).mappings().all()
 
     def totals(items: list[dict]) -> dict:
         luas = sum(num(r["luas_tanam"]) for r in items)
@@ -337,7 +481,7 @@ def _area_statement(db: Session, blocks_sql: str, params: dict, tahun_tanam: int
             "label": "Areal Statement",
             "mode_akumulasi": mode,
             "grouped_by_level_1": "tahun",
-            "filter_applied": {**filter_info, "tahun_tanam": tahun_tanam or f"{start_tt} - {end_tt}"},
+            "filter_applied": {**filter_info, "tahun_tanam": applied_tt},
             "group_by_attributes": ["status_tanam", "bulan_tanam", "tahun_tanam", "jenis_bibit", "jenis_topografi", "jenis_tanah"],
             "total_records": len(rows),
             "tahun_grand_total": latest_year,

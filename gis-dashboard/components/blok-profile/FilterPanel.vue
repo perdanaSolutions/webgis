@@ -39,6 +39,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:tahunTanam", value: string): void;
+  (e: "apply"): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
@@ -58,9 +59,10 @@ const SCOPE_TEXT: Record<ScopeLevel, string> = {
 const scopeInfo = computed(() => {
   const extra = [props.ownership, props.tahunTanam ? `tahun tanam ${props.tahunTanam}` : ""].filter(Boolean);
   const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
-  return props.scopeLevel === "blok"
-    ? `Scope aktif: Blok${suffix} — data tidak diagregasi`
-    : `Scope aktif: ${SCOPE_TEXT[props.scopeLevel]}${suffix} — agregasi ${props.blockCount.toLocaleString("id-ID")} blok`;
+  const base = props.scopeLevel === "blok"
+    ? `Pilihan: Blok${suffix}`
+    : `Pilihan: ${SCOPE_TEXT[props.scopeLevel]}${suffix} · ${props.blockCount.toLocaleString("id-ID")} blok di peta terapan`;
+  return `${base}. Tekan Apply Filter untuk memuat peta dan data transaksi.`;
 });
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0));
@@ -136,6 +138,14 @@ function onField(key: FieldKey, value: unknown) {
           </svg>
           <span>{{ scopeInfo }}</span>
         </div>
+
+        <button type="button" class="bp-btn bp-btn-primary mt-4 h-11 w-full justify-center text-14"
+          :disabled="loading || !area" @click="emit('apply')">
+          <svg v-if="loading" viewBox="0 0 24 24" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" class="opacity-25" /><path d="M21 12a9 9 0 0 1-9 9" />
+          </svg>
+          {{ loading ? "Menerapkan…" : "Apply Filter" }}
+        </button>
       </section>
 
       <!-- LAYER DATA -->

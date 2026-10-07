@@ -232,11 +232,20 @@ onBeforeUnmount(() => {
           :request-detail="store.loadSelectedDetail"
           @select="onSelectBlock" @deselect="onDeselectBlock" />
 
-        <div v-if="store.loadingBlocks"
-          class="pointer-events-none absolute left-1/2 top-4 z-[1200] max-w-[calc(100%-6rem)] -translate-x-1/2 truncate rounded-full bg-white/95 px-4 py-2 text-13 font-medium shadow-lg">
-          Memuat batas blok…
+        <div v-if="store.statusNotice"
+          class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
+          :class="{
+            'bg-white/95 text-[#1f2a18]': store.statusNotice.kind === 'loading',
+            'bg-[#e8f5df] text-[#3f6b24]': store.statusNotice.kind === 'success',
+            'bg-[#fdecea] text-[#b42318]': store.statusNotice.kind === 'error',
+          }"
+          role="status" aria-live="polite">
+          <span v-if="store.statusNotice.kind === 'loading'"
+            class="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[#638840] border-t-transparent"
+            aria-hidden="true" />
+          <span class="truncate">{{ store.statusNotice.message }}</span>
         </div>
-        <div v-else-if="!store.blockFeatures.length && store.area"
+        <div v-else-if="!store.blockFeatures.length && store.area && !store.loadingBlocks"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] max-w-[calc(100%-6rem)] -translate-x-1/2 truncate rounded-full bg-white/95 px-4 py-2 text-13 shadow-lg">
           Belum ada batas blok untuk scope ini.
         </div>
@@ -301,13 +310,14 @@ onBeforeUnmount(() => {
             :ownership-options="store.ownershipOptions" :tahun-tanam-options="store.tahunTanamOptions"
             :area="store.area" :pt="store.pt" :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId"
             :ownership="store.ownership" :tahun-tanam="store.tahunTanam" :scope-level="store.scopeLevel"
-            :block-count="store.blockFeatures.length" :loading="store.loadingOptions || store.loadingBlocks" :layers="layers"
+            :block-count="store.blockFeatures.length"
+            :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
             :filter-generation="store.filterGeneration"
             @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
-            @update:afdeling="store.setAfdeling" @update:blok="store.selectBlock"
+            @update:afdeling="store.setAfdeling" @update:blok="store.setBlok"
             @update:ownership="store.setOwnership" @update:tahun-tanam="store.setTahunTanam"
-            @reset="store.reset" @toggle-layer="overlays.toggle"
+            @apply="store.applyFilters" @reset="store.reset" @toggle-layer="overlays.toggle"
             @toggle-blocks="showBlocks = !showBlocks"
             @update:basemap="basemap = $event" @update:opacity="opacity = $event" />
         </div>
