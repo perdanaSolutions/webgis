@@ -9,7 +9,7 @@ export const getErrorMessage = (
 
     backendErrors.forEach((err: { field: string; msg: string }) => {
       if (!err.msg) return;
-      if (err.field && err.field !== "global") {
+      if (err.field && err.field !== "global" && err.field !== "auth") {
         errorMessages.push(`${err.field}: ${err.msg}`);
       } else {
         errorMessages.push(err.msg);
