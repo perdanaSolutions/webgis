@@ -57,6 +57,17 @@ def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(
     return user
 
 
+def user_has_permission(db: Session, user: User, permission: str) -> bool:
+    """Superadmin selalu lolos; selain itu permission harus dimiliki salah satu role user."""
+    if any(role.nama == "superadmin" for role in user.roles):
+        return True
+    return db.query(User).filter(
+        User.id == user.id
+    ).join(User.roles).join(Role.permissions).filter(
+        Permission.kode == permission
+    ).first() is not None
+
+
 class PermissionChecker:
     """Class Dependency untuk mengecek apakah user memiliki permission tertentu"""
     def __init__(self, required_permission: str):
@@ -64,26 +75,15 @@ class PermissionChecker:
         self.required_permission = required_permission
 
     def __call__(self, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
-        # 1. JALUR KHUSUS: Jika salah satu role-nya 'superadmin', langsung lolos tanpa cek permission
-        if any(role.nama == "superadmin" for role in current_user.roles):
-            return current_user
-
-        # 2. JALUR BIASA: Cek apakah kode permission ada di dalam daftar permission milik role user ini
-        has_permission = db.query(User).filter(
-            User.id == current_user.id
-        ).join(User.roles).join(Role.permissions).filter(
-            Permission.kode == self.required_permission
-        ).first()
-
-        if not has_permission:
+        if not user_has_permission(db, current_user, self.required_permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Anda tidak memiliki hak akses ({self.required_permission}) untuk fitur ini"
             )
-            
         return current_user
 
 
 DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CanUploadGeojson = Annotated[User, Depends(PermissionChecker("upload:geojson"))]
+CanWriteAnnouncement = Annotated[User, Depends(PermissionChecker("pengumuman:write"))]
