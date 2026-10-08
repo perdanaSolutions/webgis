@@ -10,7 +10,9 @@ from app.api import deps
 from app.core import security
 from app.core.config import settings
 from app.models.auth import User
-from app.schemas.user import UserLoginRequest
+from app.core.exceptions import AppError
+from app.schemas.common import MessageResponse
+from app.schemas.user import ChangePasswordRequest, UserLoginRequest
 from app.services import user_access
 from app.services.user_activity import record_user_activity
 
@@ -64,6 +66,7 @@ def _session_user(db: Session, user: User) -> dict:
         "nama_lengkap": user.nama_lengkap,
         "email": user.email,
         "roles": names,
+        "is_active": bool(user.is_active),
         "role": primary.nama if primary else None,
         "role_id": str(primary.id) if primary else None,
         "role_ids": user_access.role_ids(user),
@@ -140,6 +143,35 @@ def get_user_me(
     Berguna untuk menjaga sesi login saat halaman web di-refresh.
     """
     return _session_user(db, current_user)
+
+
+@router.put("/me/password", response_model=MessageResponse)
+def change_own_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """Ganti password akun yang sedang login. Password lama wajib cocok."""
+    if not security.verify_password(payload.password_lama, current_user.hashed_password):
+        raise AppError(
+            status.HTTP_400_BAD_REQUEST,
+            "Password lama tidak sesuai",
+            type_="invalid_password",
+            field="password_lama",
+        )
+
+    current_user.hashed_password = security.get_password_hash(payload.password_baru)
+    record_user_activity(
+        db,
+        current_user,
+        "CHANGE_PASSWORD",
+        "auth",
+        record_id=str(current_user.id),
+        detail={"username": current_user.username},
+    )
+    db.commit()
+    return {"message": "Password berhasil diperbarui"}
+
 
 @router.get("/check-token")
 def check_token_validity(

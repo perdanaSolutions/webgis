@@ -17,6 +17,7 @@ type UserInfo = {
   email: string;
   roles: string[];
   role?: string | null;
+  is_active?: boolean;
   akses_menu: string[];
   akses_data: AksesData[];
   akses_transaksi: string[];
@@ -68,6 +69,7 @@ function normalizeUser(raw: Partial<UserInfo> | null | undefined): UserInfo {
     email: String(raw?.email ?? ""),
     roles: roleNames,
     role: roleNames[0] ?? raw?.role ?? null,
+    is_active: raw?.is_active !== false,
     akses_menu: uniqueText(raw?.akses_menu),
     akses_data: aksesData,
     akses_transaksi: uniqueText(
@@ -134,6 +136,7 @@ export const useAuthStore = defineStore("auth", () => {
       email: value.email,
       roles: value.roles,
       role: value.role ?? null,
+      is_active: value.is_active !== false,
       akses_menu: [],
       akses_data: [],
       akses_transaksi: [],
@@ -267,6 +270,38 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  async function changePassword(passwordLama: string, passwordBaru: string) {
+    loading.value = true;
+    errorMessage.value = "";
+    try {
+      const baseUrl = getApiBaseUrl();
+      const response = await $fetch<{ message: string }>(
+        `${baseUrl}/v1/auth/me/password`,
+        {
+          method: "PUT",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `${tokenType.value ?? "bearer"} ${token.value}`,
+          },
+          body: {
+            password_lama: passwordLama,
+            password_baru: passwordBaru,
+          },
+        },
+      );
+      return response;
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal memperbarui password.",
+      );
+      throw error;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   async function logout() {
     clearAuthData();
     await navigateTo("/login");
@@ -281,6 +316,7 @@ export const useAuthStore = defineStore("auth", () => {
     isAuthenticated,
     isSuperAdmin,
     login,
+    changePassword,
     validateToken,
     logout,
     clearAuthData,
