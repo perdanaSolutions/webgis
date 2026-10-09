@@ -227,3 +227,47 @@ def test_block_detail_without_areal_statement(client, auth, sample_block):
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"]}).json()
     assert "areal_statement" not in detail
     assert detail["informasi_blok"]["kode_blok"] == sample_block["code"]
+
+
+def test_tahun_tanam_zero_means_not_planted(client, auth):
+    """planting_year kosong di statement terbaru = belum ditanam, difilter dengan tahun_tanam=0."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT bl.id, bl.code, es.code AS estate
+            FROM master.blocks bl
+            JOIN master.divisions dv ON dv.id = bl.division_id JOIN master.estates es ON es.id = dv.estate_id
+            JOIN LATERAL (SELECT planting_year FROM trx.area_statements a WHERE a.block_id = bl.id
+                          ORDER BY a.period DESC LIMIT 1) st ON true
+            WHERE st.planting_year IS NULL
+        """)).mappings().all()
+    if not rows:
+        import pytest
+        pytest.skip("Database test tidak punya blok belum ditanam.")
+    est = rows[0]["estate"]
+    expected = {r["code"] for r in rows if r["estate"] == est}
+
+    blocks = client.get("/api/v1/spatial/blok", headers=auth,
+                        params={"kode_est": est, "tahun_tanam": 0, "limit": 100})
+    assert blocks.status_code == 200, blocks.text
+    data = blocks.json()["data"]
+    assert {b["kode_blok"] for b in data} == expected
+    assert all(b["tahun_tanam"] is None for b in data)
+
+    fc = client.get("/api/v1/spatial/geojson", headers=auth, params={"kode_est": est, "tahun_tanam": 0}).json()
+    assert all(f["properties"]["tahun_tanam"] is None for f in fc["features"])
+
+    years = client.get("/api/v1/spatial/history/tahun-tanam", headers=auth, params={"kode_est": est}).json()["data"]
+    assert 0 in years
+
+    areal = client.get("/api/v1/spatial/history", headers=auth,
+                       params={"table": "trx_areal_statement", "kode_est": est, "tahun_tanam": 0})
+    assert areal.status_code == 200, areal.text
+    assert [d["tahun_tanam"] for d in areal.json()["data"]["group_tahun_tanam"]["details"]] in ([0], [])
+
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": rows[0]["id"], "tahun_tanam": 0})
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["informasi_blok"]["tahun_tanam"] is None

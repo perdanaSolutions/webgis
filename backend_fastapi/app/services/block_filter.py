@@ -70,11 +70,12 @@ def _clean(value: str | None) -> str | None:
 
 
 # Tahun tanam = planting_year di area statement TERBARU blok (bukan tahun kalender periode).
+# planting_year kosong = belum ditanam, dicocokkan dengan tahun tanam 0.
 _LATEST_PLANTING_YEAR = """EXISTS (
     SELECT 1 FROM (
         SELECT a.planting_year FROM trx.area_statements a
         WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1
-    ) latest WHERE latest.planting_year = :f_tt
+    ) latest WHERE COALESCE(latest.planting_year, 0) = :f_tt
 )"""
 
 

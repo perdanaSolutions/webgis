@@ -102,7 +102,7 @@ def get_blok_list(
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
-    tahun_tanam: Optional[int] = Query(None, ge=1900, le=2100, description="Filter tahun tanam blok"),
+    tahun_tanam: Optional[int] = Query(None, ge=0, le=2100, description="Filter tahun tanam blok (0 = belum ditanam)"),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
     page: int = Query(1, ge=1),
@@ -141,7 +141,7 @@ def get_blocks_geojson(
 @router.get("/blok/detail", summary="Atribut popup peta blok")
 def get_blok_detail(
     blok_id: str = Query(..., description="ID numerik, kode blok, atau ID lama"),
-    tahun_tanam: Optional[int] = Query(None, ge=1900),
+    tahun_tanam: Optional[int] = Query(None, ge=0, le=2100, description="0 = belum ditanam"),
     ownership: Optional[str] = Query(None),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
@@ -192,7 +192,7 @@ def get_history_data(
     table: str = Query("trx_produksi_tbs"),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
     tahun_tanam: Optional[int] = Query(
-        None, ge=1900, le=2100,
+        None, ge=0, le=2100,
         description="Filter tahun transaksi. Tabel trx yang punya planting_year disaring kolom itu; selain itu tahun kolom period.",
     ),
     area_id: Optional[str] = Query(None),

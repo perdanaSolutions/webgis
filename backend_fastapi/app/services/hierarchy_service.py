@@ -161,7 +161,8 @@ def list_blocks(
     _search_clause(["bl.code"], search, clauses, params)
     if tahun_tanam is not None:
         # Cocokkan dengan statement yang ditampilkan (as_of), sama dengan kolom tahun_tanam di hasil.
-        clauses.append("st.planting_year = :f_tahun_tanam")
+        # 0 = belum ditanam (planting_year kosong); blok tanpa statement tidak ikut.
+        clauses.append("st.id IS NOT NULL AND COALESCE(st.planting_year, 0) = :f_tahun_tanam")
         params["f_tahun_tanam"] = tahun_tanam
     if as_of:
         params["as_of"] = as_of

@@ -85,7 +85,7 @@ def get_block_detail(
                ps.code AS planting_status, so.name AS soil_type, tp.name AS topography,
                {SEED_VARIETIES_OF_STATEMENT} AS seed_varieties
         FROM master.blocks bl {BLOCK_JOINS}
-        {statement_as_of_join("as_of" if as_of else None, "a.planting_year = :tt" if tahun_tanam else "")}
+        {statement_as_of_join("as_of" if as_of else None, "COALESCE(a.planting_year, 0) = :tt" if tahun_tanam is not None else "")}
         WHERE bl.id = :bid
     """), params).mappings().one()
 

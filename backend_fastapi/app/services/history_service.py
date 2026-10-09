@@ -84,7 +84,7 @@ def _trx_year_columns(db: Session) -> dict[str, str]:
 def list_planting_years(db: Session, flt: BlockFilter) -> list[int]:
     """Tahun unik untuk filter histori, mengikuti kolom masing-masing tabel trx.
 
-    Tabel yang punya planting_year menyumbang nilai kolom itu. Tabel yang tidak
+    Tabel yang punya planting_year menyumbang nilai kolom itu (kosong = 0, belum ditanam). Tabel yang tidak
     punya menyumbang tahun kolom period. Dibatasi blok pada filter wilayah.
     """
     columns = _trx_year_columns(db)
@@ -95,8 +95,8 @@ def list_planting_years(db: Session, flt: BlockFilter) -> list[int]:
     for name, column in sorted(columns.items()):
         if column == "planting_year":
             parts.append(
-                f"SELECT planting_year::int AS tahun FROM trx.{name} "
-                f"WHERE planting_year IS NOT NULL AND block_id IN (SELECT id FROM blocks)"
+                f"SELECT COALESCE(planting_year, 0)::int AS tahun FROM trx.{name} "
+                f"WHERE block_id IN (SELECT id FROM blocks)"
             )
         else:
             parts.append(
@@ -255,7 +255,7 @@ def _production(
     params = {**params, "tahun": tahun, "planting_year": planting_year}
     year_filter = "AND extract(year FROM p.period) = :tahun" if tahun is not None else ""
     if planting_year is not None:
-        year_filter += " AND p.planting_year = :planting_year"
+        year_filter += " AND COALESCE(p.planting_year, 0) = :planting_year"
     as_of_filter = "AND a.period <= make_date(:tahun, 12, 1)" if tahun is not None else ""
 
     slope = db.execute(text(f"""
@@ -351,7 +351,7 @@ def _rotation(
         monthly = tahun is not None
     time_cols = "extract(year FROM h.period)::int AS tahun, " + (
         "extract(month FROM h.period)::int AS bulan" if monthly else "NULL::int AS bulan")
-    planting_sql = "AND h.planting_year = :planting_year" if planting_year is not None else ""
+    planting_sql = "AND COALESCE(h.planting_year, 0) = :planting_year" if planting_year is not None else ""
     period_sql = "AND extract(year FROM h.period) = :tahun" if tahun is not None else ""
     rows = db.execute(text(f"""
         SELECT {time_cols},
