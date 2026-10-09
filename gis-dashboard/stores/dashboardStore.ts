@@ -152,10 +152,10 @@ export const dashboardStore = defineStore("dashboard", () => {
       id: String(raw?.id ?? ""),
       title: String(raw?.title ?? ""),
       description: String(raw?.description ?? ""),
-      bgClass: String(raw?.bgClass ?? raw?.bg_class ?? "bg-blue-50"),
-      iconClass: String(raw?.iconClass ?? raw?.icon_class ?? "text-blue-500"),
+      bgClass: String(raw?.bgClass ?? raw?.bg_class ?? "bg-[#638840]"),
+      iconClass: String(raw?.iconClass ?? raw?.icon_class ?? "text-white"),
       arrowClass: String(
-        raw?.arrowClass ?? raw?.arrow_class ?? "text-blue-500",
+        raw?.arrowClass ?? raw?.arrow_class ?? "text-[#638840]",
       ),
       to: String(raw?.to ?? ""),
       icon: String(raw?.icon ?? "report"),

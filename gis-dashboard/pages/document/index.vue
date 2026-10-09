@@ -38,17 +38,28 @@ const searchQuery = ref("");
 const isOpenModalValidasi = ref(false);
 const isThereReplaceData = ref(false);
 
+const previewRows = computed(() =>
+  documentUploadStore.allPreviewRows.map((feature, index) => ({
+    feature,
+    number: index + 1,
+  })),
+);
+
 const filteredPreviewRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
-  if (!query) return documentUploadStore.allPreviewRows;
+  if (!query) return previewRows.value;
 
-  return documentUploadStore.allPreviewRows.filter((feature) => {
+  return previewRows.value.filter(({ feature, number }) => {
     const geometryType = String(feature.geometry?.type ?? "").toLowerCase();
     const propertiesValues = Object.values(feature.properties ?? {})
       .map((value) => String(value ?? "").toLowerCase())
       .join(" ");
+    const matchesNumber = /^\d+$/.test(query)
+      ? String(number) === query
+      : String(number).includes(query);
 
     return (
+      matchesNumber ||
       geometryType.includes(query) ||
       propertiesValues.includes(query)
     );
@@ -178,12 +189,63 @@ function humanizeLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatDetailValue(value: unknown) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatScalarValue(value: unknown): string {
   if (typeof value === "number") return value.toLocaleString("id-ID");
   if (typeof value === "boolean") return value ? "Ya" : "Tidak";
   if (value == null || value === "") return "-";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+type ExecuteDetailRow =
+  | { key: string; label: string; kind: "scalar"; value: string }
+  | { key: string; label: string; kind: "object"; entries: Array<{ key: string; label: string; value: string }> }
+  | {
+      key: string;
+      label: string;
+      kind: "table";
+      columns: string[];
+      rows: Record<string, unknown>[];
+    }
+  | { key: string; label: string; kind: "list"; items: string[] };
+
+function buildExecuteDetail(value: unknown, key: string): ExecuteDetailRow {
+  const label = humanizeLabel(key);
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return { key, label, kind: "scalar", value: "-" };
+    }
+    const objects = value.filter(isPlainObject);
+    if (objects.length) {
+      const columns = Array.from(new Set(objects.flatMap((row) => Object.keys(row))));
+      return { key, label, kind: "table", columns, rows: objects };
+    }
+    return { key, label, kind: "list", items: value.map((item) => formatScalarValue(item)) };
+  }
+
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) {
+      return { key, label, kind: "scalar", value: "-" };
+    }
+    return {
+      key,
+      label,
+      kind: "object",
+      entries: entries.map(([entryKey, entryValue]) => ({
+        key: entryKey,
+        label: humanizeLabel(entryKey),
+        value: formatScalarValue(entryValue),
+      })),
+    };
+  }
+
+  return { key, label, kind: "scalar", value: formatScalarValue(value) };
 }
 
 const executeView = computed(() => {
@@ -202,25 +264,35 @@ const executeView = computed(() => {
   }
 
   const detailSource = body?.detail_status;
-  const detail = detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
-    ? Object.entries(detailSource as Record<string, unknown>).map(([key, value]) => ({
-      key,
-      label: humanizeLabel(key),
-      value: formatDetailValue(value),
-    }))
-    : [];
+  const detail: ExecuteDetailRow[] =
+    detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
+      ? Object.entries(detailSource as Record<string, unknown>).map(([key, value]) =>
+          buildExecuteDetail(value, key),
+        )
+      : [];
+
+  const scalarDetail = detail.filter((row) => row.kind === "scalar");
+  const complexDetail = detail.filter((row) => row.kind !== "scalar");
 
   const totalEntry = Object.entries(body ?? {}).find(
     ([key, value]) => key.startsWith("total_data") && typeof value === "number",
   );
 
   const tone = statusProses === "FAILED" ? "error" : statusProses === "PARTIAL_SUCCESS" ? "warning" : "success";
+  const title = tone === "error"
+    ? "Submit analisis gagal"
+    : tone === "warning"
+      ? "Submit analisis selesai sebagian"
+      : "Submit analisis berhasil";
   return {
     tone,
+    title,
     message,
     statusProses,
     total: totalEntry?.[1] ?? null,
     detail,
+    scalarDetail,
+    complexDetail,
   };
 });
 
@@ -267,8 +339,8 @@ const executeFinished = computed(
               <p v-if="selectedCategoryDescription" class="mt-2 text-size-sm text-muted">
                 {{ selectedCategoryDescription }}
               </p>
-              <button v-if="canCreateTheme" type="button"
-                class="mt-2 text-size-sm font-semibold text-brand underline" @click="isOpenCreateTheme = true">
+              <button v-if="canCreateTheme" type="button" class="mt-2 text-size-sm font-semibold text-brand underline"
+                @click="isOpenCreateTheme = true">
                 + Buat tema baru
               </button>
             </div>
@@ -311,8 +383,8 @@ const executeFinished = computed(
           </div>
         </div>
 
-        <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center" @drop="onDrop"
-          @dragover="onDragOver">
+        <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center"
+          @drop="onDrop" @dragover="onDragOver">
           <input ref="fileInputRef" type="file" accept=".geojson,.json,application/geo+json,application/json"
             class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">
@@ -337,8 +409,7 @@ const executeFinished = computed(
             <span class="text-muted">{{ documentUploadStore.uploadProgress }}%</span>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
-            <div
-              class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
+            <div class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
               :style="{ width: `${documentUploadStore.uploadProgress}%` }" />
           </div>
         </div>
@@ -366,7 +437,7 @@ const executeFinished = computed(
             </div>
 
             <div class="w-full md:w-[320px]">
-              <input v-model="searchQuery" type="text" placeholder="Cari di geometry / semua kolom..."
+              <input v-model="searchQuery" type="text" placeholder="Cari nomor, geometry, atau semua kolom..."
                 class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown" />
             </div>
           </div>
@@ -383,11 +454,14 @@ const executeFinished = computed(
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(feature, index) in paginatedPreviewRows" :key="index" class="border-t border-row">
-                  <td class="px-3 py-2">{{ (currentPage - 1) * itemsPerPage + index + 1 }}</td>
-                  <td class="px-3 py-2">{{ feature.geometry?.type ?? "-" }}</td>
-                  <td v-for="header in previewHeaders" :key="`${index}-${header}`" class="px-3 py-2">
-                    {{ feature.properties?.[header] ?? "-" }}
+                <tr v-if="paginatedPreviewRows.length === 0">
+                  <td :colspan="previewHeaders.length + 2" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                </tr>
+                <tr v-for="row in paginatedPreviewRows" :key="row.number" class="border-t border-row">
+                  <td class="px-3 py-2">{{ row.number }}</td>
+                  <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
+                  <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
+                    {{ row.feature.properties?.[header] ?? "-" }}
                   </td>
                 </tr>
               </tbody>
@@ -419,8 +493,7 @@ const executeFinished = computed(
           </div>
 
           <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length === 0" class="mt-4 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
@@ -438,9 +511,8 @@ const executeFinished = computed(
             <UploadAnalysisResult :analysis="analysis" />
           </div>
 
-          <div v-if="executeView?.tone !== 'success'" class="mt-4 flex justify-end gap-2">
-            <button type="button"
-              class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+          <div v-if="!executeFinished" class="mt-4 flex justify-end gap-2">
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="isBusy" @click="onCancelPreview">
               Cancel
             </button>
@@ -454,18 +526,61 @@ const executeFinished = computed(
             :class="executeView.tone === 'error' ? 'border-error bg-error-light' : executeView.tone === 'warning' ? 'border-default bg-warning-light' : 'border-default bg-success-light'">
             <p class="font-bold"
               :class="executeView.tone === 'error' ? 'text-error-dark' : executeView.tone === 'warning' ? 'text-warning' : 'text-success'">
-              {{ executeView.tone === 'error' ? 'Submit analisis gagal' : executeView.tone === 'warning' ? 'Submit analisis selesai sebagian' : 'Submit analisis berhasil' }}
+              {{ executeView.title }}
             </p>
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
-              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data diproses</span>
+              <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data
+                diproses</span>
             </p>
-            <div v-if="executeView.detail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-              <div v-for="row in executeView.detail" :key="row.key"
+            <div v-if="executeView.scalarDetail.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div v-for="row in executeView.scalarDetail" :key="row.key"
                 class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface px-3 py-2">
                 <span class="text-size-sm text-label">{{ row.label }}</span>
                 <span class="text-size-sm font-bold text-content-brown">{{ row.value }}</span>
+              </div>
+            </div>
+
+            <div v-if="executeView.complexDetail.length" class="mt-3 space-y-3">
+              <div v-for="row in executeView.complexDetail" :key="row.key"
+                class="rounded-xl border border-default-60 bg-surface p-3">
+                <p class="mb-2 text-size-sm font-semibold text-brand">{{ row.label }}</p>
+
+                <div v-if="row.kind === 'table'" class="overflow-x-auto rounded-lg border border-default">
+                  <table class="min-w-full bg-surface text-size-sm">
+                    <thead class="bg-surface-warm text-left text-brand">
+                      <tr>
+                        <th v-for="column in row.columns" :key="column" class="whitespace-nowrap px-3 py-2 font-bold">
+                          {{ humanizeLabel(column) }}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(tableRow, index) in row.rows" :key="`${row.key}-${index}`" class="border-t border-row">
+                        <td v-for="column in row.columns" :key="`${row.key}-${index}-${column}`"
+                          class="px-3 py-2 align-top">
+                          {{ formatScalarValue(tableRow[column]) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div v-else-if="row.kind === 'object'" class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div v-for="entry in row.entries" :key="`${row.key}-${entry.key}`"
+                    class="flex items-center justify-between gap-3 rounded-lg border border-default-60 bg-surface-neutral px-3 py-2">
+                    <span class="text-size-sm text-label">{{ entry.label }}</span>
+                    <span class="text-size-sm font-bold text-content-brown">{{ entry.value }}</span>
+                  </div>
+                </div>
+
+                <div v-else-if="row.kind === 'list'" class="flex flex-wrap gap-2">
+                  <span v-for="item in row.items" :key="`${row.key}-${item}`"
+                    class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
+                    {{ item }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -505,7 +620,8 @@ const executeFinished = computed(
   <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
     <!-- Modal Card -->
     <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
         <!-- Dialog Card -->
         <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl transition-all">
           <!-- Header Modal -->

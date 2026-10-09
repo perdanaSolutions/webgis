@@ -22,6 +22,7 @@ const showDeleteModal = ref(false);
 const deleteError = ref("");
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
+const showPassword = ref(false);
 
 const form = reactive<CreateUserPayload>({
   username: "",
@@ -52,6 +53,15 @@ function resetForm() {
   form.role_ids = [];
   form.is_active = true;
   form.password = "";
+  showPassword.value = false;
+}
+
+function togglePasswordVisibility() {
+  showPassword.value = !showPassword.value;
+}
+
+function canDeleteUser(user: UserItem) {
+  return !user.has_activity;
 }
 
 function fillFormFromUser(user: UserItem) {
@@ -61,6 +71,7 @@ function fillFormFromUser(user: UserItem) {
   form.role_ids = (user.roles ?? []).map((r) => r.id);
   form.is_active = Boolean(user.is_active);
   form.password = "";
+  showPassword.value = false;
 }
 
 async function loadUsers(nextPage?: number) {
@@ -103,9 +114,11 @@ async function openEditModal(user: UserItem) {
 
 function closeFormModal() {
   showFormModal.value = false;
+  showPassword.value = false;
 }
 
 function openDeleteModal(user: UserItem) {
+  if (!canDeleteUser(user)) return;
   selectedUserId.value = user.id;
   deleteError.value = "";
   showDeleteModal.value = true;
@@ -313,10 +326,14 @@ function filterRoleOption(
                       @click="openEditModal(item)">
                       Edit
                     </button>
-                    <button class="rounded-lg border border-error bg-error-light px-3 py-1.5 font-semibold text-error"
+                    <button v-if="canDeleteUser(item)"
+                      class="rounded-lg border border-error bg-error-light px-3 py-1.5 font-semibold text-error"
                       @click="openDeleteModal(item)">
                       Hapus
                     </button>
+                    <span v-else class="text-12 text-muted" title="User memiliki riwayat aktivitas audit">
+                      Tidak bisa dihapus
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -412,9 +429,36 @@ function filterRoleOption(
           <div class="md:col-span-2">
             <label class="mb-1 block text-label">
               Password
+              <span v-if="formMode === 'edit'" class="font-normal text-muted">
+                (opsional, isi hanya jika ingin mengganti)
+              </span>
             </label>
-            <input v-model="form.password" :required="formMode === 'create'" type="password"
-              class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
+            <div class="relative">
+              <input id="user-password" v-model="form.password" :required="formMode === 'create'"
+                :type="showPassword ? 'text' : 'password'" autocomplete="new-password"
+                class="h-11 w-full rounded-xl border border-default px-3 pr-12 outline-none" />
+              <button type="button"
+                :aria-label="showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'"
+                class="absolute inset-y-0 right-3 my-auto flex h-8 w-8 items-center justify-center text-muted hover:text-brand"
+                @click="togglePasswordVisibility">
+                <svg v-if="showPassword" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                  viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18" />
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M10.58 10.58A3 3 0 0 0 12 15a3 3 0 0 0 2.42-4.42" />
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9.88 5.09A10.94 10.94 0 0 1 12 5c4.48 0 8.27 2.94 9.54 7a10.6 10.6 0 0 1-4.13 5.13" />
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M6.61 6.61A10.95 10.95 0 0 0 2.46 12C3.73 16.06 7.52 19 12 19c1.18 0 2.32-.18 3.39-.5" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7Z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <p v-if="formError" class="md:col-span-2 rounded-xl bg-error-light px-4 py-3 text-error">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 
 defineOptions({
   name: "UploadAnalysisResult",
@@ -50,8 +50,19 @@ const COLUMN_LABELS: Record<string, string> = {
   blok_master: "Blok di Master",
 };
 
+function asDataWord(text: string): string {
+  return String(text ?? "")
+    .replace(/\bFeatures\b/g, "Data")
+    .replace(/\bFeature\b/g, "Data")
+    .replace(/\bFitur\b/g, "Data")
+    .replace(/\bfeatures\b/g, "data")
+    .replace(/\bfeature\b/g, "data")
+    .replace(/\bfitur\b/g, "data");
+}
+
 function humanize(key: string): string {
-  return COLUMN_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const label = COLUMN_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return asDataWord(label);
 }
 
 function formatValue(value: unknown): string {
@@ -118,7 +129,7 @@ const sections = computed<Section[]>(() => {
       count: value.length,
       columns,
       rows: objects,
-      items: objects.length ? [] : value.map((v) => formatValue(v)),
+      items: objects.length ? [] : value.map((v) => asDataWord(formatValue(v))),
     });
   }
   return result;
@@ -126,9 +137,36 @@ const sections = computed<Section[]>(() => {
 
 const footnote = computed(() =>
   isPlainObject(props.analysis.rincian) && typeof props.analysis.rincian.catatan === "string"
-    ? props.analysis.rincian.catatan
+    ? asDataWord(props.analysis.rincian.catatan)
     : "",
 );
+
+const sectionQueries = reactive<Record<string, string>>({});
+
+function sectionQuery(key: string) {
+  return sectionQueries[key] ?? "";
+}
+
+function filteredRows(section: Section) {
+  const query = sectionQuery(section.key).trim().toLowerCase();
+  if (!query) return section.rows;
+  return section.rows.filter((row) => {
+    const haystack = section.columns
+      .flatMap((column) => [column, humanize(column), formatValue(row[column])])
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function filteredItems(section: Section) {
+  const query = sectionQuery(section.key).trim().toLowerCase();
+  if (!query) return section.items;
+  return section.items.filter((item) => {
+    const haystack = `${section.title} ${item}`.toLowerCase();
+    return haystack.includes(query);
+  });
+}
 </script>
 
 <template>
@@ -136,25 +174,20 @@ const footnote = computed(() =>
     <!-- Status & kesimpulan -->
     <div v-if="status" class="rounded-2xl border p-4" :class="status.box">
       <p class="font-bold" :class="status.text">{{ status.title }}</p>
-      <p v-if="analysis.kesimpulan" class="mt-1 text-size-sm text-label">{{ analysis.kesimpulan }}</p>
+      <p v-if="analysis.kesimpulan" class="mt-1 text-size-sm text-label">{{ asDataWord(analysis.kesimpulan) }}</p>
     </div>
 
     <!-- Peringatan -->
     <div v-if="warnings.length" class="space-y-2">
       <p class="px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Peringatan & Informasi</p>
-      <div
-        v-for="warning in warnings"
-        :key="warning.kode"
+      <div v-for="warning in warnings" :key="warning.kode"
         class="flex gap-3 rounded-xl border border-default p-3 text-size-sm"
-        :class="warning.level === 'INFO' ? 'bg-surface-neutral' : 'bg-warning-light'"
-      >
-        <span
-          class="h-fit shrink-0 rounded-md border border-default bg-surface px-2 py-0.5 text-size-xs font-bold"
-          :class="warning.level === 'INFO' ? 'text-label' : 'text-warning'"
-        >
+        :class="warning.level === 'INFO' ? 'bg-surface-neutral' : 'bg-warning-light'">
+        <span class="h-fit shrink-0 rounded-md border border-default bg-surface px-2 py-0.5 text-size-xs font-bold"
+          :class="warning.level === 'INFO' ? 'text-label' : 'text-warning'">
           {{ warning.level === "INFO" ? "INFO" : "PERHATIAN" }}
         </span>
-        <span class="text-label">{{ warning.pesan }}</span>
+        <span class="text-label">{{ asDataWord(warning.pesan) }}</span>
       </div>
     </div>
 
@@ -162,15 +195,11 @@ const footnote = computed(() =>
     <div v-if="summaryRows.length">
       <p class="mb-2 px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Ringkasan Angka</p>
       <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-        <div
-          v-for="row in summaryRows"
-          :key="row.key"
-          class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface-neutral p-3"
-        >
+        <div v-for="row in summaryRows" :key="row.key"
+          class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface-neutral p-3">
           <span class="text-size-sm font-medium text-label">{{ row.label }}</span>
           <span
-            class="shrink-0 rounded-lg border border-default bg-surface px-3 py-1 text-size-sm font-bold text-content-brown"
-          >
+            class="shrink-0 rounded-lg border border-default bg-surface px-3 py-1 text-size-sm font-bold text-content-brown">
             {{ row.value }}
           </span>
         </div>
@@ -180,17 +209,23 @@ const footnote = computed(() =>
     <!-- Rincian -->
     <div v-if="sections.length" class="space-y-2">
       <p class="px-1 text-size-xs font-bold uppercase tracking-wider text-muted">Rincian</p>
-      <details
-        v-for="section in sections"
-        :key="section.key"
-        class="rounded-xl border border-default bg-surface"
-        :open="section.key === 'per_estate'"
-      >
+      <details v-for="section in sections" :key="section.key" class="rounded-xl border border-default bg-surface"
+        :open="section.key === 'per_estate'">
         <summary class="cursor-pointer select-none px-4 py-3 text-size-sm font-semibold text-brand">
           {{ section.title }}
           <span class="ml-1 font-normal text-muted">({{ section.count.toLocaleString("id-ID") }})</span>
         </summary>
         <div class="border-t border-default p-3">
+          <div class="mb-3">
+            <input v-model="sectionQueries[section.key]" type="text" placeholder="Cari di semua kolom..."
+              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]" />
+            <p v-if="sectionQuery(section.key).trim()" class="mt-1 text-size-xs text-muted">
+              Menampilkan
+              {{ (section.rows.length ? filteredRows(section).length :
+                filteredItems(section).length).toLocaleString("id-ID") }}
+              dari {{ section.count.toLocaleString("id-ID") }} data
+            </p>
+          </div>
           <div v-if="section.rows.length" class="max-h-80 overflow-auto rounded-lg border border-default">
             <table class="min-w-full text-size-sm">
               <thead class="sticky top-0 bg-surface-warm text-left text-brand">
@@ -201,7 +236,10 @@ const footnote = computed(() =>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, index) in section.rows" :key="index" class="border-t border-row">
+                <tr v-if="filteredRows(section).length === 0">
+                  <td :colspan="section.columns.length" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                </tr>
+                <tr v-for="(row, index) in filteredRows(section)" :key="index" class="border-t border-row">
                   <td v-for="column in section.columns" :key="column" class="px-3 py-2 align-top">
                     {{ formatValue(row[column]) }}
                   </td>
@@ -209,14 +247,14 @@ const footnote = computed(() =>
               </tbody>
             </table>
           </div>
-          <div v-else class="flex flex-wrap gap-2">
-            <span
-              v-for="item in section.items"
-              :key="item"
-              class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label"
-            >
-              {{ item }}
-            </span>
+          <div v-else>
+            <p v-if="filteredItems(section).length === 0" class="text-size-sm text-muted">Tidak ada data yang cocok.</p>
+            <div v-else class="flex flex-wrap gap-2">
+              <span v-for="item in filteredItems(section)" :key="item"
+                class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
+                {{ item }}
+              </span>
+            </div>
           </div>
         </div>
       </details>

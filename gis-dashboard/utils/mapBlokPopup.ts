@@ -1,3 +1,5 @@
+import { BUDGET_GAP_COLOR, readBudgetCategory } from "./mapLayers";
+
 export type BlokPopupData = {
   area: string;
   pt: string;
@@ -110,6 +112,19 @@ export function formatPercentId(value: number): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} %`;
+}
+
+/** Kategori yang mewarnai poligon: kolom V, aktual vs budget. */
+function budgetCategoryLabel(properties: RawProperties): string {
+  const painted = readBudgetCategory(properties as Record<string, any>);
+  if (painted) return painted;
+  return pickString(properties, ["kategori_budget", "kategori_yield", "Kategori_Yield", "kategori"]);
+}
+
+function categorySwatch(value: string): string {
+  const color = BUDGET_GAP_COLOR[value.trim().toUpperCase()];
+  if (!color || value === "-") return value;
+  return `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:${color};box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);"></span>${value}</span>`;
 }
 
 function getGapColor(gapValue: string): string {
@@ -253,11 +268,7 @@ export function normalizeBlokPopupData(
       "bgt_sd",
     ]),
     gapSdBi: gapRaw === "-" ? "-" : formatPercentId(gapNumber),
-    kategoriYield: pickString(properties, [
-      "kategori_yield",
-      "Kategori_Yield",
-      "kategori",
-    ]),
+    kategoriYield: budgetCategoryLabel(properties),
     bulan:
       overrides?.bulan ??
       pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
@@ -318,7 +329,7 @@ export function blokPopupFromDetail(
     actSdBi: tonPerHa(tbs.aktual, totals.luas_tanam),
     bgtSdBi: tonPerHa(tbs.budget, totals.luas_tanam),
     gapSdBi: gap,
-    kategoriYield: toDisplayText(tbs.kategori_yield),
+    kategoriYield: toDisplayText(production.kategori_budget ?? tbs.kategori_yield),
     bulan: overrides?.bulan ?? toDisplayText(period.bulan, String(new Date().getMonth() + 1)),
     tahun: overrides?.tahun ?? toDisplayText(period.tahun, String(new Date().getFullYear())),
     blokId: toDisplayText(info.blok_id, ""),
@@ -372,7 +383,7 @@ export function normalizeBlokDetailResponse(
     actSdBi: toDisplayNumber(detail.act_sdbi),
     bgtSdBi: toDisplayNumber(detail.bgt_sdbi),
     gapSdBi: resolveGapPercent(detail),
-    kategoriYield: toDisplayText(detail.kategori_yield),
+    kategoriYield: toDisplayText(detail.kategori_budget ?? detail.kategori_yield),
     bulan:
       overrides?.bulan ??
       toDisplayText(detail.bulan, String(new Date().getMonth() + 1)),
@@ -560,7 +571,7 @@ export function buildBlokPopupHtml(
         ${popupRow("ACT(sd)Bi", data.actSdBi)}
         ${popupRow("BGT(sd)Bi", data.bgtSdBi)}
         ${popupRow("GAP(sd)Bi", data.gapSdBi, `color:${gapColor};`)}
-        ${popupRow("Kategori Yield", data.kategoriYield)}
+        ${popupRow("Kategori Yield", categorySwatch(data.kategoriYield))}
       </div>
 
       ${buildPopupFooter(data, options?.loading)}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
@@ -69,6 +69,8 @@ class UserResponse(BaseModel):
     created_at: datetime
     roles: List[RoleInUser] = []
     role: Optional[RoleInUser] = None
+    # True jika user punya baris di audit.user_activities (tidak boleh dihapus)
+    has_activity: bool = False
 
     class Config:
         from_attributes = True
@@ -76,3 +78,14 @@ class UserResponse(BaseModel):
 class UserLoginRequest(BaseModel):
     email: str  # FE bisa mengirimkan teks username atau email ke field ini
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    password_lama: str = Field(min_length=1)
+    password_baru: str = Field(min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def passwords_must_differ(self):
+        if self.password_lama == self.password_baru:
+            raise ValueError("Password baru harus berbeda dari password lama")
+        return self

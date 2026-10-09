@@ -12,6 +12,23 @@ from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.utils.pagination import page_response
 
 
+def _user_ids_with_activity(db: Session, user_ids: list[UUID]) -> set[UUID]:
+    if not user_ids:
+        return set()
+    rows = db.scalars(
+        select(UserActivity.user_id).where(UserActivity.user_id.in_(user_ids)).distinct()
+    ).all()
+    return {user_id for user_id in rows if user_id is not None}
+
+
+def _to_user_response(user: User, has_activity: bool = False) -> UserResponse:
+    return UserResponse.model_validate(user).model_copy(update={"has_activity": has_activity})
+
+
+def _user_has_activity(db: Session, user_id: UUID) -> bool:
+    return db.scalar(select(UserActivity.id).where(UserActivity.user_id == user_id).limit(1)) is not None
+
+
 def list_users(db: Session, search: str | None, page: int, limit: int) -> dict:
     query = select(User)
     if search:
@@ -19,7 +36,13 @@ def list_users(db: Session, search: str | None, page: int, limit: int) -> dict:
         query = query.where(or_(User.full_name.ilike(pattern), User.username.ilike(pattern), User.email.ilike(pattern)))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     users = db.scalars(query.order_by(User.created_at.desc()).offset((page - 1) * limit).limit(limit)).all()
-    return page_response(total, page, limit, [UserResponse.model_validate(u) for u in users])
+    active_ids = _user_ids_with_activity(db, [u.id for u in users])
+    return page_response(
+        total,
+        page,
+        limit,
+        [_to_user_response(u, u.id in active_ids) for u in users],
+    )
 
 
 def get_user(db: Session, user_id: UUID) -> User:
@@ -27,6 +50,11 @@ def get_user(db: Session, user_id: UUID) -> User:
     if user is None:
         raise not_found("User tidak ditemukan")
     return user
+
+
+def get_user_response(db: Session, user_id: UUID) -> UserResponse:
+    user = get_user(db, user_id)
+    return _to_user_response(user, _user_has_activity(db, user.id))
 
 
 def _ensure_unique(db: Session, username: str | None, email: str | None, exclude_id: UUID | None = None) -> None:
@@ -50,7 +78,7 @@ def _ensure_roles(db: Session, role_ids: list[UUID]) -> list[Role]:
     return roles
 
 
-def create_user(db: Session, payload: UserCreate) -> User:
+def create_user(db: Session, payload: UserCreate) -> UserResponse:
     username, email = payload.username.lower().strip(), payload.email.lower()
     _ensure_unique(db, username, email)
     roles = _ensure_roles(db, payload.role_ids)
@@ -62,10 +90,10 @@ def create_user(db: Session, payload: UserCreate) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+    return _to_user_response(user, False)
 
 
-def update_user(db: Session, user_id: UUID, payload: UserUpdate) -> User:
+def update_user(db: Session, user_id: UUID, payload: UserUpdate) -> UserResponse:
     user = get_user(db, user_id)
     is_main_admin = user.username == settings.SEED_ADMIN_USERNAME
     if is_main_admin and payload.is_active is False:
@@ -90,7 +118,7 @@ def update_user(db: Session, user_id: UUID, payload: UserUpdate) -> User:
 
     db.commit()
     db.refresh(user)
-    return user
+    return _to_user_response(user, _user_has_activity(db, user.id))
 
 
 def delete_user(db: Session, user_id: UUID, current_user: User) -> str:
@@ -100,7 +128,7 @@ def delete_user(db: Session, user_id: UUID, current_user: User) -> str:
     if user.id == current_user.id:
         raise bad_request("Tidak bisa menghapus akun yang sedang dipakai login.")
     # audit.user_activities append-only: FK ON DELETE SET NULL akan ditolak trigger deny_modification.
-    if db.scalar(select(UserActivity.id).where(UserActivity.user_id == user.id).limit(1)):
+    if _user_has_activity(db, user.id):
         raise conflict("User sudah memiliki riwayat aktivitas (log audit tidak boleh diubah). "
                        "Nonaktifkan akun (is_active=false) alih-alih menghapus.")
     username = user.username

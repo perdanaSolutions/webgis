@@ -1,3 +1,5 @@
+import { AUTH_USER_STORAGE_KEY } from "~/utils/authSession";
+
 export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig();
 
@@ -25,16 +27,20 @@ export default defineNuxtPlugin(() => {
     async onResponseError({ response }) {
       if (response?.status !== 401) return;
 
-      const token = useCookie<string | null>("auth_token");
-      const tokenType = useCookie<string | null>("auth_token_type");
-      const user = useCookie("auth_user");
+      try {
+        useAuthStore().clearAuthData();
+      } catch {
+        const token = useCookie<string | null>("auth_token");
+        const tokenType = useCookie<string | null>("auth_token_type");
+        const user = useCookie("auth_user");
+        token.value = null;
+        tokenType.value = null;
+        user.value = null;
+        if (import.meta.client) localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      }
 
-      token.value = null;
-      tokenType.value = null;
-      user.value = null;
-
-      if (process.client && window.location.pathname !== "/login") {
-        await navigateTo("/login");
+      if (import.meta.client && window.location.pathname !== "/login") {
+        window.location.replace("/login");
       }
     },
   });

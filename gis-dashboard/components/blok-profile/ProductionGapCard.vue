@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import type { ProductionGapSummary } from "~/stores/blokProfileStore";
+import { BUDGET_GAP_COLOR } from "~/utils/mapLayers";
 
 const props = defineProps<{
   title: string;
@@ -11,12 +12,6 @@ const props = defineProps<{
 }>();
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-const TONE: Record<string, string> = {
-  OPTIMUM: "#638840",
-  "GAP I": "#c4a15a",
-  "GAP II": "#d87633",
-  "GAP III": "#8b4034",
-};
 
 const periodLabel = computed(() => {
   const periode = props.data?.periode;
@@ -38,7 +33,7 @@ function pct(value: number) {
 }
 
 function tone(name: string) {
-  return TONE[name] ?? "#6e7866";
+  return BUDGET_GAP_COLOR[name.trim().toUpperCase()] ?? "#6e7866";
 }
 </script>
 
@@ -68,7 +63,7 @@ function tone(name: string) {
         <li v-for="row in data.kategori" :key="row.kategori" class="min-w-0">
           <div class="flex items-baseline justify-between gap-3">
             <p class="inline-flex min-w-0 items-center gap-2 text-14 font-semibold text-[#1f2a18]">
-              <span class="h-2.5 w-2.5 shrink-0 rounded-[3px]" :style="{ background: tone(row.kategori) }" />
+              <span class="h-2.5 w-2.5 shrink-0 rounded-[3px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]" :style="{ background: tone(row.kategori) }" />
               {{ row.kategori }}
             </p>
             <p class="shrink-0 text-14 font-bold tabular-nums text-[#1f2a18]">{{ pct(row.persen_blok) }}</p>

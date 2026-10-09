@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import bannerImage from '~/assets/image/banner-login.png'
 import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
+import { isAccessTokenExpired } from '~/utils/authSession'
 
 defineOptions({
   name: 'LoginPage',
@@ -10,6 +11,8 @@ defineOptions({
 
 const authStore = useAuthStore()
 const showPassword = ref(false)
+const formReady = ref(false)
+const formRef = ref<HTMLFormElement | null>(null)
 const form = reactive({
   email: '',
   password: '',
@@ -19,17 +22,55 @@ function togglePasswordVisibility() {
   showPassword.value = !showPassword.value
 }
 
+function readField(event: Event | undefined, id: string, fallback: string) {
+  const formEl = event?.target
+  if (!(formEl instanceof HTMLFormElement)) return fallback
+  return formEl.querySelector<HTMLInputElement>(`#${id}`)?.value ?? fallback
+}
+
 onMounted(async () => {
-  if (authStore.token) {
-    const me = await authStore.validateToken()
-    if (me) {
-      await navigateTo('/dashboard')
+  const el = formRef.value
+  if (el) {
+    // Password manager sering memanggil form.submit(), yang tidak memicu event submit.
+    el.submit = () => {
+      try {
+        el.requestSubmit()
+      } catch {
+        // Tombol kirim belum aktif, atau browser menolak submit implisit.
+      }
     }
   }
+
+  formReady.value = true
+
+  if (window.location.search === '?') {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.hash,
+    )
+  }
+
+  if (!authStore.token || isAccessTokenExpired(authStore.token)) return
+
+  const me = await authStore.validateToken({ redirect: false })
+  if (me) await navigateTo('/dashboard')
 })
 
-async function onSubmit() {
-  await authStore.login(form.email, form.password)
+async function onSubmit(event?: Event) {
+  event?.preventDefault()
+  if (!formReady.value || authStore.loading) return
+
+  const email = readField(event, 'email', form.email).trim()
+  const password = readField(event, 'password', form.password)
+  form.email = email
+  form.password = password
+
+  try {
+    await authStore.login(email, password)
+  } catch {
+    // Pesan kegagalan sudah diisi authStore.errorMessage.
+  }
 }
 </script>
 
@@ -52,7 +93,8 @@ async function onSubmit() {
             </p>
           </div>
 
-          <form class="mt-7 space-y-5" @submit.prevent="onSubmit">
+          <!-- method="dialog" membatalkan navigasi GET bawaan browser ke /login? -->
+          <form ref="formRef" class="mt-7 space-y-5" method="dialog" @submit.prevent="onSubmit">
             <div>
               <label for="email" class="mb-2 block text-14 font-bold leading-none text-content-dark">
                 Email
@@ -99,7 +141,7 @@ async function onSubmit() {
               </a>
             </div> -->
 
-            <button type="submit" :disabled="authStore.loading"
+            <button type="submit" :disabled="!formReady || authStore.loading"
               class="flex h-12 w-full items-center justify-center rounded-2xl bg-brand text-14 font-semibold text-on-brand transition-colors hover-bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70">
               {{ authStore.loading ? 'Memproses...' : 'Masuk' }}
             </button>

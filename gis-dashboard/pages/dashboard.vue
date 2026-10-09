@@ -47,8 +47,10 @@ defineOptions({
 })
 
 onMounted(async () => {
-  if (!authStore.token) {
-    await navigateTo('/login')
+  const session = await authStore.ensureSession()
+  if (!session) {
+    window.location.replace('/login')
+    return
   }
   dashboardService.initDataMenu()
 })

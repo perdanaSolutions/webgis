@@ -1,27 +1,88 @@
 <script setup lang="ts">
-import { onMounted, computed, ref, onUnmounted } from 'vue'
+import { onMounted, computed, reactive, ref, onUnmounted } from 'vue'
 import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
+import { useManagePengumumanStore, type PengumumanItem } from '~/stores/managePengumumanStore'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
+const pengumumanStore = useManagePengumumanStore()
 
 onMounted(async () => {
-  if (!authStore.token) {
-    await navigateTo('/login')
+  const session = await authStore.ensureSession()
+  if (!session) {
+    window.location.replace('/login')
+    return
   }
   if (!dashboardService.moduleItems.length) {
     dashboardService.initDataMenu()
   }
+  pengumumanStore.fetchActivePengumuman()
 })
 
 const isMenuOpen = ref(false)
 const isFavoriteOpen = ref(false)
+const isAnnouncementOpen = ref(false)
+const openAnnouncementId = ref('')
 const isQuickMenuOpen = ref(false)
 const isSidebarOpen = ref(false)
+const showProfileModal = ref(false)
+const showOldPassword = ref(false)
+const showNewPassword = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref('')
+const passwordForm = reactive({
+  password_lama: '',
+  password_baru: '',
+})
+
+function resetPasswordForm() {
+  passwordForm.password_lama = ''
+  passwordForm.password_baru = ''
+  showOldPassword.value = false
+  showNewPassword.value = false
+  passwordError.value = ''
+  passwordSuccess.value = ''
+}
+
+async function openProfileModal() {
+  resetPasswordForm()
+  showProfileModal.value = true
+  await authStore.validateToken({ redirect: false })
+}
+
+function closeProfileModal() {
+  showProfileModal.value = false
+  resetPasswordForm()
+}
+
+async function submitPassword() {
+  passwordError.value = ''
+  passwordSuccess.value = ''
+  if (passwordForm.password_baru.length < 8) {
+    passwordError.value = 'Password baru minimal 8 karakter.'
+    return
+  }
+  if (passwordForm.password_lama === passwordForm.password_baru) {
+    passwordError.value = 'Password baru harus berbeda dari password lama.'
+    return
+  }
+
+  try {
+    await authStore.changePassword(passwordForm.password_lama, passwordForm.password_baru)
+    passwordSuccess.value = 'Password berhasil diperbarui.'
+    passwordForm.password_lama = ''
+    passwordForm.password_baru = ''
+    showOldPassword.value = false
+    showNewPassword.value = false
+  } catch {
+    passwordError.value = authStore.errorMessage || 'Gagal memperbarui password.'
+  }
+}
+
 const menuItems = ref([
-  { label: 'Profil Saya', info: 'Lihat detail akun', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z', action: () => navigateTo('/profile') },
+  { label: 'Profil Saya', info: 'Lihat detail akun', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z', action: () => { void openProfileModal() } },
   // { label: 'Pengaturan', info: 'Konfigurasi sistem', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', action: () => navigateTo('/settings') },
   { label: 'Keluar', info: 'Log out dari aplikasi', icon: 'M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1', action: () => logout() },
 ])
@@ -58,7 +119,10 @@ const displayProfileRole = computed(() => {
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value
-  if (isMenuOpen.value) isFavoriteOpen.value = false
+  if (isMenuOpen.value) {
+    isFavoriteOpen.value = false
+    isAnnouncementOpen.value = false
+  }
 }
 
 const closeMenu = () => {
@@ -67,11 +131,44 @@ const closeMenu = () => {
 
 const toggleFavoriteMenu = () => {
   isFavoriteOpen.value = !isFavoriteOpen.value
-  if (isFavoriteOpen.value) isMenuOpen.value = false
+  if (isFavoriteOpen.value) {
+    isMenuOpen.value = false
+    isAnnouncementOpen.value = false
+  }
 }
 
 const closeFavoriteMenu = () => {
   isFavoriteOpen.value = false
+}
+
+const toggleAnnouncementMenu = () => {
+  isAnnouncementOpen.value = !isAnnouncementOpen.value
+  if (isAnnouncementOpen.value) {
+    isMenuOpen.value = false
+    isFavoriteOpen.value = false
+    openAnnouncementId.value = ''
+    pengumumanStore.fetchActivePengumuman()
+  }
+}
+
+const closeAnnouncementMenu = () => {
+  isAnnouncementOpen.value = false
+  openAnnouncementId.value = ''
+}
+
+const toggleAnnouncementItem = (id: string) => {
+  openAnnouncementId.value = openAnnouncementId.value === id ? '' : id
+}
+
+const announcementDate = (item: PengumumanItem) => {
+  const source = item.tanggal_mulai || item.created_at
+  if (!source) return { day: '–', month: '' }
+  const date = new Date(source)
+  if (Number.isNaN(date.getTime())) return { day: '–', month: '' }
+  return {
+    day: String(date.getDate()),
+    month: date.toLocaleString('id-ID', { month: 'short' }),
+  }
 }
 
 const openFavoriteMenu = async (to: string) => {
@@ -110,6 +207,9 @@ const clickOutsideHandler = (event: MouseEvent) => {
   }
   if (!target.closest('.favorite-menu-container')) {
     closeFavoriteMenu()
+  }
+  if (!target.closest('.announcement-menu-container')) {
+    closeAnnouncementMenu()
   }
   if (!target.closest('.quick-menu-container')) {
     closeQuickMenu()
@@ -186,13 +286,48 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <button class="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand"
-          aria-label="Notifikasi">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-              d="M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z" />
-          </svg>
-        </button>
+        <div class="announcement-menu-container relative">
+          <button type="button" @click="toggleAnnouncementMenu"
+            class="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover"
+            :aria-expanded="isAnnouncementOpen" aria-label="Pengumuman">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+              stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                d="M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z" />
+            </svg>
+          </button>
+
+          <div v-if="isAnnouncementOpen"
+            class="absolute right-0 z-[1500] mt-2 w-80 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl sm:w-96">
+            <p class="px-3 py-2 text-12 font-semibold uppercase tracking-wide text-label">
+              Pengumuman
+            </p>
+
+            <p v-if="pengumumanStore.loadingActive" class="px-3 py-4 text-12 text-muted">
+              Memuat pengumuman...
+            </p>
+            <p v-else-if="!pengumumanStore.activeItems.length" class="px-3 py-4 text-12 text-muted">
+              Belum ada pengumuman aktif.
+            </p>
+
+            <div v-else class="max-h-[min(70vh,24rem)] overflow-y-auto">
+              <button v-for="item in pengumumanStore.activeItems" :key="`announcement-${item.id}`" type="button"
+                class="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
+                @click="toggleAnnouncementItem(item.id)">
+                <span class="w-12 shrink-0 rounded-xl bg-sidebar-hover py-2 text-center">
+                  <span class="block text-14 font-bold leading-none text-brand">{{ announcementDate(item).day }}</span>
+                  <span class="mt-1 block text-11 leading-none text-muted">{{ announcementDate(item).month }}</span>
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-14 font-bold text-brand">{{ item.judul }}</span>
+                  <span v-if="openAnnouncementId === item.id"
+                    class="mt-1 block whitespace-pre-line text-12 text-muted">{{ item.isi }}</span>
+                  <span v-else class="mt-0.5 block line-clamp-2 text-12 text-muted-light">{{ item.isi }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
 
         <!-- <div class="quick-menu-container relative">
           <button @click.stop="toggleQuickMenu"
@@ -339,5 +474,111 @@ onUnmounted(() => {
         </div>
       </div>
     </aside>
+
+    <div v-if="showProfileModal" class="fixed inset-0 z-[1700] flex items-center justify-center bg-overlay p-4"
+      @click.self="closeProfileModal">
+      <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5">
+        <div class="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-18 font-bold">Profil Saya</h3>
+            <p class="text-12 text-muted">Informasi akun yang sedang digunakan</p>
+          </div>
+          <button type="button" class="text-muted" aria-label="Tutup" @click="closeProfileModal">✕</button>
+        </div>
+
+        <div class="rounded-2xl bg-surface-warm p-4">
+          <div class="flex items-center gap-3">
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-peach text-brand">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-16 font-bold text-brand">{{ displayProfileName }}</p>
+              <p class="truncate text-13 text-muted">{{ displayProfileRole }}</p>
+            </div>
+          </div>
+
+          <dl class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <dt class="text-12 text-label">Username</dt>
+              <dd class="font-semibold">{{ authStore.user?.username || '-' }}</dd>
+            </div>
+            <div>
+              <dt class="text-12 text-label">Email</dt>
+              <dd class="break-all font-semibold">{{ authStore.user?.email || '-' }}</dd>
+            </div>
+            <div>
+              <dt class="text-12 text-label">Role</dt>
+              <dd class="font-semibold">{{ displayProfileRole }}</dd>
+            </div>
+            <div>
+              <dt class="text-12 text-label">Status</dt>
+              <dd>
+                <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="authStore.user?.is_active === false
+                  ? 'bg-slate-muted text-slate-muted'
+                  : 'bg-success-lighter text-success'">
+                  {{ authStore.user?.is_active === false ? 'Nonaktif' : 'Aktif' }}
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <form class="mt-5 border-t border-default pt-5" @submit.prevent="submitPassword">
+          <h4 class="text-16 font-bold">Ubah Password</h4>
+          <p class="mb-3 text-12 text-muted">Masukkan password lama, lalu password baru minimal 8 karakter.</p>
+
+          <div class="space-y-3">
+            <div>
+              <label for="password-lama" class="mb-1 block text-label">Password Lama</label>
+              <div class="relative">
+                <input id="password-lama" v-model="passwordForm.password_lama" required
+                  :type="showOldPassword ? 'text' : 'password'" autocomplete="current-password"
+                  class="h-11 w-full rounded-xl border border-default px-3 pr-24 outline-none">
+                <button type="button" class="absolute inset-y-0 right-3 my-auto text-12 font-semibold text-brand"
+                  @click="showOldPassword = !showOldPassword">
+                  {{ showOldPassword ? 'Sembunyi' : 'Lihat' }}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label for="password-baru" class="mb-1 block text-label">Password Baru</label>
+              <div class="relative">
+                <input id="password-baru" v-model="passwordForm.password_baru" required minlength="8"
+                  :type="showNewPassword ? 'text' : 'password'" autocomplete="new-password"
+                  class="h-11 w-full rounded-xl border border-default px-3 pr-24 outline-none">
+                <button type="button" class="absolute inset-y-0 right-3 my-auto text-12 font-semibold text-brand"
+                  @click="showNewPassword = !showNewPassword">
+                  {{ showNewPassword ? 'Sembunyi' : 'Lihat' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="passwordError" class="mt-3 rounded-xl bg-error-light px-4 py-3 text-error">
+            {{ passwordError }}
+          </p>
+          <p v-if="passwordSuccess" class="mt-3 rounded-xl bg-success-lighter px-4 py-3 text-success">
+            {{ passwordSuccess }}
+          </p>
+
+          <div class="mt-4 flex justify-end gap-2">
+            <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+              @click="closeProfileModal">
+              Tutup
+            </button>
+            <button type="submit"
+              class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
+              :disabled="authStore.loading">
+              {{ authStore.loading ? 'Menyimpan...' : 'Simpan Password' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </header>
 </template>

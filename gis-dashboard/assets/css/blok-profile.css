@@ -3,7 +3,7 @@
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 20px;
   /* Angka terakhir = opasitas. 1 tertutup penuh, 0 tembus penuh. */
-  background: rgba(255, 253, 249, 0.572);
+  background: rgba(255, 253, 249, 0.774);
   box-shadow: 0 10px 30px rgba(31, 42, 24, 0.12);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);

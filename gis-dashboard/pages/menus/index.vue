@@ -27,12 +27,16 @@ const formMode = ref<"create" | "edit">("create");
 const selectedMenuId = ref<string>("");
 const selectedMenu = ref<MenuItem | null>(null);
 
+const DEFAULT_MENU_BG_CLASS = "bg-[#638840]";
+const DEFAULT_MENU_ICON_CLASS = "text-white";
+const DEFAULT_MENU_ARROW_CLASS = "text-[#638840]";
+
 const form = reactive<MenuFormState>({
   title: "",
   description: "",
-  bg_class: "bg-blue-50",
-  icon_class: "text-blue-500",
-  arrow_class: "text-blue-500",
+  bg_class: DEFAULT_MENU_BG_CLASS,
+  icon_class: DEFAULT_MENU_ICON_CLASS,
+  arrow_class: DEFAULT_MENU_ARROW_CLASS,
   to: "",
   icon: "report",
   order_position: 0,
@@ -111,9 +115,9 @@ const deleteHasChildren = computed(
 function resetForm() {
   form.title = "";
   form.description = "";
-  form.bg_class = "bg-blue-50";
-  form.icon_class = "text-blue-500";
-  form.arrow_class = "text-blue-500";
+  form.bg_class = DEFAULT_MENU_BG_CLASS;
+  form.icon_class = DEFAULT_MENU_ICON_CLASS;
+  form.arrow_class = DEFAULT_MENU_ARROW_CLASS;
   form.to = "";
   form.icon = "report";
   form.order_position = 0;
@@ -124,9 +128,9 @@ function resetForm() {
 function fillFormFromMenu(menu: MenuItem) {
   form.title = menu.title;
   form.description = menu.description;
-  form.bg_class = menu.bg_class || "bg-blue-50";
-  form.icon_class = menu.icon_class || "text-blue-500";
-  form.arrow_class = menu.arrow_class || "text-blue-500";
+  form.bg_class = menu.bg_class || DEFAULT_MENU_BG_CLASS;
+  form.icon_class = menu.icon_class || DEFAULT_MENU_ICON_CLASS;
+  form.arrow_class = menu.arrow_class || DEFAULT_MENU_ARROW_CLASS;
   form.to = menu.to;
   form.icon = menu.icon || "report";
   form.order_position = Number(menu.order_position ?? 0);

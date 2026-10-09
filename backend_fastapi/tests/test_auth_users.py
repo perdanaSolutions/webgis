@@ -23,6 +23,38 @@ def test_me_and_check_token(client, auth):
     assert token["is_expired"] is False
 
 
+def test_change_own_password(client, auth):
+    roles = client.get("/api/v1/roles/", headers=auth).json()
+    viewer = next(role for role in roles if role["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    payload = {
+        "username": f"pwd_{suffix}",
+        "email": f"pwd_{suffix}@example.com",
+        "nama_lengkap": "Ganti Password",
+        "role_ids": [viewer["id"]],
+        "password": "rahasia123",
+    }
+    created = client.post("/api/v1/users/", headers=auth, json=payload)
+    assert created.status_code == 201, created.text
+
+    login = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    url = "/api/v1/auth/me/password"
+
+    assert client.put(url, json={"password_lama": "rahasia123", "password_baru": "baru12345"}).status_code == 401
+    wrong = client.put(url, headers=headers, json={"password_lama": "salah", "password_baru": "baru12345"})
+    assert wrong.status_code == 400
+    assert wrong.json()["errors"][0]["field"] == "password_lama"
+    assert client.put(url, headers=headers, json={"password_lama": "rahasia123", "password_baru": "rahasia123"}).status_code == 422
+    assert client.put(url, headers=headers, json={"password_lama": "rahasia123", "password_baru": "123"}).status_code == 422
+
+    updated = client.put(url, headers=headers, json={"password_lama": "rahasia123", "password_baru": "baru12345"})
+    assert updated.status_code == 200, updated.text
+    assert client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"}).status_code == 401
+    assert client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "baru12345"}).status_code == 200
+
+
 def test_login_wrong_password_uses_standard_error(client):
     response = client.post("/api/v1/auth/login", json={"email": "tidak-ada@example.com", "password": "salah"})
     assert response.status_code == 401

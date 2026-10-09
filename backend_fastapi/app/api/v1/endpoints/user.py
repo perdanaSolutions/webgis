@@ -27,6 +27,32 @@ def _roles_by_ids(db: Session, role_ids: list[UUID]) -> list[Role]:
         raise HTTPException(status_code=404, detail=f"Role ID berikut tidak ditemukan: {', '.join(missing)}")
     return [by_id[role_id] for role_id in unique_ids]
 
+
+def _user_ids_with_activity(db: Session, user_ids: list[UUID]) -> set[UUID]:
+    if not user_ids:
+        return set()
+    rows = (
+        db.query(UserActivityLog.user_id)
+        .filter(UserActivityLog.user_id.in_(user_ids))
+        .distinct()
+        .all()
+    )
+    return {row[0] for row in rows if row[0] is not None}
+
+
+def _to_user_response(user: User, has_activity: bool = False) -> UserResponse:
+    return UserResponse.model_validate(user).model_copy(update={"has_activity": has_activity})
+
+
+def _user_has_activity(db: Session, user_id: UUID) -> bool:
+    return (
+        db.query(UserActivityLog.id)
+        .filter(UserActivityLog.user_id == user_id)
+        .limit(1)
+        .first()
+        is not None
+    )
+
 # 1. READ ALL USERS (Dengan Server-Side Pagination & Search)
 @router.get("/", response_model=PaginatedResponse)
 def get_users_list(
@@ -59,15 +85,14 @@ def get_users_list(
         )
     
     users = query.order_by(User.created_at.desc()).offset(offset).limit(limit).all()
+    active_ids = _user_ids_with_activity(db, [u.id for u in users])
 
-    # UBAH BAGIAN RETURN MENJADI SEPERTI INI:
     return {
         "total_data": total_query,
         "page": page,
         "limit": limit,
-        "total_page": math.ceil(total_query / limit),
-        # Kita paksa konversi tiap item SQLAlchemy User menjadi Pydantic model response
-        "data": [UserResponse.model_validate(u) for u in users]
+        "total_page": math.ceil(total_query / limit) if total_query else 0,
+        "data": [_to_user_response(u, u.id in active_ids) for u in users],
     }
 
 
@@ -99,7 +124,7 @@ def create_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return new_user
+    return _to_user_response(new_user, False)
 
 
 # 3. UPDATE USER DETAILS & PASSWORD
@@ -135,7 +160,7 @@ def update_user(
 
     db.commit()
     db.refresh(user)
-    return user
+    return _to_user_response(user, _user_has_activity(db, user.id))
 
 
 # 4. DELETE USER PERMANENTLY
@@ -157,12 +182,7 @@ def delete_user(
 
     # audit.user_activities append-only. FK ON DELETE SET NULL pun ditolak
     # trigger deny_modification(), jadi user yang sudah punya log tidak boleh dihapus.
-    has_activity = (
-        db.query(UserActivityLog.id)
-        .filter(UserActivityLog.user_id == user.id)
-        .limit(1)
-        .first()
-    )
+    has_activity = _user_has_activity(db, user.id)
     if has_activity:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

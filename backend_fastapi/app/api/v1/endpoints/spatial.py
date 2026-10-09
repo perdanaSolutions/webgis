@@ -165,7 +165,7 @@ def get_history_tables(db=Depends(deps.get_db), current_user=Depends(deps.get_cu
     return [row for row in rows if row["physical_table"] in allowed or row["table"] in allowed]
 
 
-@router.get("/history/tahun-tanam", summary="Daftar tahun tanam untuk filter GET /history")
+@router.get("/history/tahun-tanam", summary="Daftar tahun filter histori dari semua tabel schema trx")
 def get_history_planting_years(
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
@@ -191,7 +191,10 @@ def get_history_planting_years(
 def get_history_data(
     table: str = Query("trx_produksi_tbs"),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
-    tahun_tanam: Optional[int] = Query(None, ge=1900, le=2100),
+    tahun_tanam: Optional[int] = Query(
+        None, ge=1900, le=2100,
+        description="Filter tahun transaksi. Tabel trx yang punya planting_year disaring kolom itu; selain itu tahun kolom period.",
+    ),
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
@@ -207,15 +210,11 @@ def get_history_data(
     flt = BlockFilter(
         area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
         blok=blok_id or kode_blok, ownership=ownership,
-        tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
     user_access.apply_data_scope(db, current_user, flt)
-    # `tahun` tetap tahun kalender. Tahun tanam hanya menyaring blok; untuk areal
-    # statement ia juga mengunci jendela agregasi bila tahun kalender tidak diisi.
-    calendar = tahun
-    if legacy_key == "trx_areal_statement" and calendar is None:
-        calendar = tahun_tanam
-    return history_service.get_history(db, table, calendar, flt)
+    # tahun_tanam mengikuti kolom tabel: planting_year bila ada, selain itu tahun period.
+    # `tahun` tetap drill bulanan tahun kalender untuk tabel tanpa planting_year.
+    return history_service.get_history(db, table, tahun, flt, period_year=tahun_tanam)
 
 
 @router.get("/tph/geojson", summary="Titik TPH sebagai GeoJSON")
