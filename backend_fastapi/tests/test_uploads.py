@@ -275,7 +275,7 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
                         params={"blok_id": sample_block["id"], "bulan": BULAN, "tahun": TAHUN}).json()
     assert detail["produksi_tbs"]["tbs"]["aktual"] == 12000
     assert detail["produksi_tbs"]["kategori_budget"] == "OPTIMUM"  # aktual 12000 >= budget 10000 (gap > 0%)
-    assert detail["areal_statement"]["grand_total"]["total_pokok"] == 3500
+    assert "areal_statement" not in detail
     assert detail["rotasi_pusingan"]["total_kegiatan"] == 1
 
     bad = client.post("/api/v1/areal-statement/import-excel", headers=auth,

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, json_safe, num, whole
-from app.utils.period import as_of_period, period_label, to_period
+from app.utils.period import as_of_period, to_period
 from app.services.history_service import block_production_history, gap_category, gap_pct
 
 
@@ -37,34 +37,6 @@ def resolve_block_id(db: Session, blok_ref: str) -> int:
             f"Kode blok '{blok_ref}' dipakai di lebih dari satu afdeling. Gunakan blok_id numerik.", field="blok_id"
         )
     return rows[0]["id"]
-
-
-def _statement_block(r: dict) -> dict | None:
-    if r["st_id"] is None:
-        return None
-    totals = {
-        "count_records": 1,
-        "luas_tanam": num(r["planted_area_ha"]), "luas_tanah": num(r["land_area_ha"]),
-        "total_pokok": whole(r["tree_count"]), "sph": num(r["sph"]),
-        "pct_tanah_datar": num(r["pct_flat"]), "pct_berbukit": num(r["pct_hilly"]),
-        "pct_gelombang": num(r["pct_undulating"]), "pct_curam": num(r["pct_steep"]),
-    }
-    return {
-        "tahun": r["st_period"].year,
-        "periode": period_label(r["st_period"]),
-        "groups": [{
-            "group_keys": {
-                "status_tanam": r["planting_status"],
-                "bulan_tanam": MONTH_ABBR.get(r["planting_month"]),
-                "tahun_tanam": r["planting_year"],
-                "jenis_bibit": r["seed_varieties"],
-                "jenis_topografi": r["topography"],
-                "jenis_tanah": r["soil_type"],
-            },
-            "totals": totals,
-        }],
-        "grand_total": totals,
-    }
 
 
 def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tahun: int | None) -> tuple[date | None, bool]:
@@ -109,9 +81,7 @@ def get_block_detail(
                dv.code AS division_code, es.code AS estate_code, es.name AS estate_name,
                co.code AS company_code, COALESCE(NULLIF(co.name, ''), co.code) AS company_name,
                sar.code AS area_code, sar.name AS area_name,
-               st.id AS st_id, st.period AS st_period, st.planting_year, st.planting_month,
-               st.planted_area_ha, st.land_area_ha, st.tree_count, st.sph,
-               st.pct_flat, st.pct_hilly, st.pct_undulating, st.pct_steep,
+               st.planting_year, st.planting_month, st.planted_area_ha, st.tree_count,
                ps.code AS planting_status, so.name AS soil_type, tp.name AS topography,
                {SEED_VARIETIES_OF_STATEMENT} AS seed_varieties
         FROM master.blocks bl {BLOCK_JOINS}
@@ -200,7 +170,6 @@ def get_block_detail(
                 "kode_afd": master["division_code"], "nama_afd": master["division_code"],
             },
         },
-        "areal_statement": _statement_block(master),
         "produksi_tbs": {
             **varians,
             "tbs": {

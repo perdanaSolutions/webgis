@@ -136,7 +136,8 @@ def test_history_tables(client, auth, sample_block):
     assert all(row["tahun"] == 2025 for row in monthly["data_histori"])
 
     areal = client.get("/api/v1/spatial/history", headers=auth, params={"table": "trx_areal_statement"}).json()
-    assert areal["status"] == "success" and "grand_total" in areal
+    assert areal["status"] == "success"
+    assert set(areal["data"]) == {"group_tahun_tanam", "group_divisi"}
 
     rotation = client.get("/api/v1/spatial/history", headers=auth, params={"table": "trx_rotasi_pusingan"}).json()
     assert rotation["mode_akumulasi"] == "TAHUNAN"
@@ -183,3 +184,46 @@ def test_sawit_list_filters_by_tahun_tanam(client, auth):
 
     empty = client.get("/api/v1/spatial/sawit/list", headers=auth, params={**base, "tahun_tanam": 1901}).json()
     assert empty["total_records"] == 0
+
+
+def test_history_areal_statement_groups(client, auth, sample_block):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    url, est = "/api/v1/spatial/history", sample_block["estate"]
+    with engine.connect() as conn:
+        latest = conn.execute(text("""
+            SELECT COALESCE(a.planting_year, 0) AS tt, dv.code AS afd, a.planted_area_ha AS luas
+            FROM master.blocks bl
+            JOIN master.divisions dv ON dv.id = bl.division_id JOIN master.estates es ON es.id = dv.estate_id
+            JOIN trx.area_statements a ON a.block_id = bl.id
+            WHERE upper(es.code) = upper(:est) AND a.period = (
+                SELECT max(x.period) FROM trx.area_statements x JOIN master.blocks b ON b.id = x.block_id
+                JOIN master.divisions d ON d.id = b.division_id JOIN master.estates e ON e.id = d.estate_id
+                WHERE upper(e.code) = upper(:est))
+        """), {"est": est}).mappings().all()
+    assert latest
+    expected_total = round(sum(float(r["luas"] or 0) for r in latest), 2)
+
+    body = client.get(url, headers=auth, params={"table": "trx_areal_statement", "kode_est": est}).json()
+    by_tt, by_afd = body["data"]["group_tahun_tanam"], body["data"]["group_divisi"]
+    # snapshot periode terakhir, bukan jumlah semua periode bulanan
+    assert by_tt["total_luas_tanam"] == by_afd["total_luas_tanam"] == expected_total
+    assert by_tt["area_code"]
+    assert [d["tahun_tanam"] for d in by_tt["details"]] == sorted({r["tt"] for r in latest})
+    assert {d["division_code"] for d in by_afd["details"]} == {r["afd"] for r in latest}
+
+    tt = by_tt["details"][0]["tahun_tanam"]
+    if tt:  # tahun_tanam 0 belum bisa difilter lewat endpoint ini
+        one = client.get(url, headers=auth, params={"table": "trx_areal_statement", "kode_est": est, "tahun_tanam": tt}).json()
+        assert one["data"]["group_tahun_tanam"]["details"] == [by_tt["details"][0]]
+
+    empty = client.get(url, headers=auth, params={"table": "trx_areal_statement", "kode_est": est, "tahun": 1990}).json()
+    assert empty["data"]["group_divisi"] == {"area_code": None, "details": [], "total_luas_tanam": 0}
+
+
+def test_block_detail_without_areal_statement(client, auth, sample_block):
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"]}).json()
+    assert "areal_statement" not in detail
+    assert detail["informasi_blok"]["kode_blok"] == sample_block["code"]

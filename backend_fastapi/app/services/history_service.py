@@ -16,8 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request
-from app.services.block_filter import SEED_VARIETIES_OF_STATEMENT, BlockFilter
-from app.utils.parsing import MONTH_ABBR, num, whole
+from app.services.block_filter import BlockFilter
+from app.utils.parsing import num, whole
 
 HISTORY_TABLES = OrderedDict([
     ("trx_produksi_tbs", {"label": "Produksi TBS", "table": "trx.block_productions"}),
@@ -125,31 +125,30 @@ def get_history(
     `period_year` (query tahun_tanam) menyaring baris tabel itu:
     planting_year bila kolomnya ada, selain itu tahun kolom period.
     `tahun` tetap drill bulanan tahun kalender untuk tabel yang disaring lewat period.
-    Untuk areal statement, `tahun` tetap jendela planting_year bila tahun_tanam kosong.
+    Untuk areal statement, `tahun` = snapshot per akhir tahun itu dan `period_year` = tahun tanam.
     """
     key, physical = resolve_history_table(table)
+    blocks_sql, params = flt.block_ids_subquery()
+    if key == "trx_areal_statement":
+        return _area_statement(db, blocks_sql, params, tahun=tahun, tahun_tanam=period_year)
+
     year_column = _trx_year_columns(db).get(physical.split(".")[-1], "period")
 
-    blocks_sql, params = flt.block_ids_subquery()
     filter_info = {
         "area_id": flt.area, "kode_pt": flt.kode_pt, "kode_est": flt.kode_est, "kode_afd": flt.kode_afd,
         "blok_id": flt.blok, "ownership": flt.ownership,
         "tahun_tanam": str(period_year) if period_year is not None else flt.tahun_tanam,
     }
     if year_column == "planting_year":
-        planting = period_year if period_year is not None else tahun
         if key == "trx_produksi_tbs":
             return _production(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
         if key == "trx_rotasi_pusingan":
             return _rotation(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
-        return _area_statement(db, blocks_sql, params, planting, filter_info)
 
     year, monthly = _period_filter(tahun, period_year)
     if key == "trx_produksi_tbs":
         return _production(db, blocks_sql, params, year, filter_info, monthly=monthly)
-    if key == "trx_rotasi_pusingan":
-        return _rotation(db, blocks_sql, params, year, filter_info, monthly=monthly)
-    return _area_statement(db, blocks_sql, params, None, filter_info, period_year=year)
+    return _rotation(db, blocks_sql, params, year, filter_info, monthly=monthly)
 
 
 def _period_filter(tahun: int | None, period_year: int | None) -> tuple[int | None, bool]:
@@ -389,119 +388,54 @@ def _area_statement(
     db: Session,
     blocks_sql: str,
     params: dict,
-    tahun_tanam: int | None,
-    filter_info: dict,
     *,
-    period_year: int | None = None,
+    tahun: int | None = None,
+    tahun_tanam: int | None = None,
 ) -> dict:
-    # Snapshot akhir tahun per blok: baris dengan period terbesar di tiap tahun.
-    # period_year menyaring tahun kolom period (semua tabel trx memakai aturan yang sama).
-    period_sql = "AND extract(year FROM a.period) = :periode_tahun" if period_year is not None else ""
-    snapshot_cte = f"""
-        snap AS (
-            SELECT DISTINCT ON (a.block_id, extract(year FROM a.period)) a.*
+    """Luas tanam dikelompokkan per tahun tanam dan per divisi.
+
+    Memakai snapshot periode terakhir yang tersedia (dibatasi akhir `tahun` bila diisi),
+    sehingga luas blok tidak terjumlah berulang untuk setiap periode bulanan dan blok
+    yang tidak lagi dilaporkan di periode itu tidak ikut terhitung.
+    Tahun tanam kosong (belum ditanam) dilaporkan sebagai 0.
+    """
+    period_sql = "AND a.period < make_date(:tahun + 1, 1, 1)" if tahun is not None else ""
+    planting_sql = "WHERE COALESCE(st.planting_year, 0) = :tahun_tanam" if tahun_tanam is not None else ""
+    rows = db.execute(text(f"""
+        WITH scoped AS (
+            SELECT a.period, a.block_id, a.area_id, a.planting_year, a.planted_area_ha
             FROM trx.area_statements a
             WHERE a.block_id IN ({blocks_sql}) {period_sql}
-            ORDER BY a.block_id, extract(year FROM a.period), a.period DESC
-        )
-    """
-    query_params = {**params, "periode_tahun": period_year}
-    if period_year is not None:
-        planting_sql = ""
-        mode = "SPESIFIK TAHUN PERIODE"
-        applied_tt: int | str = period_year
-    elif tahun_tanam:
-        start_tt = end_tt = tahun_tanam
-        planting_sql = "WHERE st.planting_year BETWEEN :start_tt AND :end_tt"
-        query_params["start_tt"] = start_tt
-        query_params["end_tt"] = end_tt
-        mode = "SPESIFIK TAHUN TANAM"
-        applied_tt = tahun_tanam
-    else:
-        end_tt = db.execute(text(f"WITH {snapshot_cte} SELECT max(planting_year) FROM snap"), query_params).scalar()
-        end_tt = end_tt or 0
-        start_tt = end_tt - 4
-        planting_sql = "WHERE st.planting_year BETWEEN :start_tt AND :end_tt"
-        query_params["start_tt"] = start_tt
-        query_params["end_tt"] = end_tt
-        mode = "AKUMULASI TAHUN TANAM (5 Tahun Tanam Terakhir)"
-        applied_tt = f"{start_tt} - {end_tt}"
+        ),
+        snap AS (SELECT * FROM scoped WHERE period = (SELECT max(period) FROM scoped))
+        SELECT COALESCE(st.planting_year, 0)::int AS tahun_tanam, dv.code AS division_code, ar.code AS area_code,
+               SUM(st.planted_area_ha) AS luas_tanam
+        FROM snap st
+        JOIN master.blocks bl ON bl.id = st.block_id
+        JOIN master.divisions dv ON dv.id = bl.division_id
+        LEFT JOIN master.areas ar ON ar.id = st.area_id
+        {planting_sql}
+        GROUP BY 1, 2, 3
+    """), {**params, "tahun": tahun, "tahun_tanam": tahun_tanam}).mappings().all()
 
-    rows = db.execute(text(f"""
-        WITH {snapshot_cte},
-        f AS (
-            SELECT st.*, ps.code AS status_tanam, so.name AS jenis_tanah, tp.name AS jenis_topografi,
-                   {SEED_VARIETIES_OF_STATEMENT} AS jenis_bibit
-            FROM snap st
-            LEFT JOIN ref.planting_statuses ps ON ps.id = st.planting_status_id
-            LEFT JOIN ref.soil_types so ON so.id = st.soil_type_id
-            LEFT JOIN ref.topography_types tp ON tp.id = st.topography_type_id
-            {planting_sql}
-        )
-        SELECT extract(year FROM period)::int AS tahun, status_tanam, planting_month, planting_year,
-               jenis_bibit, jenis_topografi, jenis_tanah,
-               COUNT(*) AS count_records,
-               SUM(planted_area_ha) AS luas_tanam, SUM(land_area_ha) AS luas_tanah, SUM(tree_count) AS total_pokok,
-               SUM(tree_count) / NULLIF(SUM(planted_area_ha), 0) AS sph,
-               AVG(COALESCE(pct_flat, 0)) AS pct_tanah_datar, AVG(COALESCE(pct_hilly, 0)) AS pct_berbukit,
-               AVG(COALESCE(pct_undulating, 0)) AS pct_gelombang, AVG(COALESCE(pct_steep, 0)) AS pct_curam
-        FROM f
-        GROUP BY 1, 2, 3, 4, 5, 6, 7
-        ORDER BY 1 DESC, 4 DESC, 2
-    """), query_params).mappings().all()
+    area_codes = {r["area_code"] for r in rows}
+    area_code = next(iter(area_codes)) if len(area_codes) == 1 else None
 
-    def totals(items: list[dict]) -> dict:
-        luas = sum(num(r["luas_tanam"]) for r in items)
-        trees = sum(whole(r["total_pokok"]) for r in items)
-        count = sum(r["count_records"] for r in items)
-
-        def weighted(col: str) -> float:  # rata-rata persen berbobot jumlah blok
-            return round(sum(num(r[col]) * r["count_records"] for r in items) / count, 2) if count else 0.0
-
+    def group(key: str) -> dict:
+        sums: dict = {}
+        for r in rows:
+            sums[r[key]] = sums.get(r[key], 0.0) + num(r["luas_tanam"])
         return {
-            "count_records": count,
-            "luas_tanam": round(luas, 2),
-            "luas_tanah": round(sum(num(r["luas_tanah"]) for r in items), 2),
-            "total_pokok": trees,
-            "sph": round(trees / luas, 2) if luas else 0.0,
-            "pct_tanah_datar": weighted("pct_tanah_datar"), "pct_berbukit": weighted("pct_berbukit"),
-            "pct_gelombang": weighted("pct_gelombang"), "pct_curam": weighted("pct_curam"),
+            "area_code": area_code,
+            "details": [{key: k, "luas_tanam": round(v, 2)} for k, v in sorted(sums.items())],
+            "total_luas_tanam": round(sum(sums.values()), 2),
         }
 
-    by_year: OrderedDict[int, list[dict]] = OrderedDict()
-    for r in rows:
-        by_year.setdefault(r["tahun"], []).append(dict(r))
-
-    latest_year = next(iter(by_year), None)
     return {
         "status": "success",
-        "message": "Data Areal Statement berhasil dimuat",
-        "meta": {
-            "table": "trx_areal_statement",
-            "label": "Areal Statement",
-            "mode_akumulasi": mode,
-            "grouped_by_level_1": "tahun",
-            "filter_applied": {**filter_info, "tahun_tanam": applied_tt},
-            "group_by_attributes": ["status_tanam", "bulan_tanam", "tahun_tanam", "jenis_bibit", "jenis_topografi", "jenis_tanah"],
-            "total_records": len(rows),
-            "tahun_grand_total": latest_year,
+        "message": "Data berhasil diekstrak",
+        "data": {
+            "group_tahun_tanam": group("tahun_tanam"),
+            "group_divisi": group("division_code"),
         },
-        "grand_total": {k: v for k, v in totals(by_year.get(latest_year, [])).items() if k != "count_records"},
-        "data": [
-            {
-                "tahun": year,
-                "groups": [
-                    {
-                        "group_keys": {
-                            "status_tanam": r["status_tanam"], "bulan_tanam": MONTH_ABBR.get(r["planting_month"]),
-                            "tahun_tanam": r["planting_year"], "jenis_bibit": r["jenis_bibit"],
-                            "jenis_topografi": r["jenis_topografi"], "jenis_tanah": r["jenis_tanah"],
-                        },
-                        "totals": totals([r]),
-                    }
-                    for r in items
-                ],
-            }
-            for year, items in by_year.items()
-        ],
     }

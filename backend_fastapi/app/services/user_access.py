@@ -570,8 +570,6 @@ def hidden_feature_keys(db: Session, user) -> tuple[str, ...]:
 def redact_block_detail(db: Session, user, payload: dict) -> dict:
     if transaction_keys(db, user) is None or not isinstance(payload, dict):
         return payload
-    if not transaction_granted(db, user, "trx.area_statements"):
-        payload["areal_statement"] = None
     if not transaction_granted(db, user, "trx.block_productions"):
         payload["produksi_tbs"] = None
     if not transaction_granted(db, user, "trx.harvest_rotations"):
