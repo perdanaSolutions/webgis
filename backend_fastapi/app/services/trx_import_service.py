@@ -1,5 +1,5 @@
 """
-Impor Excel transaksi ke skema trx v3:
+Impor transaksi (file Excel atau JSON lewat API) ke skema trx v3:
     areal statement -> trx.area_statements (+ trx.area_statement_seed_varieties)
     produksi TBS    -> trx.block_productions
     rotasi pusingan -> trx.harvest_rotations
@@ -11,6 +11,9 @@ dimuat lewat COPY ke tabel staging dan di-upsert dalam SATU transaksi.
 
 Blok dicari dari (estate, afdeling, kode blok); kalau kolom estate/afdeling
 tidak ada di file, dipakai kode blok saja selama kode itu unik di seluruh master.
+
+Impor JSON memakai nama kolom yang sama dengan header Excel dan melewati
+validasi + upsert yang sama persis; bedanya hanya sumber barisnya.
 """
 import re
 from collections.abc import Callable
@@ -72,6 +75,11 @@ def keep_last(rows: list[tuple[int, dict]]) -> tuple[dict | None, str]:
 
 def _period(row: dict) -> date:
     tanggal = pick(row, "Tanggal", "tanggal", "Date")
+    if isinstance(tanggal, str):  # JSON: tanggal ISO 'YYYY-MM-DD'
+        try:
+            tanggal = date.fromisoformat(tanggal.strip()[:10])
+        except ValueError:
+            pass
     month = to_month(pick(row, *MONTH_COLUMNS)) or (to_month(tanggal) if tanggal is not None else None)
     year = to_int(pick(row, *YEAR_COLUMNS)) or (getattr(tanggal, "year", None))
     if not month or not year or not 1900 <= year <= 2100:
@@ -85,10 +93,11 @@ def _non_negative(value, label: str):
     return value
 
 
-def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedupe: Deduper) -> ImportResult:
+def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedupe: Deduper,
+             first_row: int = 2) -> ImportResult:
     index = BlockIndex.load(db)
     result = ImportResult(total=len(rows))
-    for number, row in enumerate(rows, start=2):  # baris 1 = header Excel
+    for number, row in enumerate(rows, start=first_row):  # Excel: baris 1 = header; JSON: item ke-1 = baris 1
         block_code = pick(row, *BLOCK_COLUMNS)
         if clean_str(block_code) is None:
             result.invalid += 1
@@ -135,17 +144,25 @@ def _period_summary(periods: list[date]) -> dict:
             "jumlah": len(periods)}
 
 
-def _run(db: Session, *, filename: str | None, content: bytes, user_id: UUID | None, target: str, label: str,
-         build_factory: Callable[[Session], tuple[Callable[[dict], dict], dict]],
-         load: Callable[[Session, list[dict], UUID], dict], dedupe: Deduper = keep_last) -> dict:
-    rows = read_excel_rows(filename, content)
-    batch_id = start_batch(db, source_type="EXCEL_UPLOAD", target_table=target, source_name=filename,
+@dataclass(frozen=True)
+class TrxKind:
+    target: str
+    label: str
+    build_factory: Callable[[Session], tuple[Callable[[dict], dict], dict]]
+    load: Callable[[Session, list[dict], UUID], dict]
+    dedupe: Deduper = keep_last
+
+
+def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, source_name: str | None,
+         user_id: UUID | None, first_row: int) -> dict:
+    target, label = kind.target, kind.label
+    batch_id = start_batch(db, source_type=source_type, target_table=target, source_name=source_name,
                            user_id=user_id, period=None, metadata={"jenis": label})
     try:
-        build, refs = build_factory(db)
-        result = _collect(db, rows, build, dedupe)
+        build, refs = kind.build_factory(db)
+        result = _collect(db, rows, build, kind.dedupe, first_row)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
-        written = load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
+        written = kind.load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -307,9 +324,7 @@ def _load_area_statements(db: Session, rows: list[dict], batch_id: UUID) -> dict
     return counts
 
 
-def import_area_statements(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
-    return _run(db, filename=filename, content=content, user_id=user_id, target="trx.area_statements",
-                label="areal statement", build_factory=_area_statement_builder, load=_load_area_statements)
+AREA_STATEMENT = TrxKind("trx.area_statements", "areal statement", _area_statement_builder, _load_area_statements)
 
 
 # =====================================================================
@@ -368,13 +383,12 @@ def _upsert_simple(db: Session, rows: list[dict], batch_id: UUID, table: str, st
     return _upsert_changed(db, table, "_stage", columns, batch_id)
 
 
-def import_productions(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
-    ddl = ", ".join(f"{c} {'integer' if c == 'bunches_actual' else 'numeric'}" for c in _PROD_COLUMNS)
-    return _run(
-        db, filename=filename, content=content, user_id=user_id, target="trx.block_productions", label="data produksi TBS",
-        build_factory=_production_builder, dedupe=production_dedupe,
-        load=lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.block_productions", ddl, _PROD_COLUMNS),
-    )
+_PROD_DDL = ", ".join(f"{c} {'integer' if c == 'bunches_actual' else 'numeric'}" for c in _PROD_COLUMNS)
+PRODUCTION = TrxKind(
+    "trx.block_productions", "data produksi TBS", _production_builder,
+    lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.block_productions", _PROD_DDL, _PROD_COLUMNS),
+    production_dedupe,
+)
 
 
 # =====================================================================
@@ -399,10 +413,36 @@ def _rotation_builder(db: Session):
     return build, {"rotation_statuses": statuses}
 
 
+_ROT_DDL = "area_ha numeric, tree_count integer, rotation_no numeric, interval_days integer, rotation_status_id smallint"
+ROTATION = TrxKind(
+    "trx.harvest_rotations", "data rotasi & pusingan", _rotation_builder,
+    lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.harvest_rotations", _ROT_DDL, _ROT_COLUMNS),
+)
+
+
+# =====================================================================
+# PINTU MASUK: EXCEL & JSON
+# =====================================================================
+
+def import_excel(db: Session, kind: TrxKind, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
+    rows = read_excel_rows(filename, content)
+    return _run(db, kind, rows=rows, source_type="EXCEL_UPLOAD", source_name=filename, user_id=user_id, first_row=2)
+
+
+def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str | None, user_id: UUID | None) -> dict:
+    """Baris JSON memakai nama kolom yang sama dengan header Excel (spasi di tepi nama kolom diabaikan)."""
+    rows = [{str(k).strip(): v for k, v in row.items()} for row in rows]
+    return _run(db, kind, rows=rows, source_type="JSON_API", source_name=source_name or "JSON API",
+                user_id=user_id, first_row=1)
+
+
+def import_area_statements(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
+    return import_excel(db, AREA_STATEMENT, filename, content, user_id)
+
+
+def import_productions(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
+    return import_excel(db, PRODUCTION, filename, content, user_id)
+
+
 def import_rotations(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
-    ddl = "area_ha numeric, tree_count integer, rotation_no numeric, interval_days integer, rotation_status_id smallint"
-    return _run(
-        db, filename=filename, content=content, user_id=user_id, target="trx.harvest_rotations",
-        label="data rotasi & pusingan", build_factory=_rotation_builder,
-        load=lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.harvest_rotations", ddl, _ROT_COLUMNS),
-    )
+    return import_excel(db, ROTATION, filename, content, user_id)

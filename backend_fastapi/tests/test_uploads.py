@@ -287,3 +287,50 @@ def test_cleanup_period(client, auth):
     result = client.delete("/api/v1/spatial/cleanup-period", headers=auth, params={"bulan": BULAN, "tahun": TAHUN}).json()
     assert result["status"] == "success"
     assert result["detail_terhapus"]["geometri_polygon_blok"] >= 1
+
+
+def test_json_imports(client, auth, sample_block, superadmin_id, clean_trx_period):
+    base = {"UnitCode": sample_block["estate"], "DivisionCode": sample_block["division"],
+            "KodeBlok": sample_block["code"], "Bulan": BULAN, "Tahun": TAHUN}
+
+    areal = client.post("/api/v1/areal-statement/import-json", headers=auth, json={"sumber": "uji-json", "data": [
+        {**base, "AreaCode": "BERAU", "StatusTanam": "TM", "TahunTanam": "2010", "LuasTanam": "25,5",
+         "TotalPokok": 3500, " SPH ": 137},
+        {**base, "KodeBlok": "TIDAK-ADA"},
+        {"UnitCode": sample_block["estate"], "DivisionCode": sample_block["division"],
+         "KodeBlok": sample_block["code"], "StatusTanam": "TM"},  # tanpa periode
+    ]})
+    assert areal.status_code == 200, areal.text
+    details = areal.json()["details"]
+    assert details["success_count"] == 1 and details["missing_blok_count"] == 1 and details["invalid_prop_count"] == 1
+    assert details["sample_invalid_rows"] == ["baris 3: bulan/tahun periode tidak valid"]  # JSON: item ke-1 = baris 1
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT planted_area_ha, planting_year, sph FROM trx.area_statements
+            WHERE block_id = :b AND period = make_date(:t, :m, 1)
+        """), {"b": sample_block["id"], "t": TAHUN, "m": BULAN}).one()
+    assert (float(row.planted_area_ha), row.planting_year, float(row.sph)) == (25.5, 2010, 137.0)
+
+    by_date = {k: v for k, v in base.items() if k not in ("Bulan", "Tahun")}
+    production = {"data": [{**by_date, "Tanggal": f"{TAHUN}-{BULAN:02d}-15", "TbsAktual": 12000, "JanjangAktual": 600}]}
+    first = client.post("/api/v1/pokok-produksi/import-json", headers=auth, json=production).json()["details"]
+    again = client.post("/api/v1/pokok-produksi/import-json", headers=auth, json=production).json()["details"]
+    assert first["data_baru"] == 1
+    assert again["data_tidak_berubah"] == 1 and again["data_diperbarui"] == 0
+
+    rotation = client.post("/api/v1/trx-rotasi-pusingan/import-json", headers=auth, json={"data": [
+        {**base, "Rotasi": 3, "Pusingan": 9, "Luas": 25, "Pokok": 3400}]}).json()["details"]
+    assert rotation["success_count"] == 1
+
+    history = client.get("/api/v1/upload-history/", headers=auth, params={"search": "uji-json"}).json()["data"]
+    assert history[0]["jenis_sumber"] == "JSON_API" and history[0]["tabel_tujuan"] == "trx.area_statements"
+    assert history[0]["diupload_oleh"]["id"] == superadmin_id
+    batch = client.get("/api/v1/upload-history/", headers=auth,
+                       params={"source_type": "JSON_API", "target_table": "trx.block_productions", "limit": 1}).json()["data"][0]
+    assert batch["nama_file"] == "JSON API"
+
+    url = "/api/v1/areal-statement/import-json"
+    assert client.post(url, headers=auth, json={"data": []}).status_code == 422
+    assert client.post(url, headers=auth, json={"data": [{"KodeBlok": {"x": 1}}]}).status_code == 422
+    assert client.post(url, headers=auth, json=[{"KodeBlok": "A"}]).status_code == 422
+    assert client.post(url, json={"data": [base]}).status_code == 401
