@@ -1,3 +1,5 @@
+import { MAP_PAGE_CACHE, MAP_PAGE_URL, MAP_TILE_CACHE, MAP_TILE_URL } from "./utils/mapCacheSchema"
+
 export default defineNuxtConfig({
   css: ["~/src/styles/main.scss", "~/assets/css/index.css"],
   app: {
@@ -106,41 +108,34 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+      // JSON API peta tidak masuk service worker: isinya tergantung user dan
+      // disimpan lewat Cache Storage di utils/mapCacheSchema.ts.
       runtimeCaching: [
         {
-          urlPattern: "/api/filters",
-          handler: "StaleWhileRevalidate",
-          method: "GET",
-          options: {
-            cacheName: "api-filters-cache",
-            expiration: {
-              maxEntries: 20,
-              maxAgeSeconds: 60 * 10,
-            },
-          },
-        },
-        {
-          urlPattern: "/api/summary",
-          handler: "StaleWhileRevalidate",
-          method: "GET",
-          options: {
-            cacheName: "api-summary-cache",
-            expiration: {
-              maxEntries: 50,
-              maxAgeSeconds: 60 * 10,
-            },
-          },
-        },
-        {
-          urlPattern: "/api/features",
+          urlPattern: MAP_PAGE_URL,
           handler: "NetworkFirst",
           method: "GET",
           options: {
-            cacheName: "api-features-cache",
+            cacheName: MAP_PAGE_CACHE,
             networkTimeoutSeconds: 4,
             expiration: {
-              maxEntries: 50,
-              maxAgeSeconds: 60 * 5,
+              maxEntries: 4,
+              maxAgeSeconds: 60 * 60 * 24 * 7,
+            },
+          },
+        },
+        {
+          urlPattern: MAP_TILE_URL,
+          handler: "CacheFirst",
+          method: "GET",
+          options: {
+            cacheName: MAP_TILE_CACHE,
+            expiration: {
+              maxEntries: 800,
+              maxAgeSeconds: 60 * 60 * 24 * 30,
+            },
+            cacheableResponse: {
+              statuses: [0, 200],
             },
           },
         },

@@ -7,12 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
 from app.core.database import engine
-from app.core.map_cache import MapRedisCacheMiddleware
+from app.core.map_cache import MapRedisCacheMiddleware, set_store_versions_reader
 from app.core.middleware import DropEmptyQueryParamsMiddleware
 from app.core.redis_client import shutdown as close_redis
 from app.core.redis_client import startup as open_redis
 from app.core.client_ip import ClientIpMiddleware
 from app.db.ensure_activity_ip import ensure_activity_ip_required
+from app.services.data_version import ensure_data_store_versions, read_store_versions
 from app.api.v1.api import api_router
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 
@@ -20,6 +21,8 @@ from fastapi.exceptions import HTTPException as FastAPIHTTPException
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     ensure_activity_ip_required(engine)
+    ensure_data_store_versions(engine)
+    set_store_versions_reader(read_store_versions)
     await open_redis()
     yield
     await close_redis()

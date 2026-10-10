@@ -2,13 +2,14 @@ import { computed, ref, watch, type Ref } from "vue";
 
 import { useAuthStore } from "~/stores/authStore";
 import { expandTransactionGrants } from "~/utils/accessGrants";
+import { fetchMapCached } from "~/utils/mapCacheSchema";
 import { getOverlayLegend, getOverlayStyle, type LegendItem, type OverlayStyle } from "~/utils/mapLayers";
 
 /**
  * Layer data tambahan di atas peta (TPH, sawit, landuse, slope, jalan, ...).
  * Daftar diambil dari katalog backend, ditambah layer turunan "Pokok Kuning"
- * (subset sawit berkategori Kuning). Data dimuat hanya untuk layer yang aktif
- * dan dimuat ulang saat scope wilayah berubah.
+ * (subset sawit berkategori Kuning). Semua layer mulai nonaktif; GeoJSON
+ * dimuat hanya setelah dinyalakan, lalu dimuat ulang saat scope wilayah berubah.
  */
 
 export type OverlayLayer = {
@@ -41,7 +42,6 @@ const LABELS: Record<string, string> = {
   tph: "TPH", sawit: "Pokok Sawit", kuning: "Pokok Kuning", landuse: "Landuse", slope: "Slope",
   jalan: "Jalan", jembatan: "Jembatan", drainase: "Drainase",
 };
-const DEFAULT_ON = new Set(["tph", "sawit", "landuse"]);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
 function rank(code: string) {
@@ -67,9 +67,14 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
     return useRuntimeConfig().public.apiBaseUrlPython as string;
   }
 
+  function userId() {
+    return String(authStore.user?.id ?? "");
+  }
+
   async function loadCatalog() {
     const { $api } = useNuxtApp();
-    const catalog = await $api<CatalogItem[]>(`${baseUrl()}/v1/spatial/geo/catalog`).catch(() => []);
+    const url = `${baseUrl()}/v1/spatial/geo/catalog`;
+    const catalog = await fetchMapCached(userId(), url, () => $api<CatalogItem[]>(url)).catch(() => [] as CatalogItem[]);
     const seen = new Set<string>();
     const items: OverlayLayer[] = (Array.isArray(catalog) ? catalog : [])
       .filter((item) => {
@@ -83,7 +88,7 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
         const style = getOverlayStyle(item.kode, index);
         return {
           code: item.kode, name: LABELS[item.kode] ?? item.nama, geometryType: item.geometry_type, style,
-          legend: getOverlayLegend(style), endpoint: item.endpoints!.geojson!, enabled: DEFAULT_ON.has(item.kode),
+          legend: getOverlayLegend(style), endpoint: item.endpoints!.geojson!, enabled: false,
           loading: false, count: null, period: "", error: "", data: null,
         };
       });
@@ -109,9 +114,15 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
       const { $api } = useNuxtApp();
       const query = new URLSearchParams();
       const params = scopeParams.value;
-      Object.entries(params).forEach(([k, v]) => v && query.set(k, v));
+      Object.entries(params).forEach(([k, v]) => {
+        if (k === "bulan" || k === "tahun") return;
+        if (v) query.set(k, v);
+      });
+      if (params.bulan) query.set("bulan", params.bulan);
+      query.set("tahun", params.tahun || String(new Date().getFullYear()));
       const qs = query.toString();
-      const res = await $api<GeoJSON.FeatureCollection>(`${baseUrl()}/v1/spatial${layer.endpoint}${qs ? `?${qs}` : ""}`);
+      const url = `${baseUrl()}/v1/spatial${layer.endpoint}${qs ? `?${qs}` : ""}`;
+      const res = await fetchMapCached(userId(), url, () => $api<GeoJSON.FeatureCollection>(url));
       if (sequence.get(layer.code) !== seq || !layer.enabled) return;
       let features = Array.isArray(res?.features) ? res.features : [];
       if (layer.filter) features = features.filter((f) => layer.filter!((f.properties ?? {}) as Record<string, any>));
@@ -146,9 +157,22 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
     layers.value.filter((l) => l.enabled).forEach((l) => void load(l));
   }
 
+  /** Matikan semua layer tambahan dan batalkan GeoJSON yang sedang dimuat. */
+  function disableAll() {
+    for (const layer of layers.value) {
+      sequence.set(layer.code, (sequence.get(layer.code) ?? 0) + 1);
+      layer.enabled = false;
+      layer.loading = false;
+      layer.data = null;
+      layer.count = null;
+      layer.period = "";
+      layer.error = "";
+    }
+  }
+
   watch(scopeParams, reloadEnabled, { deep: true });
 
   const activeCount = computed(() => layers.value.filter((l) => l.enabled).length);
 
-  return { layers, activeCount, loadCatalog, toggle, reloadEnabled };
+  return { layers, activeCount, loadCatalog, toggle, reloadEnabled, disableAll };
 }

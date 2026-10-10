@@ -23,6 +23,8 @@ const props = defineProps<{
   blocks: BlockCollection | null;
   selectedId: string;
   showBlocks: boolean;
+  /** Garis batas saja. Pewarnaan kategori yield baru dipakai saat ini nyala. */
+  showYieldGap: boolean;
   overlays: OverlayLayer[];
   basemap: BasemapKey;
   opacity: number; // 0..1
@@ -46,6 +48,7 @@ let labelLayer: import("leaflet").LayerGroup | null = null;
 let selectedTag: import("leaflet").Marker | null = null;
 let pointRenderer: import("leaflet").Canvas | null = null;
 const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
+let slopeLabelLayer: import("leaflet").LayerGroup | null = null;
 const popupLoadSeq = new Map<string, number>();
 const popupCache = new Map<string, { bulan: string; tahun: string; popupData: BlokPopupData }>();
 let panOnSelect = true;
@@ -54,6 +57,9 @@ let skipViewAdjust = false;
 let rebuilding = false;
 
 const LABEL_MIN_ZOOM = 14;
+const SLOPE_LABEL_MIN_ZOOM = 12;
+/** Garis batas blok tanpa pewarnaan yield: abu-abu terang agar terbaca di citra satelit. */
+const BOUNDARY_STROKE = "#d4d4d4";
 const HIDDEN_POPUP_KEYS = new Set(["id", "blok_id", "block_id", "afd_id", "bulan", "tahun", "geometry", "geom"]);
 const POPUP_LABELS: Record<string, string> = {
   objectid: "Object ID", tph_id: "ID TPH", kategori: "Kategori", diameter: "Diameter", jarak: "Jarak",
@@ -304,6 +310,7 @@ function featureProperties(feature: { properties?: Record<string, any> | null } 
 }
 
 function budgetFill(properties: Record<string, any> | null | undefined) {
+  if (!props.showYieldGap) return null;
   const category = readBudgetCategory(properties);
   if (!category || props.budgetColors?.[category] === false) return null;
   return BUDGET_GAP_COLOR[category] ?? null;
@@ -314,14 +321,29 @@ function blockStyle(feature: { properties?: Record<string, any> | null } | null 
   const selected = String(properties.blok_id ?? "") === props.selectedId;
   const fill = budgetFill(properties);
   const opacity = props.opacity > 0 ? props.opacity : 1;
+  if (!fill) {
+    return {
+      pane: "bp-blocks",
+      color: selected ? "#ffffff" : BOUNDARY_STROKE,
+      weight: selected ? 3.6 : 2.6,
+      opacity: 1,
+      fill: true,
+      fillColor: BOUNDARY_STROKE,
+      fillOpacity: 0,
+      lineJoin: "round" as const,
+      lineCap: "round" as const,
+    };
+  }
   return {
     pane: "bp-blocks",
     color: "#ffffff",
     weight: selected ? 3.5 : 1.4,
     opacity: 1,
     fill: true,
-    fillColor: fill ?? "#ffffff",
-    fillOpacity: fill ? (selected ? 0.78 : 0.62) * opacity : selected ? 0.06 * opacity : 0.02,
+    fillColor: fill,
+    fillOpacity: (selected ? 0.78 : 0.62) * opacity,
+    lineJoin: "round" as const,
+    lineCap: "round" as const,
   };
 }
 
@@ -471,9 +493,72 @@ function overlayPopup(layer: OverlayLayer, properties: Record<string, any>) {
   return `<div class="bp-popup"><div class="bp-popup-title"><span class="bp-dot" style="background:${escapeHtml(layer.style.defaultColor)}"></span>${escapeHtml(layer.name)}${period}</div>${body}</div>`;
 }
 
+function slopeClassLabel(value: string) {
+  const text = value.trim().replace(/%/g, "");
+  return text ? `${text}%` : "";
+}
+
+function clearSlopeLabels() {
+  slopeLabelLayer?.removeFrom(map!);
+  slopeLabelLayer = null;
+}
+
+/** Satu label per blok, di tengah kumpulan poligon slope blok itu. */
+function renderSlopeLabels(geo: import("leaflet").GeoJSON) {
+  if (!Lf || !map) return;
+  clearSlopeLabels();
+  const groups = new Map<string, { kode: string; classes: Set<string>; lat: number; lng: number; n: number }>();
+  geo.eachLayer((layer: any) => {
+    const feature = layer.feature as GeoJSON.Feature | undefined;
+    const properties = (feature?.properties ?? {}) as Record<string, any>;
+    const kode = String(properties.kode_blok ?? "").trim();
+    const id = String(properties.blok_id ?? `${properties.kode_est ?? ""}|${properties.kode_afd ?? ""}|${kode}`);
+    const bounds = layer.getBounds?.() as import("leaflet").LatLngBounds | undefined;
+    if (!bounds?.isValid?.()) return;
+    const center = bounds.getCenter();
+    const kelas = String(properties.kelerengan ?? "").trim();
+    const current = groups.get(id);
+    if (!current) {
+      groups.set(id, { kode, classes: new Set(kelas ? [kelas] : []), lat: center.lat, lng: center.lng, n: 1 });
+      return;
+    }
+    current.n += 1;
+    current.lat += center.lat;
+    current.lng += center.lng;
+    if (kelas) current.classes.add(kelas);
+  });
+
+  slopeLabelLayer = Lf.layerGroup();
+  groups.forEach((group) => {
+    const classes = [...group.classes];
+    const kelas = classes.length === 1 ? slopeClassLabel(classes[0] ?? "") : "";
+    const title = ["Slope", group.kode, kelas].filter(Boolean).join(" · ");
+    Lf!.marker([group.lat / group.n, group.lng / group.n], {
+      pane: "bp-labels",
+      interactive: false,
+      icon: Lf!.divIcon({
+        className: "bp-slope-label",
+        html: `<div class="bp-slope-pill">${escapeHtml(title)}</div>`,
+        iconSize: [0, 0],
+      }),
+    }).addTo(slopeLabelLayer!);
+  });
+  updateSlopeLabelVisibility();
+}
+
+function updateSlopeLabelVisibility() {
+  if (!map || !slopeLabelLayer) return;
+  const count = slopeLabelLayer.getLayers().length;
+  const zoom = map.getZoom();
+  const visible = count > 0 && (count <= 80 || zoom >= SLOPE_LABEL_MIN_ZOOM);
+  if (visible && !map.hasLayer(slopeLabelLayer)) slopeLabelLayer.addTo(map);
+  if (!visible && map.hasLayer(slopeLabelLayer)) slopeLabelLayer.removeFrom(map);
+}
+
 function renderOverlays() {
   if (!Lf || !map) return;
   const wanted = new Set(props.overlays.filter((l) => l.enabled && l.data).map((l) => l.code));
+  if (!wanted.has("slope")) clearSlopeLabels();
   overlayLayers.forEach((layer, code) => {
     if (!wanted.has(code)) {
       layer.removeFrom(map!);
@@ -488,6 +573,7 @@ function renderOverlays() {
       continue;
     }
     existing?.removeFrom(map);
+    if (layer.code === "slope") clearSlopeLabels();
     const pane = overlayPane(layer.geometryType);
     const isLine = layer.geometryType.toUpperCase().includes("LINE");
     const geo = Lf.geoJSON(layer.data, {
@@ -525,6 +611,7 @@ function renderOverlays() {
     (geo as any)._bpData = layer.data;
     geo.addTo(map);
     overlayLayers.set(layer.code, geo);
+    if (layer.code === "slope") renderSlopeLabels(geo);
   }
 }
 
@@ -548,19 +635,29 @@ function fitScope() {
   if (target?.isValid()) map.fitBounds(target, { ...padding(), maxZoom: 16 });
 }
 
-function applyInsets() {
-  if (!container.value) return;
+function placeCornerControls() {
+  if (!container.value || !map) return;
+  map.attributionControl?.setPosition("bottomleft");
   const bl = container.value.querySelector(".leaflet-bottom.leaflet-left") as HTMLElement | null;
-  // Skala ditaruh tepat di atas bar ringkasan, sejajar tepi kirinya.
-  if (bl) { bl.style.marginLeft = `${props.insets.left + 14}px`; bl.style.marginBottom = `${props.insets.bottom + 4}px`; }
+  const scale = bl?.querySelector(".leaflet-control-scale");
+  if (bl && scale) bl.insertBefore(scale, bl.firstChild);
+  if (bl) {
+    const left = props.insets.left > 48 ? props.insets.left : 12;
+    bl.style.marginLeft = `${left}px`;
+    bl.style.marginBottom = "12px";
+  }
   const br = container.value.querySelector(".leaflet-bottom.leaflet-right") as HTMLElement | null;
   if (br) {
-    br.style.left = "0px";
-    br.style.right = "auto";
-    br.style.marginRight = "0px";
-    br.style.marginLeft = `${props.insets.left + 108}px`;
-    br.style.marginBottom = `${props.insets.bottom + 4}px`;
+    br.style.left = "";
+    br.style.right = "";
+    br.style.marginLeft = "";
+    br.style.marginRight = "";
+    br.style.marginBottom = "";
   }
+}
+
+function applyInsets() {
+  placeCornerControls();
   map?.invalidateSize();
 }
 
@@ -576,8 +673,12 @@ onMounted(async () => {
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
   pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
-  Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: 120 }).addTo(map);
-  map.on("zoomend", updateLabelVisibility);
+  map.attributionControl?.setPosition("bottomleft");
+  Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: 100 }).addTo(map);
+  map.on("zoomend", () => {
+    updateLabelVisibility();
+    updateSlopeLabelVisibility();
+  });
   map.on("click", (event) => {
     const layer = blockAt(event.latlng);
     if (!layer) return;
@@ -594,6 +695,7 @@ onBeforeUnmount(() => {
   map?.remove();
   map = null;
   overlayLayers.clear();
+  slopeLabelLayer = null;
 });
 
 watch(() => props.blocks, () => renderBlocks(true));
@@ -619,6 +721,7 @@ watch(() => props.opacity, () => {
   renderSelected();
 });
 watch(() => props.budgetColors, () => renderSelected(), { deep: true });
+watch(() => props.showYieldGap, () => renderSelected());
 watch(() => props.basemap, applyBasemap);
 watch(() => props.insets, applyInsets, { deep: true });
 </script>
@@ -638,6 +741,25 @@ watch(() => props.insets, applyInsets, { deep: true });
   letter-spacing: 0.02em;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75), 0 0 6px rgba(0, 0, 0, 0.35);
+}
+
+.bp-slope-label {
+  background: none;
+  border: none;
+}
+.bp-slope-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: rgba(31, 42, 24, 0.92);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 /* Leaflet memosisikan marker lewat transform elemen luar -> geser di elemen dalam. */

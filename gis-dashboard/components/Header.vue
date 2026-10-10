@@ -4,6 +4,7 @@ import logoImage from '~/assets/image/logo-1.png'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
 import { useManagePengumumanStore, type PengumumanItem } from '~/stores/managePengumumanStore'
+import { preloadMapViewIfNeeded } from '~/utils/preloadMapView'
 
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
@@ -171,10 +172,11 @@ const announcementDate = (item: PengumumanItem) => {
   }
 }
 
-const openFavoriteMenu = async (to: string) => {
+const openFavoriteMenu = (to: string) => {
   closeFavoriteMenu()
   if (!to) return
-  await navigateTo(to)
+  preloadMapViewIfNeeded(to)
+  void navigateTo(to)
 }
 
 const toggleQuickMenu = () => {
@@ -270,6 +272,7 @@ onUnmounted(() => {
             </p>
             <button v-for="item in dashboardService.favoriteMenus" :key="`favorite-menu-${item.id}`" type="button"
               class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
+              @pointerenter="preloadMapViewIfNeeded(item.to)"
               @click="openFavoriteMenu(item.to)">
               <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" :class="item.bgClass">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="item.iconClass" fill="none"

@@ -24,6 +24,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.data_version import HISTORY, bump
+
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.copy import copy_rows
 from app.services.upload.resolvers import BlockIndex, RefResolver
@@ -163,6 +165,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         result = _collect(db, rows, build, kind.dedupe, first_row)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
         written = kind.load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
+        stored_version = bump(db, HISTORY) if result.rows else None
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -190,6 +193,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "sample_konflik": result.conflict_samples,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,
+        "versi_penyimpanan": stored_version,
     }
     if len(periods) == 1:
         db.execute(text("UPDATE audit.upload_batches SET period = :p WHERE id = :id"), {"p": periods[0], "id": str(batch_id)})

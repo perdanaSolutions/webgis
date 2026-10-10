@@ -6,13 +6,19 @@ katalog, dan layer sawit/tph/jalan/jembatan/landuse/slope/drainase) disimpan
 per user. Respons sudah difilter hak akses sebelum masuk cache, dan kunci
 memuat id user dari JWT supaya data user lain tidak tercampur.
 
-Cache dibuang (versi dinaikkan) setelah tulis yang mengubah data peta:
-upload/hapus spasial, impor areal statement, produksi, rotasi, serta
+Kunci juga memuat penghitung simpan di database (`audit.data_store_versions`):
+berapa kali GeoJSON dan transaksi histori benar-benar di-commit. Penghitung
+naik -> kunci lama tidak terbaca -> permintaan berikutnya mengambil database.
+
+Selain itu versi Redis (`gis:map:version`) naik setelah tulis HTTP yang mengubah
+data peta: upload/hapus spasial, impor areal statement, produksi, rotasi, serta
 perubahan user, role, dan hak akses wilayah.
 """
+import asyncio
 import gzip
 import hashlib
 import logging
+from collections.abc import Callable
 from urllib.parse import parse_qsl, urlencode
 
 from jwt import PyJWTError, decode
@@ -25,6 +31,7 @@ from app.core.redis_client import get_client, mark_down
 logger = logging.getLogger(__name__)
 
 # Naikkan bila bentuk JSON API peta berubah, supaya deploy tidak mengembalikan payload lama.
+# Samakan dengan MAP_CACHE_SCHEMA di gis-dashboard/utils/mapCacheSchema.ts.
 MAP_CACHE_SCHEMA = "1"
 _VERSION_KEY = "gis:map:version"
 _RAW = b"\x00"
@@ -85,10 +92,21 @@ def user_id_from_scope(scope: Scope) -> str | None:
     return str(subject) if subject else None
 
 
-def cache_digest(user_id: str, path: str, query: bytes) -> str:
+StoreVersions = tuple[int, int]
+_store_versions: Callable[[], StoreVersions] = lambda: (0, 0)
+
+
+def set_store_versions_reader(reader: Callable[[], StoreVersions] | None) -> None:
+    """`None` mengembalikan penghitung 0. Aplikasi memasang pembaca database saat nyala."""
+    global _store_versions
+    _store_versions = reader or (lambda: (0, 0))
+
+
+def cache_digest(user_id: str, path: str, query: bytes, store_versions: StoreVersions = (0, 0)) -> str:
     pairs = parse_qsl(query.decode("latin-1"), keep_blank_values=False)
     pairs.sort()
-    raw = f"{MAP_CACHE_SCHEMA}\n{user_id}\n{path}\n{urlencode(pairs)}"
+    geojson_version, history_version = store_versions
+    raw = f"{MAP_CACHE_SCHEMA}\ngeojson:{geojson_version}\nhistory:{history_version}\n{user_id}\n{path}\n{urlencode(pairs)}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -138,7 +156,7 @@ async def _read_version(client) -> int | None:
         return 0
 
 
-async def lookup(user_id: str, path: str, query: bytes) -> tuple[int | None, bytes | None]:
+async def lookup(user_id: str, path: str, query: bytes, store_versions: StoreVersions = (0, 0)) -> tuple[int | None, bytes | None]:
     """`(versi, body)` bila hit, `(versi, None)` bila miss, `(None, None)` bila Redis tidak dipakai."""
     client = await get_client()
     if client is None:
@@ -146,7 +164,7 @@ async def lookup(user_id: str, path: str, query: bytes) -> tuple[int | None, byt
     version = await _read_version(client)
     if version is None:
         return None, None
-    key = f"gis:map:v{version}:{cache_digest(user_id, path, query)}"
+    key = f"gis:map:v{version}:{cache_digest(user_id, path, query, store_versions)}"
     try:
         payload = await client.get(key)
     except Exception:
@@ -161,14 +179,14 @@ async def lookup(user_id: str, path: str, query: bytes) -> tuple[int | None, byt
         return version, None
 
 
-async def store(version: int, user_id: str, path: str, query: bytes, body: bytes) -> bool:
+async def store(version: int, user_id: str, path: str, query: bytes, body: bytes, store_versions: StoreVersions = (0, 0)) -> bool:
     ttl = int(settings.REDIS_MAP_TTL_SECONDS)
     if ttl <= 0 or len(body) > int(settings.REDIS_MAP_MAX_BYTES):
         return False
     client = await get_client()
     if client is None:
         return False
-    key = f"gis:map:v{version}:{cache_digest(user_id, path, query)}"
+    key = f"gis:map:v{version}:{cache_digest(user_id, path, query, store_versions)}"
     try:
         await client.set(key, pack_body(body), ex=ttl)
     except Exception:
@@ -214,7 +232,8 @@ class MapRedisCacheMiddleware:
             await self.app(scope, receive, send)
             return
 
-        version, cached = await lookup(user_id, path, query)
+        store_versions = await asyncio.to_thread(_store_versions)
+        version, cached = await lookup(user_id, path, query, store_versions)
         if cached is not None:
             response = Response(
                 content=cached,
@@ -241,7 +260,7 @@ class MapRedisCacheMiddleware:
             body = b"".join(chunks)
             out = headers
             if status == 200 and body and _is_json(headers):
-                saved = await store(version, user_id, path, query, body)
+                saved = await store(version, user_id, path, query, body, store_versions)
                 out = _with_cache_headers(headers, b"MISS" if saved else b"BYPASS")
             await send({"type": "http.response.start", "status": status, "headers": out})
             await send({"type": "http.response.body", "body": body, "more_body": False})

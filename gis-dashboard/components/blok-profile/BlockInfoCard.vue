@@ -14,6 +14,7 @@ const props = defineProps<{
     pokok: number;
     blokCount: number;
     filter: { pt: string; estate: string; afdeling: string; blok: string };
+    geojsonPeriod: { bulan: number | null; tahun: number } | null;
   };
   detail: Record<string, any> | null;
   loading: boolean;
@@ -32,6 +33,13 @@ function num(value: unknown, digits = 1) {
 }
 
 const status = computed(() => STATUS[props.summary.status?.toUpperCase()] ?? null);
+
+const geojsonPeriodLabel = computed(() => {
+  const period = props.summary.geojsonPeriod;
+  if (!period?.tahun) return "";
+  const month = period.bulan ? MONTHS[period.bulan - 1] : "";
+  return [month, period.tahun].filter(Boolean).join(" ");
+});
 
 const filterRows = computed(() => [
   { label: "PT", value: props.summary.filter.pt },
@@ -75,6 +83,9 @@ const rows = computed(() => {
         <TruncatedText tag="h2" class="text-[22px] font-bold leading-tight tracking-tight text-[#1f2a18] sm:text-[26px]"
           :text="summary.title || '-'" />
         <TruncatedText tag="p" class="text-14 text-[#6e7866]" :text="summary.subtitle" />
+        <p v-if="geojsonPeriodLabel" class="mt-2 text-13 leading-snug text-[#55604c]">
+          Data diambil dari GeoJSON periode terbaru: <span class="font-semibold text-[#1f2a18]">{{ geojsonPeriodLabel }}</span>.
+        </p>
       </div>
       <span v-if="status" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-12 font-semibold"
         :class="status.tone">

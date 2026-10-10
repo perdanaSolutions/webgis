@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.data_version import GEOJSON, bump
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.resolvers import BlockIndex, RefResolver
 from app.utils.geojson import geometry_to_ewkb, parse_features, prepare_geometry
@@ -342,6 +343,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
             created = cache.created
             index, cache = BlockIndex.load(db), _MasterCache.load(db)
             cache.created = created
+    stored_version = bump(db, GEOJSON) if success else None
     db.commit()
 
     status = final_status(success, len(features))
@@ -358,7 +360,10 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
     }
     finish_batch(db, batch_id, status, success,
                  last_error or (None if status == "SUCCESS" else "Sebagian data tidak valid."), {"detail_statistik": stats})
-    return {"batch_id": str(batch_id), "total_data_diproses": len(features), "status_proses": status, "detail_status": stats}
+    return {
+        "batch_id": str(batch_id), "total_data_diproses": len(features), "status_proses": status,
+        "detail_status": stats, "versi_penyimpanan": stored_version,
+    }
 
 
 def cleanup_period(db: Session, bulan: int, tahun: int, generic_tables: list[tuple[str, str]]) -> dict:
@@ -377,10 +382,12 @@ def cleanup_period(db: Session, bulan: int, tahun: int, generic_tables: list[tup
     deleted = {}
     for label, table in tables:
         deleted[label] = db.execute(text(f"DELETE FROM {quote_table(table)} WHERE period = :p"), {"p": period}).rowcount
+    stored_version = bump(db, GEOJSON) if any(deleted.values()) else None
     db.commit()
     return {
         "status": "success",
         "periode": period_label(period),
         "detail_terhapus": deleted,
+        "versi_penyimpanan": stored_version,
         "catatan": "Master PT/estate/afdeling/blok tidak dihapus karena di gis_db_v3 master tidak berperiode.",
     }

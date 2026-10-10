@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.services.block_filter import BlockFilter
 from app.services.layers.specs import SAWIT_LABEL
 from app.services.map_service import resolve_period
+from app.services.data_version import GEOJSON, bump
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -175,6 +176,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
                 SELECT pt.id, :p, s.block_id, s.category_id, s.diameter, s.spacing, :batch
                 FROM _sawit_stage s JOIN spatial.palm_trees pt USING (objectid)
             """), {"p": period, "batch": str(batch_id)})
+        stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -196,7 +198,10 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
     }
     error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} data tidak diunggah."
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})
-    return {"batch_id": str(batch_id), "total_data_sawit_diproses": prepared.total, "status_proses": status, "detail_status": stats}
+    return {
+        "batch_id": str(batch_id), "total_data_sawit_diproses": prepared.total, "status_proses": status,
+        "detail_status": stats, "versi_penyimpanan": stored_version,
+    }
 
 
 _SELECT = """
@@ -297,5 +302,6 @@ def geojson(db: Session, flt: BlockFilter, bulan: int | None, tahun: int | None)
 def cleanup(db: Session, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
     deleted = db.execute(text(f"DELETE FROM {TABLE} WHERE period = :p"), {"p": period}).rowcount
+    stored_version = bump(db, GEOJSON) if deleted else None
     db.commit()
-    return {"jenis": "sawit", "periode": period_label(period), "data_terhapus": deleted}
+    return {"jenis": "sawit", "periode": period_label(period), "data_terhapus": deleted, "versi_penyimpanan": stored_version}

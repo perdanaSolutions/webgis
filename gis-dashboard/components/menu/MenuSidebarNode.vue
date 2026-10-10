@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { dashboardStore, type ModuleItem } from "~/stores/dashboardStore";
+import { preloadMapViewIfNeeded } from "~/utils/preloadMapView";
 
 defineOptions({
   name: "MenuSidebarNode",
@@ -36,10 +37,11 @@ function toggle(item: ModuleItem, index: number) {
   expanded.value[key] = !expanded.value[key];
 }
 
-async function openItem(item: ModuleItem) {
+function openItem(item: ModuleItem) {
   if (!item.to) return;
-  await navigateTo(item.to);
+  preloadMapViewIfNeeded(item.to);
   emit("navigate");
+  void navigateTo(item.to);
 }
 
 function onPrimaryClick(item: ModuleItem, index: number) {
@@ -65,6 +67,7 @@ function onPrimaryClick(item: ModuleItem, index: number) {
           class="menu-sidebar-btn group flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200 hover-bg-cream"
           :class="isExpanded(item, index) ? 'bg-cream' : ''"
           :aria-expanded="item.children?.length ? isExpanded(item, index) : undefined"
+          @pointerenter="item.to && preloadMapViewIfNeeded(item.to)"
           @click="onPrimaryClick(item, index)"
         >
           <div

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.services.block_filter import BlockFilter
 from app.services.layers.specs import Column, LayerSpec
 from app.services.map_service import resolve_period
+from app.services.data_version import GEOJSON, bump
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -209,6 +210,7 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
             copy_rows(db, quote_table(spec.table), columns, (
                 [r["block_id"], period, *(r[c.column] for c in spec.columns), r["geom"], batch_id] for r in prepared.rows
             ))
+        stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -226,6 +228,7 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
         f"total_data_{spec.code}_diproses": prepared.total,
         "status_proses": status,
         "detail_status": stats,
+        "versi_penyimpanan": stored_version,
     }
 
 
@@ -295,6 +298,7 @@ def geojson(db: Session, spec: LayerSpec, flt: BlockFilter, bulan: int | None, t
 def cleanup(db: Session, spec: LayerSpec, bulan: int, tahun: int) -> dict:
     period = to_period(bulan, tahun)
     deleted = db.execute(text(f"DELETE FROM {quote_table(spec.table)} WHERE period = :p"), {"p": period}).rowcount
+    stored_version = bump(db, GEOJSON) if deleted else None
     db.commit()
-    return {"jenis": spec.code, "periode": period_label(period), "data_terhapus": deleted}
+    return {"jenis": spec.code, "periode": period_label(period), "data_terhapus": deleted, "versi_penyimpanan": stored_version}
 

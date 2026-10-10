@@ -3,9 +3,10 @@ import { computed } from "vue";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
-import { BASEMAPS, type BasemapKey } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey } from "~/utils/mapLayers";
+import { BULAN_POPUP_OPTIONS } from "~/utils/mapBlokPopup";
 
-type FieldKey = "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership" | "tahunTanam";
+type FieldKey = "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
 
 const props = defineProps<{
   areaOptions: Option[];
@@ -14,19 +15,20 @@ const props = defineProps<{
   afdelingOptions: Option[];
   blokOptions: Option[];
   ownershipOptions: Option[];
-  tahunTanamOptions: Option[];
   area: string;
   pt: string;
   estate: string;
   afdeling: string;
   blokId: string;
   ownership: string;
-  tahunTanam: string;
+  bulan: string;
+  tahun: string;
   scopeLevel: ScopeLevel;
   blockCount: number;
   loading: boolean;
   layers: OverlayLayer[];
   showBlocks: boolean;
+  showYieldGap: boolean;
   basemap: BasemapKey;
   opacity: number; // 0..100
   /** Hanya superadmin@plantation.com. User biasa tidak melihat opsi "semua". */
@@ -38,11 +40,12 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:tahunTanam", value: string): void;
+  (e: "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:bulan" | "update:tahun", value: string): void;
   (e: "apply"): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
+  (e: "toggle-yield-gap"): void;
   (e: "update:basemap", value: BasemapKey): void;
   (e: "update:opacity", value: number): void;
 }>();
@@ -56,8 +59,19 @@ const SCOPE_TEXT: Record<ScopeLevel, string> = {
   blok: "Blok",
 };
 
+const monthOptions = [{ label: "Semua bulan", value: "" }, ...BULAN_POPUP_OPTIONS];
+const yearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  return Array.from({ length: 11 }, (_, index) => {
+    const value = String(current - index);
+    return { label: value, value };
+  });
+});
+
 const scopeInfo = computed(() => {
-  const extra = [props.ownership, props.tahunTanam ? `tahun tanam ${props.tahunTanam}` : ""].filter(Boolean);
+  const month = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
+  const periode = [month, props.tahun].filter(Boolean).join(" ");
+  const extra = [props.ownership, periode].filter(Boolean);
   const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
   const base = props.scopeLevel === "blok"
     ? `Pilihan: Blok${suffix}`
@@ -65,8 +79,8 @@ const scopeInfo = computed(() => {
   return `${base}. Tekan Apply Filter untuk memuat peta dan data transaksi.`;
 });
 
-const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0));
-const totalCount = computed(() => props.layers.length + 1);
+const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0) + (props.showYieldGap ? 1 : 0));
+const totalCount = computed(() => props.layers.length + 2);
 
 function unitOf(type: string) {
   const t = type.toUpperCase();
@@ -92,7 +106,6 @@ const fields = computed(() => {
     { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: all ? "Semua afdeling" : "Pilih afdeling", disabled: !props.estate },
     { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: all ? "Semua blok" : "Pilih blok", disabled: !props.afdeling },
     { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
-    { key: "tahunTanam" as const, label: "Tahun Tanam", value: props.tahunTanam, options: props.tahunTanamOptions, placeholder: "Semua tahun tanam", disabled: false },
   ];
 });
 
@@ -126,14 +139,34 @@ function onField(key: FieldKey, value: unknown) {
           :disabled="loading" @click="emit('reset')">Reset</button>
       </div>
 
-      <label v-for="field in fields" :key="`${filterGeneration}-${field.key}`" class="mb-3 block w-full">
-        <span class="bp-label">{{ field.label }}</span>
-        <v-autocomplete class="bp-autocomplete" :model-value="field.value || null" :items="itemsOf(field)"
-          item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading"
-          variant="solo" flat density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
-          menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-          :menu-props="{ contentClass: 'bp-filter-menu' }" @update:model-value="onField(field.key, $event)" />
-      </label>
+      <template v-for="field in fields" :key="`${filterGeneration}-${field.key}`">
+        <label class="mb-3 block w-full">
+          <span class="bp-label">{{ field.label }}</span>
+          <v-autocomplete class="bp-autocomplete" :model-value="field.value || null" :items="itemsOf(field)"
+            item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading"
+            variant="solo" flat density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
+            menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+            :menu-props="{ contentClass: 'bp-filter-menu' }" @update:model-value="onField(field.key, $event)" />
+        </label>
+
+        <div v-if="field.key === 'ownership'" class="mb-3">
+          <span class="bp-label">Periode</span>
+          <div class="grid grid-cols-2 gap-2">
+            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
+              item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
+              density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
+              menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+              :menu-props="{ contentClass: 'bp-filter-menu' }"
+              @update:model-value="emit('update:bulan', $event == null ? '' : String($event))" />
+            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahun || null" :items="yearOptions"
+              item-title="label" item-value="value" placeholder="Tahun" :disabled="loading" variant="solo" flat
+              density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
+              menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+              :menu-props="{ contentClass: 'bp-filter-menu' }"
+              @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
+          </div>
+        </div>
+      </template>
 
       <div class="mt-4 flex items-start gap-2 rounded-xl bg-[#eef3e7] px-3.5 py-3 text-13 text-[#55604c]">
         <svg viewBox="0 0 24 24" class="mt-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
@@ -181,6 +214,31 @@ function onField(key: FieldKey, value: unknown) {
           </div>
           <button type="button" role="switch" :aria-checked="showBlocks" aria-label="Batas Blok" class="bp-switch"
             :class="showBlocks && 'is-on'" @click="emit('toggle-blocks')"><span /></button>
+        </li>
+
+        <li class="border-t border-[#e4eadc] pt-2">
+          <div class="bp-layer-row">
+            <span class="bp-layer-icon text-[#6e7866]">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linejoin="round" d="m12 3 8 4.5-8 4.5L4 7.5 12 3Z" />
+                <path d="M5 13.5c2.2 1.2 4.6 1.2 7 0s4.8-1.2 7 0" />
+                <path d="M5 17.5c2.2 1.2 4.6 1.2 7 0s4.8-1.2 7 0" />
+              </svg>
+            </span>
+            <div class="min-w-0 flex-1" :class="!showYieldGap && 'opacity-60'">
+              <p class="bp-layer-name">Yield Gap</p>
+              <p class="bp-layer-sub">{{ showYieldGap ? "Blok diwarnai menurut kategori yield" : "Mati · batas blok tetap garis abu-abu" }}</p>
+            </div>
+            <button type="button" role="switch" :aria-checked="showYieldGap" aria-label="Yield Gap" class="bp-switch"
+              :class="showYieldGap && 'is-on'" @click="emit('toggle-yield-gap')"><span /></button>
+          </div>
+          <ul v-if="showYieldGap" class="mb-2 ml-12 space-y-1.5 pr-1">
+            <li v-for="item in BUDGET_GAP_LAYERS" :key="item.key" class="flex items-center gap-2 text-12 text-[#55604c]">
+              <span class="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />
+              <span class="font-semibold text-[#1f2a18]">{{ item.label }}</span>
+              <span class="truncate">{{ item.hint }}</span>
+            </li>
+          </ul>
         </li>
 
         <li v-for="layer in layers" :key="layer.code" class="bp-layer-row">

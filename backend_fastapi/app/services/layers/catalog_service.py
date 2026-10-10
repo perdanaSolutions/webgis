@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, conflict, not_found
 from app.services.block_filter import BlockFilter
 from app.services.map_service import resolve_period
+from app.services.data_version import GEOJSON, bump
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -543,6 +544,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
                 [*([r["block_id"]] if layer["relasi_blok"] else []), period, *(r.get(c) for c in attr), r["geom"], batch_id]
                 for r in rows
             ))
+        stored_version = bump(db, GEOJSON) if rows else None
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -561,7 +563,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
     finish_batch(db, batch_id, status, success,
                  None if status == "SUCCESS" else f"{stats['total'] - success} data tidak diunggah.", {"detail_statistik": detail})
     return {"batch_id": str(batch_id), "jenis": layer["kode"], "total_data_diproses": stats["total"],
-            "status_proses": status, "detail_status": detail}
+            "status_proses": status, "detail_status": detail, "versi_penyimpanan": stored_version}
 
 
 # Kode hierarki blok diberi alias berawalan "_" supaya tidak bentrok dengan kolom atribut
@@ -643,5 +645,6 @@ def generic_cleanup(db: Session, layer: dict, bulan: int, tahun: int) -> dict:
     deleted = db.execute(
         text(f"DELETE FROM {quote_table(layer['table_name'])} WHERE period = :p"), {"p": period}
     ).rowcount
+    stored_version = bump(db, GEOJSON) if deleted else None
     db.commit()
-    return {"jenis": layer["kode"], "periode": period_label(period), "data_terhapus": deleted}
+    return {"jenis": layer["kode"], "periode": period_label(period), "data_terhapus": deleted, "versi_penyimpanan": stored_version}

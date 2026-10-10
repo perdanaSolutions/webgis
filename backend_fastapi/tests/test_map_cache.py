@@ -11,6 +11,7 @@ from app.core.map_cache import (
     is_map_invalidation,
     is_map_read,
     pack_body,
+    set_store_versions_reader,
     unpack_body,
 )
 from app.core.redis_client import set_client_override
@@ -87,6 +88,7 @@ def cached_app():
     client = TestClient(app)
     yield client, fake, calls
     set_client_override(None)
+    set_store_versions_reader(None)
 
 
 def test_read_and_write_policy():
@@ -114,6 +116,22 @@ def test_query_order_does_not_change_key():
     path = "/api/v1/spatial/geojson"
     assert cache_digest(user, path, b"b=2&a=1") == cache_digest(user, path, b"a=1&b=2")
     assert cache_digest(user, path, b"a=1") != cache_digest("user-2", path, b"a=1")
+    assert cache_digest(user, path, b"a=1", (1, 3)) != cache_digest(user, path, b"a=1", (2, 3))
+    assert cache_digest(user, path, b"a=1", (1, 3)) != cache_digest(user, path, b"a=1", (1, 4))
+
+
+def test_new_store_version_is_not_served_from_old_cache(cached_app):
+    client, _fake, calls = cached_app
+    current = {"value": (3, 1)}
+    set_store_versions_reader(lambda: current["value"])
+    headers = {"Authorization": f"Bearer {_token('user-a')}"}
+    first = client.get("/api/v1/spatial/geojson", headers=headers)
+    assert first.headers["x-cache"] == "MISS"
+    current["value"] = (4, 1)
+    fresh = client.get("/api/v1/spatial/geojson", headers=headers)
+    assert fresh.headers["x-cache"] == "MISS"
+    assert fresh.json()["n"] == 2
+    assert calls["n"] == 2
 
 
 def test_pack_roundtrip_compresses_large_json():
