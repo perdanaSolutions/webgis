@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import "~/assets/css/blok-profile.css";
 import AreaStatementCard from "~/components/blok-profile/AreaStatementCard.vue";
 import BlockInfoCard from "~/components/blok-profile/BlockInfoCard.vue";
 import BlokProfileMap from "~/components/blok-profile/BlokProfileMap.vue";
+import BlokProfilePrintSheet from "~/components/blok-profile/BlokProfilePrintSheet.vue";
 import FilterPanel from "~/components/blok-profile/FilterPanel.vue";
 import ProductionChartCard from "~/components/blok-profile/ProductionChartCard.vue";
 import ProductionGapCard from "~/components/blok-profile/ProductionGapCard.vue";
@@ -16,6 +17,7 @@ import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
 import { isAccessTokenExpired } from "~/utils/authSession";
 
@@ -30,6 +32,13 @@ const overlays = useMapOverlays(computed(() => ({ ...store.scopeParams })));
 const layers = overlays.layers;
 
 const mapRef = shallowRef<InstanceType<typeof BlokProfileMap> | null>(null);
+const printSheetRef = ref<{ sections: () => HTMLElement[] } | null>(null);
+const loaderRef = ref<HTMLElement | null>(null);
+const exporting = ref(false);
+const exportStatus = ref("Menyiapkan peta…");
+const exportError = ref("");
+let exportOverflow = "";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
 // ------------------------------------------------------------------ header
 const activeModule = computed(() =>
@@ -158,19 +167,97 @@ async function onResetFilters() {
   await store.reset();
 }
 
-function downloadGeoJSON() {
-  const features = [
-    ...(showBlocks.value ? store.blockFeatures.map((f) => ({ ...f, properties: { layer: "batas_blok", ...f.properties } })) : []),
-    ...layers.value.filter((l) => l.enabled && l.data).flatMap((l) =>
-      l.data!.features.map((f) => ({ ...f, properties: { layer: l.code, ...(f.properties ?? {}) } }))),
-  ];
-  const blob = new Blob([JSON.stringify({ type: "FeatureCollection", features })], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `blok-profile-${store.scopeLabel.replace(/[^\w-]+/g, "_").toLowerCase()}.geojson`;
-  link.click();
-  URL.revokeObjectURL(url);
+const pdfFilterLine = computed(() => {
+  const filter = store.summary.filter;
+  const ownership = store.ownershipOptions.find((item) => item.value === store.ownership)?.label || "Semua";
+  const month = store.bulan ? MONTHS[Number(store.bulan) - 1] ?? store.bulan : "Semua bulan";
+  const year = store.tahun || String(new Date().getFullYear());
+  return `PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
+});
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForExportData() {
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const slope = layers.value.find((layer) => layer.code === "slope");
+    const busy = layers.value.some((layer) => layer.enabled && layer.loading)
+      || store.loadingBlocks
+      || (!!store.blokId && store.loadingDetail)
+      || (store.canViewProduction && (store.blokId ? store.loadingDetail : store.loadingProduction))
+      || (store.canViewAreaStatement && (store.blokId ? store.loadingDetail : store.loadingAreaStatement))
+      || (store.canViewRotation && (store.blokId ? store.loadingDetail : store.loadingRotation))
+      || Boolean(slope?.enabled && slope.loading);
+    if (!busy) return;
+    await sleep(150);
+  }
+}
+
+function closeExportError() {
+  document.documentElement.style.overflow = exportOverflow;
+  exportError.value = "";
+  exporting.value = false;
+}
+
+function onExportKeydown(event: KeyboardEvent) {
+  if (!exporting.value) return;
+  if (exportError.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeExportError();
+    }
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+async function downloadPdf() {
+  if (exporting.value) return;
+  exporting.value = true;
+  exportError.value = "";
+  exportStatus.value = "Menunggu data peta…";
+  exportOverflow = document.documentElement.style.overflow;
+  document.documentElement.style.overflow = "hidden";
+  await nextTick();
+  loaderRef.value?.focus();
+  try {
+    await waitForExportData();
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    exportStatus.value = "Menggambar peta dan informasi…";
+    await exportBlokProfilePdf({
+      scopeLabel: store.scopeLabel,
+      filterLine: pdfFilterLine.value,
+      printedAt: new Date().toLocaleString("id-ID"),
+      basemap: basemap.value,
+      showBlocks: showBlocks.value,
+      showYieldGap: showYieldGap.value,
+      budgetColors: { ...budgetColors.value },
+      selectedId: store.blokId,
+      blocks: showBlocks.value ? store.visibleBlocks : null,
+      overlays: layers.value.filter((layer) => layer.enabled && layer.data).map((layer) => ({
+        code: layer.code,
+        name: layer.name,
+        geometryType: layer.geometryType,
+        style: layer.style,
+        legend: layer.legend,
+        data: layer.data!,
+      })),
+      sections: printSheetRef.value?.sections() ?? [],
+      onStatus: (message) => { exportStatus.value = message; },
+    });
+  } catch (error) {
+    console.error(error);
+    exportError.value = "PDF gagal dibuat. Periksa koneksi, lalu coba lagi.";
+  } finally {
+    if (!exportError.value) {
+      document.documentElement.style.overflow = exportOverflow;
+      exporting.value = false;
+    }
+  }
 }
 
 onMounted(async () => {
@@ -185,6 +272,7 @@ onMounted(async () => {
   mqDesktop.addEventListener("change", syncLayout);
   mqMobile.addEventListener("change", syncLayout);
   window.addEventListener("keydown", onKeydown);
+  window.addEventListener("keydown", onExportKeydown, true);
   if (stageRef.value && typeof ResizeObserver !== "undefined") {
     stageObserver = new ResizeObserver(() => syncLayout());
     stageObserver.observe(stageRef.value);
@@ -208,9 +296,11 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  if (exporting.value) document.documentElement.style.overflow = exportOverflow;
   mqDesktop?.removeEventListener("change", syncLayout);
   mqMobile?.removeEventListener("change", syncLayout);
   window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("keydown", onExportKeydown, true);
   window.removeEventListener("online", syncOnline);
   window.removeEventListener("offline", syncOnline);
   stageObserver?.disconnect();
@@ -239,7 +329,8 @@ onBeforeUnmount(() => {
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         <button type="button" class="bp-btn max-sm:w-9 max-sm:justify-center max-sm:px-0"
-          title="Unduh batas blok & layer aktif sebagai GeoJSON" aria-label="Unduh peta" @click="downloadGeoJSON">
+          title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
+          :aria-busy="exporting" @click="downloadPdf">
           <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"
             aria-hidden="true">
             <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
@@ -463,5 +554,35 @@ onBeforeUnmount(() => {
         </div>
       </aside>
     </div>
+
+    <Teleport to="body">
+    <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel" :filter-line="pdfFilterLine"
+      :summary="store.summary" :detail="store.detail" :loading-detail="store.loadingDetail"
+      :can-view-production="store.canViewProduction" :production-years="store.productionYears"
+      :production-loading="store.blokId ? store.loadingDetail : store.loadingProduction"
+      :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
+      :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
+      :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
+      :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
+      :area-statement="store.areaStatementView"
+      :area-loading="store.blokId ? store.loadingDetail : store.loadingAreaStatement"
+      :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
+      :rotation-loading="store.blokId ? store.loadingDetail : store.loadingRotation" />
+
+    <div v-if="exporting" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
+      aria-labelledby="bp-pdf-loader-title" tabindex="-1">
+      <div class="bp-pdf-loader-panel">
+        <span v-if="!exportError" class="bp-pdf-spinner" aria-hidden="true" />
+        <h2 id="bp-pdf-loader-title" class="text-16 font-bold text-[#1f2a18]">
+          {{ exportError ? "Unduhan gagal" : "Menyiapkan peta" }}
+        </h2>
+        <p class="max-w-[280px] text-center text-13 leading-snug text-[#55604c]">
+          {{ exportError || exportStatus }}
+        </p>
+        <div v-if="!exportError" class="bp-pdf-bar" aria-hidden="true"><span /></div>
+        <button v-else type="button" class="bp-btn mt-1" @click="closeExportError">Tutup</button>
+      </div>
+    </div>
+    </Teleport>
   </main>
 </template>

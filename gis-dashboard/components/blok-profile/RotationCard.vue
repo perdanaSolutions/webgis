@@ -4,7 +4,7 @@ import { computed, ref } from "vue";
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
 import type { RotationActivity, RotationHistory } from "~/stores/blokProfileStore";
 
-const props = defineProps<{ data: RotationHistory | null; loading: boolean }>();
+const props = defineProps<{ data: RotationHistory | null; loading: boolean; expanded?: boolean }>();
 
 const hovered = ref<number | null>(null);
 const kegiatan = computed(() => props.data?.kegiatan ?? null);
@@ -58,7 +58,7 @@ function num(value: number, digits = 1) {
 
     <div v-if="loading && !bars.length && !kegiatan?.length" class="flex h-[180px] items-center justify-center text-13 text-[#6e7866]">Memuat…</div>
     <p v-else-if="kegiatan && !kegiatan.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk periode ini.</p>
-    <ul v-else-if="kegiatan" class="max-h-[320px] space-y-0 overflow-y-auto pr-1">
+    <ul v-else-if="kegiatan" class="space-y-0 pr-1" :class="expanded ? '' : 'max-h-[320px] overflow-y-auto'">
       <li v-for="(row, index) in kegiatan" :key="`${row.tanggal}-${row.rotasi}-${index}`" class="border-t border-[#e4e8de] py-2 first:border-t-0">
         <div class="flex items-baseline justify-between gap-3">
           <p class="text-14 font-semibold text-[#1f2a18]">{{ formatTanggal(row.tanggal) }}</p>
@@ -90,7 +90,7 @@ function num(value: number, digits = 1) {
         </div>
       </div>
 
-      <ul class="mt-4 max-h-[220px] space-y-0 overflow-y-auto pr-1">
+      <ul class="mt-4 space-y-0 pr-1" :class="expanded ? '' : 'max-h-[220px] overflow-y-auto'">
         <li v-for="bar in [...bars].reverse()" :key="`row-${bar.tahun}`" class="border-t border-[#e4e8de] py-2">
           <div class="flex items-baseline justify-between gap-3">
             <p class="text-14 font-semibold text-[#1f2a18]" :class="bar.latest && 'text-[#638840]'">{{ bar.tahun }}</p>

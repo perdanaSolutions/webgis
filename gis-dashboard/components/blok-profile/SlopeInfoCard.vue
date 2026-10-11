@@ -25,6 +25,7 @@ const props = defineProps<{
   loading: boolean;
   error: string;
   period: string;
+  expanded?: boolean;
 }>();
 
 const page = ref(1);
@@ -99,6 +100,7 @@ const groups = computed(() => {
 const pageCount = computed(() => Math.max(1, Math.ceil(rows.value.length / PAGE_SIZE)));
 
 const pageRows = computed(() => {
+  if (props.expanded) return rows.value;
   const start = (page.value - 1) * PAGE_SIZE;
   return rows.value.slice(start, start + PAGE_SIZE);
 });
@@ -162,7 +164,7 @@ function go(next: number) {
         </table>
       </div>
 
-      <div class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
+      <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
         <span>{{ rangeLabel }}</span>
         <div class="flex items-center gap-1">
           <button type="button" class="slope-page" :disabled="page <= 1" aria-label="Halaman sebelumnya" @click="go(page - 1)">

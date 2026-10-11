@@ -6,12 +6,14 @@ import type { ProductionYear } from "~/stores/blokProfileStore";
 const PAGE_SIZE = 10;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
-const props = defineProps<{ years: ProductionYear[]; loading: boolean }>();
+const props = defineProps<{ years: ProductionYear[]; loading: boolean; expanded?: boolean }>();
 
 const page = ref(1);
 
 const pageCount = computed(() => Math.max(1, Math.ceil(props.years.length / PAGE_SIZE)));
-const rows = computed(() => props.years.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE));
+const rows = computed(() => (
+  props.expanded ? props.years : props.years.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE)
+));
 
 const trends = computed(() => ({
   ton: sparkline(props.years.map((row) => row.ton)),
@@ -140,7 +142,7 @@ watch(pageCount, (count) => {
         </table>
       </div>
 
-      <div class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
+      <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
         <span>{{ rangeLabel }}</span>
         <div class="flex items-center gap-1">
           <button type="button" class="hist-page" :disabled="page <= 1" aria-label="Halaman histori sebelumnya" @click="go(page - 1)">

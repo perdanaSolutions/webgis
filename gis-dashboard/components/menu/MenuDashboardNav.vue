@@ -26,7 +26,7 @@ type MenuColumn = {
 
 const openKey = ref("");
 const flipKeys = ref<Record<string, boolean>>({});
-const panelTops = ref<Record<string, string>>({});
+const panelLeft = ref("0.75rem");
 const itemEls = new Map<string, HTMLElement>();
 
 function itemKey(item: ModuleItem, index: number) {
@@ -76,15 +76,17 @@ async function placePanel(key: string) {
   const panel = itemEl?.querySelector<HTMLElement>(".menu-nav__panel");
   if (!itemEl || !panel) return;
 
-  const itemRect = itemEl.getBoundingClientRect();
-  const narrow = window.innerWidth <= 640;
-  panelTops.value = {
-    ...panelTops.value,
-    [key]: `${Math.round(itemRect.bottom)}px`,
-  };
-
-  if (narrow) {
+  if (window.innerWidth <= 1024) {
     flipKeys.value = { ...flipKeys.value, [key]: false };
+    const nav = itemEl.closest(".menu-nav");
+    if (!nav) return;
+    const navRect = nav.getBoundingClientRect();
+    const itemRect = itemEl.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const minLeft = 12;
+    const maxLeft = Math.max(minLeft, navRect.width - panelRect.width - minLeft);
+    const left = Math.min(Math.max(itemRect.left - navRect.left, minLeft), maxLeft);
+    panelLeft.value = `${Math.round(left)}px`;
     return;
   }
 
@@ -98,13 +100,6 @@ async function placePanel(key: string) {
 }
 
 function openMenu(key: string) {
-  const itemEl = itemEls.get(key);
-  if (itemEl) {
-    panelTops.value = {
-      ...panelTops.value,
-      [key]: `${Math.round(itemEl.getBoundingClientRect().bottom)}px`,
-    };
-  }
   openKey.value = key;
   void placePanel(key);
 }
@@ -125,21 +120,25 @@ function prefersHover() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
+function usesTapMenu() {
+  return !prefersHover() || window.matchMedia("(max-width: 1024px)").matches;
+}
+
 function onTriggerClick(item: ModuleItem, key: string, event: MouseEvent) {
   if (!hasChildren(item)) return;
-  if (prefersHover() && item.to) return;
-  if (!prefersHover() && item.to && openKey.value === key) return;
+  if (!usesTapMenu()) return;
+  if (item.to && openKey.value === key) return;
   event.preventDefault();
   toggleMenu(key);
 }
 
 function onPointerEnter(key: string) {
-  if (!prefersHover()) return;
+  if (usesTapMenu()) return;
   openMenu(key);
 }
 
 function onPointerLeave() {
-  if (!prefersHover()) return;
+  if (usesTapMenu()) return;
   closeMenu();
 }
 
@@ -160,8 +159,11 @@ function onResize() {
   if (openKey.value) void placePanel(openKey.value);
 }
 
-function onScroll() {
-  if (openKey.value) closeMenu();
+function onScroll(event: Event) {
+  if (!openKey.value) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest(".menu-nav__panel")) return;
+  closeMenu();
 }
 
 onMounted(() => {
@@ -180,7 +182,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <nav class="menu-nav" aria-label="Menu modul">
+  <nav class="menu-nav" :style="{ '--menu-panel-left': panelLeft }" aria-label="Menu modul">
     <p v-if="props.loading && !props.items.length" class="menu-nav__empty">Memuat menu...</p>
     <p v-else-if="!props.items.length" class="menu-nav__empty">Menu belum tersedia.</p>
     <ul v-else class="menu-nav__list">
@@ -209,8 +211,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <div v-if="hasChildren(item)" class="menu-nav__panel"
-          :style="{ '--menu-panel-top': panelTops[itemKey(item, index)] || '0px' }" :class="{
+        <div v-if="hasChildren(item)" class="menu-nav__panel" :class="{
             'is-flip': flipKeys[itemKey(item, index)],
             'is-single': columnsFor(item).length === 1 && !columnsFor(item)[0]?.title,
           }">
@@ -291,6 +292,12 @@ onUnmounted(() => {
 
 .menu-nav__item {
   position: relative;
+  z-index: 1;
+}
+
+.menu-nav__item.is-open,
+.menu-nav__item:focus-within {
+  z-index: 6;
 }
 
 .menu-nav__trigger {
@@ -371,6 +378,10 @@ onUnmounted(() => {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .menu-nav__item:hover {
+    z-index: 6;
+  }
+
   .menu-nav__item:hover > .menu-nav__panel {
     visibility: visible;
     opacity: 1;
@@ -469,25 +480,61 @@ onUnmounted(() => {
   }
 }
 
-@media (max-width: 640px) {
-  .menu-nav__list {
-    flex-wrap: nowrap;
-    justify-content: safe center;
-    overflow-x: auto;
+@media (max-width: 1024px) {
+  .menu-nav:has(.menu-nav__item.is-open),
+  .menu-nav:has(.menu-nav__item:focus-within) {
+    z-index: 40;
   }
 
+  .menu-nav__list {
+    overflow: visible;
+  }
+
+  .menu-nav__item.is-open,
+  .menu-nav__item:focus-within {
+    position: static;
+  }
+
+  .menu-nav__item:hover > .menu-nav__panel {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .menu-nav__item.is-open > .menu-nav__panel,
+  .menu-nav__item:focus-within > .menu-nav__panel,
+  .menu-nav__item.is-open > .menu-nav__panel.is-flip,
+  .menu-nav__item:focus-within > .menu-nav__panel.is-flip {
+    position: absolute;
+    top: 100%;
+    right: auto;
+    left: var(--menu-panel-left, 0.75rem);
+    z-index: 30;
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 0;
+    max-width: calc(100% - 1.5rem);
+    max-height: min(70dvh, 32rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .menu-nav__panel .menu-nav__column,
+  .menu-nav__panel .menu-nav__link {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
   .menu-nav__label {
     padding-left: 0.75rem;
     font-size: 0.9rem;
-  }
-
-  .menu-nav__panel,
-  .menu-nav__panel.is-flip {
-    position: fixed;
-    top: var(--menu-panel-top, 0px);
-    right: 0.75rem;
-    left: 0.75rem;
-    max-width: none;
   }
 }
 </style>

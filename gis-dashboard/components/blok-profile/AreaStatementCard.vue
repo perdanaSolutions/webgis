@@ -5,7 +5,7 @@ import type { AreaStatementHistory } from "~/stores/blokProfileStore";
 
 const PAGE_SIZE = 10;
 
-const props = defineProps<{ data: AreaStatementHistory | null; loading: boolean }>();
+const props = defineProps<{ data: AreaStatementHistory | null; loading: boolean; expanded?: boolean }>();
 
 const yearPage = ref(1);
 const divisionPage = ref(1);
@@ -22,8 +22,12 @@ const areaCode = computed(() => {
 
 const yearPageCount = computed(() => Math.max(1, Math.ceil(years.value.length / PAGE_SIZE)));
 const divisionPageCount = computed(() => Math.max(1, Math.ceil(divisions.value.length / PAGE_SIZE)));
-const yearRows = computed(() => years.value.slice((yearPage.value - 1) * PAGE_SIZE, yearPage.value * PAGE_SIZE));
-const divisionRows = computed(() => divisions.value.slice((divisionPage.value - 1) * PAGE_SIZE, divisionPage.value * PAGE_SIZE));
+const yearRows = computed(() => (
+  props.expanded ? years.value : years.value.slice((yearPage.value - 1) * PAGE_SIZE, yearPage.value * PAGE_SIZE)
+));
+const divisionRows = computed(() => (
+  props.expanded ? divisions.value : divisions.value.slice((divisionPage.value - 1) * PAGE_SIZE, divisionPage.value * PAGE_SIZE)
+));
 
 function ha(value: unknown) {
   const n = Number(value);
@@ -103,7 +107,7 @@ watch(divisionPageCount, (count) => {
           </table>
         </div>
 
-        <div class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
+        <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
           <span>{{ rangeLabel(years.length, yearPage, "tahun") }}</span>
           <div class="flex items-center gap-1">
             <button type="button" class="as-page" :disabled="yearPage <= 1" aria-label="Halaman tahun tanam sebelumnya" @click="goYear(yearPage - 1)">
@@ -149,7 +153,7 @@ watch(divisionPageCount, (count) => {
           </table>
         </div>
 
-        <div class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
+        <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
           <span>{{ rangeLabel(divisions.length, divisionPage, "divisi") }}</span>
           <div class="flex items-center gap-1">
             <button type="button" class="as-page" :disabled="divisionPage <= 1" aria-label="Halaman divisi sebelumnya" @click="goDivision(divisionPage - 1)">

@@ -33,6 +33,8 @@ export default defineNuxtConfig({
         "@vue/devtools-kit",
         "vuetify",
         "leaflet",
+        "jspdf",
+        "html-to-image",
         "vuetify/components",
         "vuetify/directives",
         "vuetify/iconsets/mdi",
