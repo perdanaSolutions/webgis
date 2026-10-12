@@ -11,6 +11,7 @@ angka membengkak 12x).
 """
 import re
 from collections import OrderedDict
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -119,8 +120,11 @@ def get_history(
     flt: BlockFilter,
     *,
     period_year: int | None = None,
+    gap_as_of: date | None = None,
 ) -> dict:
     """Histori satu tabel trx.
+
+    `gap_as_of` (periode pilihan user) membatasi periode ringkasan GAP produksi; kosong = terbaru.
 
     `period_year` (query tahun_tanam) menyaring baris tabel itu:
     planting_year bila kolomnya ada, selain itu tahun kolom period.
@@ -129,6 +133,7 @@ def get_history(
     """
     key, physical = resolve_history_table(table)
     blocks_sql, params = flt.block_ids_subquery()
+    params = {**params, "gap_as_of": gap_as_of}
     if key == "trx_areal_statement":
         return _area_statement(db, blocks_sql, params, tahun=tahun, tahun_tanam=period_year)
 
@@ -174,9 +179,11 @@ GAP_CATEGORIES = (
 )
 
 
-def block_production_history(db: Session, block_id: int, tahun: int | None) -> dict:
+def block_production_history(db: Session, block_id: int, tahun: int | None, gap_as_of: date | None = None) -> dict:
     """Respons `trx_produksi_tbs` (sama dengan GET /history) untuk SATU blok berdasarkan id pasti."""
-    return _production(db, "SELECT :hist_bid", {"hist_bid": block_id}, tahun, {"blok_id": block_id})
+    return _production(
+        db, "SELECT :hist_bid", {"hist_bid": block_id, "gap_as_of": gap_as_of}, tahun, {"blok_id": block_id},
+    )
 
 
 def gap_pct(actual, target) -> float | None:
@@ -200,9 +207,14 @@ def gap_category(gap_pct: float | None) -> str | None:
 
 
 def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_filter: str, target: str) -> dict | None:
-    """Rekap kategori GAP per blok (luas, jumlah blok, % blok) pada periode produksi terbaru."""
+    """Rekap kategori GAP per blok (luas, jumlah blok, % blok).
+
+    Periode yang dipakai: produksi terbaru, dibatasi `gap_as_of` (periode yang dipilih user) bila ada.
+    """
+    as_of_filter = "AND p.period <= :gap_as_of" if params.get("gap_as_of") else ""
     latest = db.execute(text(f"""
-        SELECT max(p.period) FROM trx.block_productions p WHERE p.block_id IN ({blocks_sql}) {year_filter}
+        SELECT max(p.period) FROM trx.block_productions p
+        WHERE p.block_id IN ({blocks_sql}) {year_filter} {as_of_filter}
     """), params).scalar()
     if latest is None:
         return None

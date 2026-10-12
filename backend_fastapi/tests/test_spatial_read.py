@@ -112,6 +112,17 @@ def test_block_detail(client, auth, sample_block):
     assert fallback["mode"] == "LATEST_TAHUN_TANAM"
     assert fallback["periode"]["tahun"] and fallback["periode"]["tahun"] != 2099
 
+    # Periode sebelum transaksi pertama -> tidak ada data, bukan data terbaru.
+    before = client.get("/api/v1/spatial/blok/detail", headers=auth,
+                        params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 1900})
+    assert before.status_code == 200, before.text
+    body = before.json()
+    assert body["mode"] == "TIDAK_ADA_DATA"
+    assert body["periode"]["tahun"] == 1900
+    assert body["produksi_tbs"]["tbs"]["aktual"] == 0
+    assert body["produksi_tbs"]["ringkasan_gap_budget"] is None
+    assert body["rotasi_pusingan"]["total_kegiatan"] == 0
+
     exact = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
         "blok_id": sample_block["id"],
         "bulan": fallback["periode"]["bulan"],
@@ -221,6 +232,48 @@ def test_history_areal_statement_groups(client, auth, sample_block):
 
     empty = client.get(url, headers=auth, params={"table": "trx_areal_statement", "kode_est": est, "tahun": 1990}).json()
     assert empty["data"]["group_divisi"] == {"area_code": None, "details": [], "total_luas_tanam": 0}
+
+
+def test_history_gap_summary_follows_selected_period(client, auth, sample_block):
+    """Ringkasan GAP mengikuti periode pilihan (gap_bulan/gap_tahun), bukan selalu produksi terbaru."""
+    import pytest
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        periods = [r[0] for r in conn.execute(text(
+            "SELECT DISTINCT period FROM trx.block_productions WHERE block_id = :b ORDER BY period"
+        ), {"b": sample_block["id"]})]
+    if len(periods) < 2:
+        pytest.skip("Sampel butuh minimal dua periode produksi.")
+    earliest, latest = periods[0], periods[-1]
+
+    url = "/api/v1/spatial/history"
+    base = {"table": "trx_produksi_tbs", "kode_est": sample_block["estate"], "kode_afd": sample_block["division"],
+            "kode_blok": sample_block["code"]}
+
+    default = client.get(url, headers=auth, params=base).json()
+    assert default["ringkasan_gap_budget"]["periode"] == {"tahun": latest.year, "bulan": latest.month}
+
+    picked = client.get(url, headers=auth, params={**base, "gap_bulan": earliest.month, "gap_tahun": earliest.year})
+    assert picked.status_code == 200, picked.text
+    for key in ("ringkasan_gap_budget", "ringkasan_gap_sensus"):
+        assert picked.json()[key]["periode"] == {"tahun": earliest.year, "bulan": earliest.month}
+
+    # Bulan tanpa produksi -> periode produksi terakhir sebelum bulan itu (bukan terbaru)
+    after = client.get(url, headers=auth, params={**base, "gap_bulan": 12, "gap_tahun": earliest.year}).json()
+    assert after["ringkasan_gap_budget"]["periode"]["tahun"] <= earliest.year
+
+    # Sebelum produksi pertama: tidak ada ringkasan, bukan jatuh ke data terbaru
+    before = client.get(url, headers=auth, params={**base, "gap_bulan": 1, "gap_tahun": 1900}).json()
+    assert before["ringkasan_gap_budget"] is None and before["ringkasan_gap_sensus"] is None
+
+    # Detail blok memakai periode yang sama
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": sample_block["id"], "bulan": earliest.month, "tahun": earliest.year,
+    }).json()
+    assert detail["produksi_tbs"]["ringkasan_gap_budget"]["periode"] == {"tahun": earliest.year, "bulan": earliest.month}
 
 
 def test_block_detail_without_areal_statement(client, auth, sample_block):

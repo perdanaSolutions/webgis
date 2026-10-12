@@ -202,6 +202,8 @@ def get_history_data(
     blok_id: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
     ownership: Optional[str] = Query(None),
+    gap_bulan: Optional[int] = Query(None, ge=1, le=12, description="Periode ringkasan GAP produksi (dengan gap_tahun); kosong = terbaru"),
+    gap_tahun: Optional[int] = Query(None, ge=1900, le=2100),
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
@@ -214,7 +216,9 @@ def get_history_data(
     user_access.apply_data_scope(db, current_user, flt)
     # tahun_tanam mengikuti kolom tabel: planting_year bila ada, selain itu tahun period.
     # `tahun` tetap drill bulanan tahun kalender untuk tabel tanpa planting_year.
-    return history_service.get_history(db, table, tahun, flt, period_year=tahun_tanam)
+    return history_service.get_history(
+        db, table, tahun, flt, period_year=tahun_tanam, gap_as_of=as_of_period(gap_bulan, gap_tahun),
+    )
 
 
 @router.get("/tph/geojson", summary="Titik TPH sebagai GeoJSON")

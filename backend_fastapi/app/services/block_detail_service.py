@@ -43,7 +43,8 @@ def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tah
     """
     Popup mengirim bulan+tahun. Kalau periode itu punya transaksi, pakai persis
     periode itu (SPESIFIK). Kalau tidak, jatuh ke transaksi paling akhir (LATEST)
-    supaya angka yang tampil bukan nol di tahun kosong.
+    supaya angka yang tampil bukan nol di tahun kosong. Periode SEBELUM transaksi
+    pertama blok tidak punya data (TIDAK_ADA_DATA), tidak jatuh ke data terbaru.
     Tanpa bulan+tahun, perilaku lama: statement terbaru tanpa batas atas.
     """
     if bulan is None or tahun is None:
@@ -51,7 +52,7 @@ def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tah
 
     requested = to_period(bulan, tahun)
     row = db.execute(text("""
-        SELECT BOOL_OR(period = :p) AS exact, MAX(period) AS latest
+        SELECT BOOL_OR(period = :p) AS exact, MAX(period) AS latest, MIN(period) AS earliest
         FROM (
             SELECT period FROM trx.area_statements WHERE block_id = :bid
             UNION ALL SELECT period FROM trx.block_productions WHERE block_id = :bid
@@ -60,6 +61,9 @@ def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tah
     """), {"bid": block_id, "p": requested}).mappings().one()
     if row["exact"]:
         return requested, True
+    if row["earliest"] is not None and requested < row["earliest"]:
+        # Sebelum transaksi pertama blok: tidak ada data (sama dengan daftar blok & geojson), bukan data terbaru.
+        return requested, False
     return row["latest"], False
 
 
@@ -145,7 +149,11 @@ def get_block_detail(
     return {
         "status": "success",
         "message": f"Detail data blok {master['code']} berhasil dimuat.",
-        "mode": "SPESIFIK_TAHUN_TANAM" if period_exact else "LATEST_TAHUN_TANAM",
+        "mode": (
+            "SPESIFIK_TAHUN_TANAM" if period_exact
+            else "TIDAK_ADA_DATA" if period_requested and as_of == to_period(bulan, tahun)
+            else "LATEST_TAHUN_TANAM"
+        ),
         "periode": {
             "bulan": (as_of.month if as_of is not None else None) if period_requested else bulan,
             "tahun": (as_of.year if as_of is not None else None) if period_requested else year,
@@ -187,7 +195,7 @@ def get_block_detail(
                 "jjg_pkk": round(jjg_act / trees, 2) if trees else 0.0,
             },
             # Struktur yang sama dengan GET /history?table=trx_produksi_tbs (slope, data_histori, ringkasan gap).
-            **block_production_history(db, block_id, year),
+            **block_production_history(db, block_id, year, as_of if period_requested else None),
         },
         "rotasi_pusingan": {
             "total_kegiatan": len(rotations),
