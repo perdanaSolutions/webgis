@@ -18,6 +18,7 @@ from app.services.block_filter import BlockFilter
 from app.services.layers.specs import SAWIT_LABEL
 from app.services.map_service import resolve_period
 from app.services.data_version import GEOJSON, bump
+from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -49,7 +50,7 @@ class PreparedSawit:
 def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedSawit:
     features = parse_features(content)
     categories = RefResolver(db, "tree_categories", create_missing=create_refs)
-    result = PreparedSawit(total=len(features), report=UploadReport(total=len(features)))
+    result = PreparedSawit(total=len(features), report=UploadReport(total=len(features), features=features))
     report = result.report
 
     candidates: list[tuple[int, tuple, dict]] = []
@@ -176,6 +177,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
                 SELECT pt.id, :p, s.block_id, s.category_id, s.diameter, s.spacing, :batch
                 FROM _sawit_stage s JOIN spatial.palm_trees pt USING (objectid)
             """), {"p": period, "batch": str(batch_id)})
+        quarantined = quarantine.save(db, batch_id, TABLE, quarantine.from_report(prepared.report))
         stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:
@@ -195,6 +197,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         **prepared.match.as_dict(),
         "nilai_referensi_baru": {"tree_categories": prepared.new_categories} if prepared.new_categories else {},
         "sistem_error": 0,
+        "karantina_count": quarantined,
     }
     error = None if status == "SUCCESS" else f"{prepared.total - success} dari {prepared.total} data tidak diunggah."
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})

@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     geo_catalog,
     layers,
     menu,
+    quarantine,
     role,
     spatial,
     trx_imports,
@@ -24,6 +25,7 @@ api_router.include_router(user.router, prefix="/users", tags=["User Management"]
 # Kelompok Audit & Monitoring (Baru)
 api_router.include_router(activity_log.router, prefix="/logs", tags=["Audit Logs"])
 api_router.include_router(upload_history.router, prefix="/upload-history", tags=["Audit Logs"])
+api_router.include_router(quarantine.router, prefix="/karantina", tags=["Audit Logs"])
 
 api_router.include_router(announcement.router, prefix="/pengumuman", tags=["Pengumuman"])
 

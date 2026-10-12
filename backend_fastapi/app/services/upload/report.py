@@ -49,6 +49,7 @@ REJECTIONS = {
 class UploadReport:
     total: int = 0
     rejected: list[dict] = field(default_factory=list)
+    features: list[dict] = field(default_factory=list, repr=False)  # fitur asli, untuk karantina
 
     def reject(self, index: int, code: str, reason: str) -> None:
         self.rejected.append({"no_preview": index + 1, "kode": code, "alasan": reason})

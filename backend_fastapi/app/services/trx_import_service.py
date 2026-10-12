@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.services.data_version import HISTORY, bump
 
 from app.services.upload.batch import final_status, finish_batch, start_batch
+from app.services.upload import quarantine
 from app.services.upload.copy import copy_rows
 from app.services.upload.resolvers import BlockIndex, RefResolver
 from app.utils.excel import pick, read_excel_rows
@@ -63,6 +64,7 @@ class ImportResult:
     invalid_samples: list[str] = field(default_factory=list)
     conflict_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
+    rejected: list[quarantine.Rejected] = field(default_factory=list)  # baris tidak lolos -> karantina
 
 
 # Pemilih baris untuk (blok, periode) yang muncul >1 kali di file:
@@ -103,15 +105,19 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
         block_code = pick(row, *BLOCK_COLUMNS)
         if clean_str(block_code) is None:
             result.invalid += 1
+            result.rejected.append(quarantine.Rejected(number, "KODE_BLOK_KOSONG", "Kode blok kosong.", row))
             continue
         estate_refs = tuple(pick(row, c) for c in ESTATE_COLUMNS)
         division = pick(row, *DIVISION_COLUMNS)
         block_id = index.resolve(estate_refs, division, block_code, allow_code_only=True)
         if block_id is None:
             result.missing_block += 1
+            estate = next((e for e in estate_refs if e), "-")
+            label = f"{estate}/{division or '-'}/{block_code}"
             if len(result.unmatched_samples) < 5:
-                estate = next((e for e in estate_refs if e), "-")
-                result.unmatched_samples.append(f"baris {number}: {estate}/{division or '-'}/{block_code}")
+                result.unmatched_samples.append(f"baris {number}: {label}")
+            result.rejected.append(quarantine.Rejected(
+                number, "BLOK_TIDAK_DITEMUKAN", f"Blok {label} tidak ada di master.", row))
             continue
         try:
             period = _period(row)
@@ -120,6 +126,7 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
             result.invalid += 1
             if len(result.invalid_samples) < 5:
                 result.invalid_samples.append(f"baris {number}: {exc}")
+            result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", str(exc), row))
             continue
         result.groups.setdefault((block_id, period), []).append((number, values))
 
@@ -130,9 +137,14 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
             chosen, reason = dedupe(items)
             if chosen is None:
                 result.conflicts += len(items)
+                numbers = ", ".join(str(n) for n, _ in items)
                 if len(result.conflict_samples) < 5:
-                    result.conflict_samples.append(
-                        f"baris {', '.join(str(n) for n, _ in items)} ({period.month}-{period.year}): {reason}")
+                    result.conflict_samples.append(f"baris {numbers} ({period.month}-{period.year}): {reason}")
+                result.rejected.extend(
+                    quarantine.Rejected(n, "DUPLIKAT_BERTENTANGAN",
+                                        f"Blok & periode {period.month}-{period.year} muncul di baris {numbers}: {reason}.",
+                                        rows[n - first_row])
+                    for n, _ in items)
                 continue
             result.duplicates_merged += len(items) - 1
         result.rows.append({"block_id": block_id, "period": period, **chosen})
@@ -165,6 +177,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         result = _collect(db, rows, build, kind.dedupe, first_row)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
         written = kind.load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
+        quarantined = quarantine.save(db, batch_id, target, result.rejected)
         stored_version = bump(db, HISTORY) if result.rows else None
         db.commit()
     except Exception as exc:
@@ -191,6 +204,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "sample_unmatched_excel": result.unmatched_samples,
         "sample_invalid_rows": result.invalid_samples,
         "sample_konflik": result.conflict_samples,
+        "karantina_count": quarantined,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,
         "versi_penyimpanan": stored_version,

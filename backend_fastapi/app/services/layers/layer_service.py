@@ -22,6 +22,7 @@ from app.services.block_filter import BlockFilter
 from app.services.layers.specs import Column, LayerSpec
 from app.services.map_service import resolve_period
 from app.services.data_version import GEOJSON, bump
+from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -88,7 +89,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
     features = parse_features(content)
     refs = {c.kind[4:]: RefResolver(db, c.kind[4:], create_missing=create_refs)
             for c in spec.columns if c.kind.startswith("ref:")}
-    result = PreparedUpload(total=len(features), report=UploadReport(total=len(features)))
+    result = PreparedUpload(total=len(features), report=UploadReport(total=len(features), features=features))
     report = result.report
 
     # 1) validasi properti & geometri
@@ -210,6 +211,7 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
             copy_rows(db, quote_table(spec.table), columns, (
                 [r["block_id"], period, *(r[c.column] for c in spec.columns), r["geom"], batch_id] for r in prepared.rows
             ))
+        quarantined = quarantine.save(db, batch_id, spec.table, quarantine.from_report(prepared.report))
         stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:
@@ -219,7 +221,7 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
 
     success = len(prepared.rows)
     status = final_status(success, prepared.total)
-    stats = prepared.stats(success, replaced)
+    stats = {**prepared.stats(success, replaced), "karantina_count": quarantined}
     error = None if status == "SUCCESS" else (
         f"{prepared.total - success} dari {prepared.total} data tidak diunggah." if prepared.total else "File tidak berisi data.")
     finish_batch(db, batch_id, status, success, error, {"detail_statistik": stats})

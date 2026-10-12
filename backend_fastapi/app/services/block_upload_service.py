@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.data_version import GEOJSON, bump
+from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.resolvers import BlockIndex, RefResolver
 from app.utils.geojson import geometry_to_ewkb, parse_features, prepare_geometry
@@ -315,10 +316,17 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
 
     success, invalid, failed, last_error = 0, 0, 0, None
     saved_blocks: set[int] = set()
-    for feature in features:
-        item = _read_feature(feature.get("properties") or {}, feature.get("geometry"))
+    rejected: list[quarantine.Rejected] = []
+    for no, feature in enumerate(features, start=1):
+        props = feature.get("properties") or {}
+        item = _read_feature(props, feature.get("geometry"))
         if item is None or item.geom is None:
             invalid += 1
+            rejected.append(
+                quarantine.Rejected(no, "ATRIBUT_BLOK_KOSONG", "Kosong: " + ", ".join(_missing_attributes(props)), feature)
+                if item is None else
+                quarantine.Rejected(no, "GEOMETRI_TIDAK_VALID", "Geometri kosong atau bukan poligon.", feature)
+            )
             continue
         block_type_id = block_types.resolve(item.block_type)  # di luar savepoint: id ref tetap valid
         savepoint = db.begin_nested()
@@ -339,10 +347,12 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
             savepoint.rollback()
             failed += 1
             last_error = str(exc).splitlines()[0][:500]
+            rejected.append(quarantine.Rejected(no, "GAGAL_DISIMPAN", last_error, feature))
             # Master yang baru dibuat di savepoint ini ikut batal -> muat ulang cache agar id-nya tidak basi.
             created = cache.created
             index, cache = BlockIndex.load(db), _MasterCache.load(db)
             cache.created = created
+    quarantined = quarantine.save(db, batch_id, TARGET_TABLE, rejected)
     stored_version = bump(db, GEOJSON) if success else None
     db.commit()
 
@@ -357,6 +367,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         "properti_atau_geometri_invalid": invalid,
         "sistem_error_baris": failed,
         "tipe_blok_baru": block_types.created,
+        "karantina_count": quarantined,
     }
     finish_batch(db, batch_id, status, success,
                  last_error or (None if status == "SUCCESS" else "Sebagian data tidak valid."), {"detail_statistik": stats})

@@ -23,6 +23,7 @@ from app.core.exceptions import bad_request, conflict, not_found
 from app.services.block_filter import BlockFilter
 from app.services.map_service import resolve_period
 from app.services.data_version import GEOJSON, bump
+from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
@@ -411,7 +412,7 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True) ->
     has_objectid = any(c["column"] == "objectid" for c in columns)
     stats = {"total": len(features), "invalid_props": 0, "invalid_geom": 0, "duplicates": 0, "invalid_values": 0}
     invalid_samples: list[str] = []
-    report = UploadReport(total=len(features))
+    report = UploadReport(total=len(features), features=features)
 
     candidates: list[tuple[int, tuple | None, dict]] = []
     for i, feature in enumerate(features):
@@ -544,6 +545,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
                 [*([r["block_id"]] if layer["relasi_blok"] else []), period, *(r.get(c) for c in attr), r["geom"], batch_id]
                 for r in rows
             ))
+        quarantined = quarantine.save(db, batch_id, layer["table_name"], quarantine.from_report(prepared["report"]))
         stored_version = bump(db, GEOJSON) if rows else None
         db.commit()
     except Exception as exc:
@@ -558,7 +560,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
         "properti_invalid": stats["invalid_props"], "geometri_invalid": stats["invalid_geom"],
         "duplikat_dalam_file": stats["duplicates"], "data_lama_diganti": replaced,
         "nilai_atribut_invalid": stats["invalid_values"], "contoh_nilai_atribut_invalid": prepared["invalid_samples"],
-        **prepared["match"].as_dict(), "sistem_error": 0,
+        **prepared["match"].as_dict(), "sistem_error": 0, "karantina_count": quarantined,
     }
     finish_batch(db, batch_id, status, success,
                  None if status == "SUCCESS" else f"{stats['total'] - success} data tidak diunggah.", {"detail_statistik": detail})
