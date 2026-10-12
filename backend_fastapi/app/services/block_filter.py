@@ -32,12 +32,19 @@ LATEST_AREA_JOIN = """
 """
 
 
-def statement_as_of_join(as_of_param: str | None, extra_condition: str = "") -> str:
+def statement_as_of_join(as_of_param: str | None, extra_condition: str = "", *, exact: bool = False) -> str:
     """
-    Area statement terbaru per blok (opsional dibatasi `period <= :as_of` dan
-    kondisi tambahan atas alias `a`) + nama-nama referensinya.
+    Area statement per blok + nama-nama referensinya.
+
+    `exact` memakai `period = :as_of` (bulan+tahun filter). Tanpa itu, baris
+    terbaru dengan `period <= :as_of` bila parameter periode diisi.
     """
-    period_filter = f"AND a.period <= :{as_of_param}" if as_of_param else ""
+    if as_of_param and exact:
+        period_filter = f"AND a.period = :{as_of_param}"
+    elif as_of_param:
+        period_filter = f"AND a.period <= :{as_of_param}"
+    else:
+        period_filter = ""
     extra = f"AND {extra_condition}" if extra_condition else ""
     return f"""
     LEFT JOIN LATERAL (

@@ -62,16 +62,19 @@ const rows = computed(() => {
     ];
   }
   const info = props.detail?.informasi_blok ?? {};
-  const periode = String(props.detail?.areal_statement?.periode ?? "");
-  const [m, y] = periode.split("-");
+  const period = props.detail?.periode ?? {};
+  const month = Number(period.bulan);
+  const year = period.tahun;
+  const updated = year ? `${month ? `${MONTHS[month - 1] ?? month} ` : ""}${year}` : "-";
   return [
     ...filterRows.value,
     kerangka,
     { label: "Luas Tanam", value: props.summary.luas ? `${num(props.summary.luas)} Ha` : "-" },
+    { label: "SPH", value: num(info.sph, 0) },
     { label: "Tahun Tanam", value: info.tahun_tanam ?? "-" },
     { label: "Jenis Tanah", value: info.jenis_tanah ?? "-" },
     { label: "Bibit", value: info.jenis_bibit ?? "-" },
-    { label: "Pembaruan", value: y ? `${MONTHS[Number(m) - 1] ?? m} ${y}` : "-" },
+    { label: "Pembaruan", value: updated },
   ];
 });
 </script>

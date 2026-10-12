@@ -35,9 +35,8 @@ for params in ({"blok_id": "35"}, {"blok_id": "35", "tahun": 2024}, {"blok_id": 
     r = c.get("/api/v1/spatial/blok/detail", params=params, headers=hd)
     cmp(f"detail {params}", r, D.get_block_detail(db, params["blok_id"], tahun=params.get("tahun"), bulan=params.get("bulan")))
     if r.status_code == 200 and params == {"blok_id": "35"}:
-        pt = r.json()["produksi_tbs"]
-        print("     kunci produksi_tbs:", sorted(pt)[:30])
-        print("     slope:", pt["slope_kemiringan_lereng"], "| total_periode:", pt["total_periode"], "| rotasi:", r.json()["rotasi_pusingan"]["total_kegiatan"])
+        info = r.json()["informasi_blok"]
+        print("     yield:", info["yield"], "| gap budget:", info["gap_act_bgt"], "| gap sensus:", info["gap_act_sns"])
 
 for tbl in ("trx_produksi_tbs", "trx_rotasi_pusingan", "trx_areal_statement"):
     for extra in ({"blok_id": "35"}, {"blok_id": "35", "tahun": 2025}, {"kode_est": "E001", "tahun": 2024}, {}):

@@ -2,8 +2,7 @@
 import os, sys, random, collections
 from common import *
 from app.db.session import SessionLocal
-from app.services import block_detail_service as D, history_service as H
-from app.services.block_filter import BlockFilter
+from app.services import block_detail_service as D
 from app.utils.parsing import MONTH_ABBR
 
 random.seed(21)
@@ -58,12 +57,35 @@ R["bk"] = list(zip(R.Estate.str.strip().str.upper().map(name2code), R.Afdeling, 
 
 ids = sql("select bl.id, e.code e, d.code d, bl.code b from master.blocks bl join master.divisions d on d.id=bl.division_id join master.estates e on e.id=d.estate_id")
 idmap = {(r.e, r.d, r.b): int(r.id) for r in ids.itertuples()}
-cat = lambda g: None if g is None else ("OPTIMUM" if g >= 0 else "GAP I" if g >= -20 else "GAP II" if g >= -40 else "GAP III")
+def cat(g):
+    if g < -40:
+        return "GAP III"
+    if -40 <= g <= -20:
+        return "GAP II"
+    if -20 < g < 0:
+        return "GAP I"
+    if g > 0:
+        return "OPTIMUM"
+    return ""
 rev = {v: k for k, v in MONTH_ABBR.items()}
 
 Sg = {k: v.sort_values("period") for k, v in S.groupby("bk")}
 Pg = {k: v for k, v in P.groupby("bk")}
-Rg = {k: v.sort_values("period") for k, v in R.groupby("bk")}
+def _period_of(bk, tahun, bulan):
+    """Periode yang dipakai API: bulan+tahun persis, selain itu bulan terakhir yang ada."""
+    if tahun and bulan:
+        return tahun * 100 + bulan
+    cap = tahun * 100 + 12 if tahun else None
+    found = []
+    for frame in (Sg.get(bk), Pg.get(bk)):
+        if frame is None or not len(frame):
+            continue
+        vals = frame.period
+        if cap:
+            vals = vals[vals <= cap]
+        if len(vals):
+            found.append(int(vals.max()))
+    return max(found) if found else None
 
 
 def check(bk, tahun, bulan):
@@ -71,18 +93,30 @@ def check(bk, tahun, bulan):
     N += 1
     ctx = f"DETAIL {bk} id={idmap[bk]} tahun={tahun} bulan={bulan}"
     d = D.get_block_detail(db, str(idmap[bk]), tahun=tahun, bulan=bulan)
-    as_of = (tahun * 100 + (bulan or 12)) if tahun else None
+    period = _period_of(bk, tahun, bulan)
     s = Sg.get(bk)
     st = None
-    if s is not None:
-        s2 = s[s.period <= as_of] if as_of else s
-        st = s2.iloc[-1] if len(s2) else None
+    if s is not None and period:
+        hit = s[s.period == period]
+        st = hit.iloc[-1] if len(hit) else None
     info = d["informasi_blok"]
     eq(ctx, "blok_id", idmap[bk], info["blok_id"]); eq(ctx, "kode_blok", bk[2], info["kode_blok"])
     eq(ctx, "kode_est", bk[0], info["hierarki"]["kode_est"]); eq(ctx, "kode_afd", bk[1], info["hierarki"]["kode_afd"])
-    # ---- master & statement
+    eq(ctx, "mode", "PERIODE_BULAN_TAHUN", d["mode"])
+    if tahun and bulan:
+        eq(ctx, "periode.bulan", bulan, d["periode"]["bulan"])
+        eq(ctx, "periode.tahun", tahun, d["periode"]["tahun"])
+        eq(ctx, "label", f"Tahun {tahun}", d["periode"]["label_periode"])
+    elif period:
+        eq(ctx, "periode.bulan", period % 100, d["periode"]["bulan"])
+        eq(ctx, "periode.tahun", period // 100, d["periode"]["tahun"])
+    # ---- master & statement periode yang sama
     if st is None:
-        if d["areal_statement"] is not None: fail(ctx, "areal_statement", None, "ada")
+        eq(ctx, "tahun_tanam", None, info["tahun_tanam"])
+        eq(ctx, "luas_tanam", 0.0, info["luas_tanam"], 0.0051)
+        eq(ctx, "luas_tanah", 0.0, info["luas_tanah"], 0.0051)
+        eq(ctx, "pokok", 0, info["pokok"])
+        eq(ctx, "sph", 0.0, info["sph"], 0.0051)
     else:
         eq(ctx, "tahun_tanam", None if st.TahunTanam != st.TahunTanam else int(st.TahunTanam), info["tahun_tanam"])
         eq(ctx, "bulan_tanam", None if st.bm != st.bm else int(st.bm), rev.get(info["bulan_tanam"]))
@@ -90,85 +124,60 @@ def check(bk, tahun, bulan):
         eq(ctx, "jenis_topografi", str(st.JenisTopografi).strip().upper(), str(info["jenis_topografi"]).strip().upper())
         eq(ctx, "jenis_tanah", norm_soil(st.JenisTanah), norm_soil(info["jenis_tanah"]))
         alias = {"CSTR": "COSTARIKA"}
-        eseed = ", ".join(sorted(alias.get(p.strip(), p.strip()) for p in str(st.JenisBibit).split(",")))
+        eseed = ", ".join(sorted(alias.get(part.strip(), part.strip()) for part in str(st.JenisBibit).split(",")))
         eq(ctx, "jenis_bibit", eseed, info["jenis_bibit"])
         eq(ctx, "tipe_blok", str(st.TipeBlok).strip().upper(), str(info["tipe_blok"]).strip().upper())
         eq(ctx, "kode_area", st.AreaCode, info["hierarki"]["kode_area"])
         eq(ctx, "kode_pt", str(int(st.CompanyCode)), str(info["hierarki"]["kode_pt"]))
-        a = d["areal_statement"]; t = a["grand_total"]
-        eq(ctx, "stmt.tahun", int(st.Year), a["tahun"])
-        eq(ctx, "luas_tanam", st.LuasTanam, t["luas_tanam"], 0.0051); eq(ctx, "luas_tanah", st.LuasTanah, t["luas_tanah"], 0.0051)
-        eq(ctx, "total_pokok", int(st.TotalPokok), t["total_pokok"], 0.5); eq(ctx, "sph", st.SPH, t["sph"], 0.0051)
-        eq(ctx, "pct_datar", st.TanahDatar, t["pct_tanah_datar"], 0.5); eq(ctx, "pct_berbukit", st.Berbukit, t["pct_berbukit"], 0.5)
-        eq(ctx, "pct_gelombang", st.Gelombang, t["pct_gelombang"], 0.5); eq(ctx, "pct_curam", st.Curam, t["pct_curam"], 0.5)
-    luas = float(st.LuasTanam) if st is not None else 0.0
-    trees = int(st.TotalPokok) if st is not None else 0
-    # ---- periode produksi/rotasi
-    p = Pg.get(bk)
-    if tahun: year = tahun
-    else:
-        pp = p[p.period <= as_of] if (p is not None and as_of) else p
-        year = int(pp.period.max() // 100) if (pp is not None and len(pp)) else None
-    eq(ctx, "periode.tahun", year, d["periode"]["tahun"])
-    if year:
-        start = year * 100 + 1
-        end = as_of if (as_of and as_of // 100 == year) else year * 100 + 12
-        pr = p[(p.period >= start) & (p.period <= end)] if p is not None else pd.DataFrame(columns=P.columns)
-    else:
-        pr = pd.DataFrame(columns=P.columns)
-    pt = d["produksi_tbs"]
-    sm = lambda c: (pr[c].sum(min_count=1) if len(pr) else np.nan)
-    nn = lambda v: None if v != v else float(v)
-    fa, fb, fs = nn(sm("TbsAktual")), nn(sm("TbsBudget")), nn(sm("TbsSensus"))
-    ja, jb, js = nn(sm("JanjangAktual")), nn(sm("JanjangBudget")), nn(sm("JanjangSensus"))
-    eq(ctx, "tbs.aktual", fa or 0.0, pt["tbs"]["aktual"], 0.011); eq(ctx, "tbs.budget", fb or 0.0, pt["tbs"]["budget"], 0.011)
-    eq(ctx, "tbs.sensus", fs or 0.0, pt["tbs"]["sensus"], 0.011)
-    eq(ctx, "janjang.aktual", int(ja or 0), pt["janjang"]["aktual"], 0.5)
-    eq(ctx, "janjang.budget", int(jb or 0), pt["janjang"]["budget"], 1.01); eq(ctx, "janjang.sensus", int(js or 0), pt["janjang"]["sensus"], 1.01)
-    bjr_a = (fa / ja) if (ja and fa is not None) else nn(pr.BjrAktual.mean()) if len(pr) else None
-    eq(ctx, "bjr.aktual", round(bjr_a, 2) if bjr_a is not None else 0.0, pt["bjr"]["aktual"], 0.0101)
-    eq(ctx, "bjr.budget", round(pr.BjrBudget.mean(), 2) if len(pr) and pr.BjrBudget.notna().any() else 0.0, pt["bjr"]["budget"], 0.0101)
-    eq(ctx, "bjr.sensus", round(pr.BjrSensus.mean(), 2) if len(pr) and pr.BjrSensus.notna().any() else 0.0, pt["bjr"]["sensus"], 0.0101)
-    tb = fb or 0.0; ta = fa or 0.0
-    eq(ctx, "gap_kg", round(ta - tb, 2), pt["tbs"]["gap"], 0.0101)
-    eq(ctx, "kg_pkk", round(ta / trees, 2) if trees else 0.0, pt["kpi_per_pokok"]["kg_pkk"], 0.0101)
-    eq(ctx, "jjg_pkk", round(int(ja or 0) / trees, 2) if trees else 0.0, pt["kpi_per_pokok"]["jjg_pkk"], 0.0101)
-    ya = (ta / 1000 / luas) if (luas and fa is not None) else None
-    yb = (tb / 1000 / luas) if (luas and fb is not None) else None
-    ys = ((fs or 0) / 1000 / luas) if (luas and fs is not None) else None
-    gb = None if (ya is None or not yb) else (ya - yb) / yb * 100
-    gs = None if (ya is None or not ys) else (ya - ys) / ys * 100
-    eq(ctx, "luas", round(luas, 2), pt["luas"], 0.0101); eq(ctx, "ton", round(ta / 1000, 2), pt["ton"], 0.0101)
-    eq(ctx, "ton_ha", round(ya, 2) if ya is not None else 0.0, pt["ton_ha"], 0.0101)
-    eq(ctx, "ton_ha_budget", yb, pt["ton_ha_budget"], 0.0101); eq(ctx, "ton_ha_sensus", ys, pt["ton_ha_sensus"], 0.0101)
-    eq(ctx, "gap_budget_pct", gb, pt["gap_budget_pct"], 0.0101); eq(ctx, "gap_sensus_pct", gs, pt["gap_sensus_pct"], 0.0101)
-    eq(ctx, "kategori_budget", cat(gb), pt["kategori_budget"]); eq(ctx, "kategori_sensus", cat(gs), pt["kategori_sensus"])
-    # ---- struktur sama dgn history (+ slope) untuk blok & tahun yang sama
-    h = H.get_history(db, "trx_produksi_tbs", year, BlockFilter(blok=str(idmap[bk])))
-    for k in ("slope_kemiringan_lereng", "slope_kemiringan_lereng_ha", "data_histori", "ringkasan_gap_budget", "ringkasan_gap_sensus", "mode_akumulasi", "total_periode"):
-        if pt.get(k) != h.get(k): fail(ctx, "sama_dgn_history:" + k, h.get(k), pt.get(k))
-    # slope vs Excel (statement terbaru <= akhir tahun 'year' / as_of history)
-    if st is not None and year:
-        s3 = s[s.Year <= year]
-        if len(s3):
-            s3 = s3.iloc[-1]
-            for lab, col in (("0-3%", "TanahDatar"), ("3-8%", "Gelombang"), ("8-15%", "Berbukit"), ("15-25%", "Curam")):
-                eq(ctx, "slope " + lab, s3.LuasTanam * s3[col] / 100, pt["slope_kemiringan_lereng_ha"][lab], 0.0101)
-    # ---- rotasi
-    rr = Rg.get(bk)
-    if year and rr is not None:
-        rr = rr[(rr.period >= year * 100 + 1) & (rr.period <= end)]
-    else:
-        rr = pd.DataFrame(columns=R.columns)
-    lst = d["rotasi_pusingan"]["daftar_rotasi"]
-    eq(ctx, "rotasi.total", len(rr), d["rotasi_pusingan"]["total_kegiatan"])
-    if len(rr) == len(lst):
-        for (_, e), g in zip(rr.iterrows(), lst):
-            c2 = ctx + f" rot {g['tanggal']}"
-            eq(c2, "rot.tanggal", e.tgl.strftime("%Y-%m-%d"), str(g["tanggal"])[:10])
-            eq(c2, "rot.rotasi_ke", float(e.Rotasi), float(g["rotasi_ke"]), 0.011); eq(c2, "rot.pusingan", int(e.Pusingan), g["pusingan_hari"], 0.5)
-            es = None if str(e["Status Pusingan"]).strip() in ("(Blanks)", "") else str(e["Status Pusingan"]).strip()
-            eq(c2, "rot.status", es, g["status_pusingan"]); eq(c2, "rot.luas", float(e.Luas), g["luas"], 0.0051); eq(c2, "rot.pokok", int(e.Pokok), g["pokok"], 0.5)
+        eq(ctx, "luas_tanam", round(float(st.LuasTanam), 2), info["luas_tanam"], 0.0051)
+        eq(ctx, "luas_tanah", round(float(st.LuasTanah), 2), info["luas_tanah"], 0.0051)
+        eq(ctx, "pokok", int(st.TotalPokok), info["pokok"], 0.5)
+        eq(ctx, "sph", round(float(st.SPH), 2), info["sph"], 0.0051)
+    luas = round(float(st.LuasTanam), 2) if st is not None else 0.0
+    # ---- produksi satu periode (bukan akumulasi tahun)
+    src = Pg.get(bk)
+    pr = src[src.period == period] if (src is not None and period) else pd.DataFrame(columns=P.columns)
+
+    def summed(column):
+        if not len(pr) or not pr[column].notna().any():
+            return 0.0
+        return round(float(pr[column].sum()), 2)
+
+    def averaged(column):
+        if not len(pr) or not pr[column].notna().any():
+            return 0.0
+        return round(float(pr[column].mean()), 2)
+
+    tbs_a, tbs_b, tbs_s = summed("TbsAktual"), summed("TbsBudget"), summed("TbsSensus")
+    jjg_a, jjg_b, jjg_s = int(summed("JanjangAktual")), int(summed("JanjangBudget")), int(summed("JanjangSensus"))
+    eq(ctx, "tbs.aktual", tbs_a, info["tbs"]["aktual"], 0.011)
+    eq(ctx, "tbs.budget", tbs_b, info["tbs"]["budget"], 0.011)
+    eq(ctx, "tbs.sensus", tbs_s, info["tbs"]["sensus"], 0.011)
+    eq(ctx, "jjg.aktual", jjg_a, info["jjg"]["aktual"], 0.5)
+    eq(ctx, "jjg.budget", jjg_b, info["jjg"]["budget"], 1.01)
+    eq(ctx, "jjg.sensus", jjg_s, info["jjg"]["sensus"], 1.01)
+    eq(ctx, "bjr.aktual", averaged("BjrAktual"), info["bjr"]["aktual"], 0.0101)
+    eq(ctx, "bjr.budget", averaged("BjrBudget"), info["bjr"]["budget"], 0.0101)
+    eq(ctx, "bjr.sensus", averaged("BjrSensus"), info["bjr"]["sensus"], 0.0101)
+
+    def yld(kg):
+        return round(kg / 1000 / luas, 2) if luas else 0.0
+
+    def gap(actual, target):
+        if not target:
+            return 0.0
+        value = round((actual - target) / target * 100, 2)
+        return 0.0 if value == 0 else value
+
+    ya, yb, ys = yld(tbs_a), yld(tbs_b), yld(tbs_s)
+    gb, gs = gap(ya, yb), gap(ya, ys)
+    eq(ctx, "yield.aktual", ya, info["yield"]["aktual"], 0.0101)
+    eq(ctx, "yield.budget", yb, info["yield"]["budget"], 0.0101)
+    eq(ctx, "yield.sensus", ys, info["yield"]["sensus"], 0.0101)
+    eq(ctx, "gap_act_bgt.value", gb, info["gap_act_bgt"]["value"], 0.0101)
+    eq(ctx, "gap_act_sns.value", gs, info["gap_act_sns"]["value"], 0.0101)
+    eq(ctx, "gap_act_bgt.kategori", cat(gb), info["gap_act_bgt"]["kategori"])
+    eq(ctx, "gap_act_sns.kategori", cat(gs), info["gap_act_sns"]["kategori"])
 
 
 all_blocks = sorted(set(S.bk) | set(P.bk))

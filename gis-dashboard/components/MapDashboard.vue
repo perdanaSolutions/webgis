@@ -18,7 +18,7 @@ import {
   buildBlokPopupSkeletonHtml,
   getBulanPopupLabel,
   getCurrentPopupPeriod,
-  normalizeBlokDetailResponse,
+  blokPopupFromDetail,
   normalizeBlokPopupData,
   type BlokDetailResponse,
   type BlokPopupData,
@@ -217,7 +217,7 @@ function renderPopupFromDetail(
 ) {
   const hierarchy = mapStore.getPopupHierarchyLabels()
   const popupData = detail
-    ? normalizeBlokDetailResponse(detail, hierarchy, { bulan, tahun })
+    ? blokPopupFromDetail(detail, { bulan, tahun }, hierarchy)
     : normalizeBlokPopupData(
       (feature.properties ?? {}) as FeatureProperties,
       hierarchy,

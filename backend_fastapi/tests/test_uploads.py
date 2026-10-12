@@ -273,10 +273,21 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
 
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth,
                         params={"blok_id": sample_block["id"], "bulan": BULAN, "tahun": TAHUN}).json()
-    assert detail["produksi_tbs"]["tbs"]["aktual"] == 12000
-    assert detail["produksi_tbs"]["kategori_budget"] == "OPTIMUM"  # aktual 12000 >= budget 10000 (gap > 0%)
-    assert "areal_statement" not in detail
-    assert detail["rotasi_pusingan"]["total_kegiatan"] == 1
+    info = detail["informasi_blok"]
+    assert detail["mode"] == "PERIODE_BULAN_TAHUN"
+    assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}"}
+    assert info["luas_tanam"] == 25.5
+    assert info["luas_tanah"] == 26.0
+    assert info["pokok"] == 3500
+    assert info["sph"] == 137.0
+    assert info["tbs"]["aktual"] == 12000
+    assert info["tbs"]["budget"] == 10000
+    # yield = tbs / 1000 / luas_tanam; gap > 0 -> OPTIMUM
+    assert info["yield"]["aktual"] == round(12000 / 1000 / 25.5, 2)
+    assert info["yield"]["budget"] == round(10000 / 1000 / 25.5, 2)
+    assert info["gap_act_bgt"]["kategori"] == "OPTIMUM"
+    assert "produksi_tbs" not in detail
+    assert "rotasi_pusingan" not in detail
 
     bad = client.post("/api/v1/areal-statement/import-excel", headers=auth,
                       files={"file": ("x.csv", b"a,b", "text/csv")})

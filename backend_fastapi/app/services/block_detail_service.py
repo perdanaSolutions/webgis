@@ -1,13 +1,12 @@
 """
-Detail popup saat blok diklik di peta: master + hierarki, snapshot area
-statement, akumulasi produksi TBS setahun, dan daftar rotasi panen.
+Detail popup saat blok diklik di peta.
 
-Perbedaan dari backend lama (sengaja):
-- Area statement adalah SNAPSHOT bulanan per blok, jadi yang ditampilkan
-  adalah baris terbaru (<= periode diminta), bukan penjumlahan semua bulan
-  (versi lama menjumlah 12 baris bulanan sehingga luas terlihat 12x lipat).
-- Produksi diakumulasi untuk SATU tahun (tahun diminta, atau tahun data
-  produksi terbaru), bukan seluruh riwayat blok.
+Periode `bulan` + `tahun` dipakai persis (tidak diganti ke transaksi terakhir).
+Luas, pokok, dan SPH diambil dari satu baris areal statement periode itu.
+TBS, janjang, dan BJR diambil dari produksi periode yang sama.
+Yield (ton/ha) = tbs / 1000 / luas_tanam.
+Gap = IFERROR((yield_aktual - yield_pembanding) / yield_pembanding%; 0),
+yaitu ((aktual - pembanding) / pembanding) * 100, atau 0 bila pembanding 0.
 """
 from datetime import date
 
@@ -16,9 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
-from app.utils.parsing import MONTH_ABBR, json_safe, num, whole
+from app.utils.parsing import MONTH_ABBR, num, whole
 from app.utils.period import as_of_period, to_period
-from app.services.history_service import block_production_history, gap_category, gap_pct
 
 
 def resolve_block_id(db: Session, blok_ref: str) -> int:
@@ -39,28 +37,64 @@ def resolve_block_id(db: Session, blok_ref: str) -> int:
     return rows[0]["id"]
 
 
-def _resolve_requested_period(db: Session, block_id: int, bulan: int | None, tahun: int | None) -> tuple[date | None, bool]:
+def gap_kategori(value: float) -> str:
     """
-    Popup mengirim bulan+tahun. Kalau periode itu punya transaksi, pakai persis
-    periode itu (SPESIFIK). Kalau tidak, jatuh ke transaksi paling akhir (LATEST)
-    supaya angka yang tampil bukan nol di tahun kosong.
-    Tanpa bulan+tahun, perilaku lama: statement terbaru tanpa batas atas.
+    Kategori dari nilai gap (persen), sama dengan rumus Excel:
+    < -40 GAP III; -40 s/d -20 GAP II; di atas -20 dan di bawah 0 GAP I;
+    di atas 0 OPTIMUM. Nilai 0 (termasuk hasil IFERROR) tidak berkategori.
     """
-    if bulan is None or tahun is None:
-        return as_of_period(bulan, tahun), False
+    if value < -40:
+        return "GAP III"
+    if -40 <= value <= -20:
+        return "GAP II"
+    if -20 < value < 0:
+        return "GAP I"
+    if value > 0:
+        return "OPTIMUM"
+    return ""
 
-    requested = to_period(bulan, tahun)
-    row = db.execute(text("""
-        SELECT BOOL_OR(period = :p) AS exact, MAX(period) AS latest
-        FROM (
+
+def gap_value(actual: float, target: float) -> float:
+    """IFERROR((aktual - target) / target%; 0) = selisih persen, atau 0."""
+    if not target:
+        return 0.0
+    value = round((actual - target) / target * 100, 2)
+    return 0.0 if value == 0 else value
+
+
+def _yield_ton_ha(kg: float, luas: float) -> float:
+    if not luas:
+        return 0.0
+    return round(kg / 1000 / luas, 2)
+
+
+def _gap_pair(actual_yield: float, target_yield: float) -> dict:
+    value = gap_value(actual_yield, target_yield)
+    return {"value": value, "kategori": gap_kategori(value)}
+
+
+def _resolve_detail_period(db: Session, block_id: int, bulan: int | None, tahun: int | None) -> tuple[date | None, bool]:
+    """
+    Bulan dan tahun diisi: periode itu persis, meski belum ada transaksi.
+    Selain itu: bulan terakhir yang ada (dibatasi akhir tahun bila hanya tahun).
+    """
+    if bulan is not None and tahun is not None:
+        return to_period(bulan, tahun), True
+
+    as_of = as_of_period(bulan, tahun)
+    period = db.execute(text("""
+        SELECT MAX(period) FROM (
             SELECT period FROM trx.area_statements WHERE block_id = :bid
             UNION ALL SELECT period FROM trx.block_productions WHERE block_id = :bid
-            UNION ALL SELECT period FROM trx.harvest_rotations WHERE block_id = :bid
         ) src
-    """), {"bid": block_id, "p": requested}).mappings().one()
-    if row["exact"]:
-        return requested, True
-    return row["latest"], False
+        WHERE CAST(:as_of AS date) IS NULL OR period <= :as_of
+    """), {"bid": block_id, "as_of": as_of}).scalar()
+    return period, False
+
+
+def _triplet(actual, budget, census, *, whole_number: bool = False) -> dict:
+    cast = whole if whole_number else lambda value: round(num(value), 2)
+    return {"aktual": cast(actual), "budget": cast(budget), "sensus": cast(census)}
 
 
 def get_block_detail(
@@ -72,85 +106,62 @@ def get_block_detail(
     tahun: int | None = None,
 ) -> dict:
     block_id = resolve_block_id(db, blok_ref)
-    period_requested = bulan is not None and tahun is not None
-    as_of, period_exact = _resolve_requested_period(db, block_id, bulan, tahun)
-    params = {"bid": block_id, "as_of": as_of, "tt": tahun_tanam}
+    period, from_params = _resolve_detail_period(db, block_id, bulan, tahun)
+    planting_filter = "COALESCE(a.planting_year, 0) = :tt" if tahun_tanam is not None else ""
+    master_params: dict = {"bid": block_id}
+    if tahun_tanam is not None:
+        master_params["tt"] = tahun_tanam
+    if period is not None:
+        master_params["as_of"] = period
 
     master = db.execute(text(f"""
         SELECT bl.id, bl.code, bt.name AS block_type,
                dv.code AS division_code, es.code AS estate_code, es.name AS estate_name,
                co.code AS company_code, COALESCE(NULLIF(co.name, ''), co.code) AS company_name,
                sar.code AS area_code, sar.name AS area_name,
-               st.planting_year, st.planting_month, st.planted_area_ha, st.tree_count,
+               st.planting_year, st.planting_month, st.planted_area_ha, st.land_area_ha,
+               st.tree_count, st.sph,
                ps.code AS planting_status, so.name AS soil_type, tp.name AS topography,
                {SEED_VARIETIES_OF_STATEMENT} AS seed_varieties
         FROM master.blocks bl {BLOCK_JOINS}
-        {statement_as_of_join("as_of" if as_of else None, "COALESCE(a.planting_year, 0) = :tt" if tahun_tanam is not None else "")}
+        {statement_as_of_join("as_of" if period is not None else None, planting_filter, exact=period is not None)}
         WHERE bl.id = :bid
-    """), params).mappings().one()
-
-    # Produksi & rotasi mengikuti periode yang dipakai. Kalau filter bulan+tahun
-    # kosong, tetap tahun produksi terbaru (perilaku lama).
-    if period_requested and as_of is not None:
-        year, year_end = as_of.year, as_of
-    else:
-        year = tahun or db.execute(
-            text(f"SELECT extract(year FROM max(period))::int FROM trx.block_productions WHERE block_id = :bid "
-                 f"{'AND period <= :as_of' if as_of else ''}"),
-            params,
-        ).scalar()
-        year_end = as_of if (as_of and year and as_of.year == year) else (date(year, 12, 1) if year else None)
-    year_start = date(year, 1, 1) if year else None
-    range_params = {"bid": block_id, "start": year_start, "end": year_end}
+    """), master_params).mappings().one()
 
     prod = db.execute(text("""
-        SELECT SUM(ffb_actual_kg) AS tbs_aktual, SUM(ffb_budget_kg) AS tbs_budget, SUM(ffb_census_kg) AS tbs_sensus,
-               SUM(bunches_actual) AS jjg_aktual, SUM(bunches_budget) AS jjg_budget, SUM(bunches_census) AS jjg_sensus,
-               CASE WHEN SUM(bunches_actual) > 0 THEN SUM(ffb_actual_kg) / SUM(bunches_actual) ELSE AVG(bjr_actual) END AS bjr_aktual,
-               AVG(bjr_budget) AS bjr_budget, AVG(bjr_census) AS bjr_sensus
+        SELECT COALESCE(SUM(ffb_actual_kg), 0) AS tbs_aktual,
+               COALESCE(SUM(ffb_budget_kg), 0) AS tbs_budget,
+               COALESCE(SUM(ffb_census_kg), 0) AS tbs_sensus,
+               COALESCE(SUM(bunches_actual), 0) AS jjg_aktual,
+               COALESCE(SUM(bunches_budget), 0) AS jjg_budget,
+               COALESCE(SUM(bunches_census), 0) AS jjg_sensus,
+               COALESCE(AVG(bjr_actual), 0) AS bjr_aktual,
+               COALESCE(AVG(bjr_budget), 0) AS bjr_budget,
+               COALESCE(AVG(bjr_census), 0) AS bjr_sensus
         FROM trx.block_productions
-        WHERE block_id = :bid AND period BETWEEN :start AND :end
-    """), range_params).mappings().one() if year else {}
+        WHERE block_id = :bid AND period = :as_of
+    """), {"bid": block_id, "as_of": period}).mappings().one() if period is not None else {}
 
-    rotations = db.execute(text("""
-        SELECT h.id, h.period, h.rotation_no, h.interval_days, rs.name AS status, h.area_ha, h.tree_count
-        FROM trx.harvest_rotations h LEFT JOIN ref.rotation_statuses rs ON rs.id = h.rotation_status_id
-        WHERE h.block_id = :bid AND h.period BETWEEN :start AND :end
-        ORDER BY h.period
-    """), range_params).mappings().all() if year else []
-
-    tbs_act, tbs_bgt = num(prod.get("tbs_aktual")), num(prod.get("tbs_budget"))
-    jjg_act = whole(prod.get("jjg_aktual"))
-    trees = whole(master["tree_count"])
-    # Yield & varians: rumus dan kunci sama dengan GET /history (dihitung dari data DB).
-    luas = num(master["planted_area_ha"])
-
-    def yield_ha(kg):
-        return num(kg) / 1000 / luas if luas and kg is not None else None
-
-    y_act, y_bgt, y_sns = yield_ha(prod.get("tbs_aktual")), yield_ha(prod.get("tbs_budget")), yield_ha(prod.get("tbs_sensus"))
-    gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
-
-    def rnd(v):
-        return round(v, 2) if v is not None else None
-
-    varians = {
-        "luas": round(luas, 2), "ton": round(tbs_act / 1000, 2),
-        "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
-        "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
-        "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
-        "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
+    luas = round(num(master["planted_area_ha"]), 2) if master["planted_area_ha"] is not None else 0.0
+    tbs = _triplet(prod.get("tbs_aktual"), prod.get("tbs_budget"), prod.get("tbs_sensus"))
+    jjg = _triplet(prod.get("jjg_aktual"), prod.get("jjg_budget"), prod.get("jjg_sensus"), whole_number=True)
+    bjr = _triplet(prod.get("bjr_aktual"), prod.get("bjr_budget"), prod.get("bjr_sensus"))
+    yield_row = {
+        "aktual": _yield_ton_ha(tbs["aktual"], luas),
+        "budget": _yield_ton_ha(tbs["budget"], luas),
+        "sensus": _yield_ton_ha(tbs["sensus"], luas),
     }
+    shown_year = tahun if from_params else (period.year if period is not None else tahun)
+    shown_month = bulan if from_params else (period.month if period is not None else bulan)
 
     return {
         "status": "success",
         "message": f"Detail data blok {master['code']} berhasil dimuat.",
-        "mode": "SPESIFIK_TAHUN_TANAM" if period_exact else "LATEST_TAHUN_TANAM",
+        "mode": "PERIODE_BULAN_TAHUN",
         "periode": {
-            "bulan": (as_of.month if as_of is not None else None) if period_requested else bulan,
-            "tahun": (as_of.year if as_of is not None else None) if period_requested else year,
-            "label_periode": f"Tahun {year}" + (f" s/d bulan {year_end.month}" if year_end and year_end.month < 12 else "")
-            if year else "Belum ada data produksi",
+            "bulan": shown_month,
+            "tahun": shown_year,
+            "label_periode": f"Tahun {shown_year}" if shown_year else "Belum ada data",
         },
         "informasi_blok": {
             "blok_id": master["id"],
@@ -163,41 +174,21 @@ def get_block_detail(
             "status_tanam": master["planting_status"],
             "jenis_topografi": master["topography"],
             "jenis_tanah": master["soil_type"],
+            "luas_tanam": luas,
+            "luas_tanah": round(num(master["land_area_ha"]), 2) if master["land_area_ha"] is not None else 0.0,
+            "pokok": whole(master["tree_count"]) if master["tree_count"] is not None else 0,
+            "sph": round(num(master["sph"]), 2) if master["sph"] is not None else 0.0,
+            "tbs": tbs,
+            "jjg": jjg,
+            "bjr": bjr,
+            "yield": yield_row,
+            "gap_act_bgt": _gap_pair(yield_row["aktual"], yield_row["budget"]),
+            "gap_act_sns": _gap_pair(yield_row["aktual"], yield_row["sensus"]),
             "hierarki": {
                 "kode_area": master["area_code"], "nama_area": master["area_name"],
                 "kode_pt": master["company_code"], "nama_pt": master["company_name"],
                 "kode_est": master["estate_code"], "nama_estate": master["estate_name"],
                 "kode_afd": master["division_code"], "nama_afd": master["division_code"],
             },
-        },
-        "produksi_tbs": {
-            **varians,
-            "tbs": {
-                "aktual": tbs_act, "budget": tbs_bgt, "sensus": num(prod.get("tbs_sensus")),
-                "gap": round(tbs_act - tbs_bgt, 2),
-            },
-            "janjang": {"aktual": jjg_act, "budget": whole(prod.get("jjg_budget")), "sensus": whole(prod.get("jjg_sensus"))},
-            "bjr": {
-                "aktual": round(num(prod.get("bjr_aktual")), 2),
-                "budget": round(num(prod.get("bjr_budget")), 2),
-                "sensus": round(num(prod.get("bjr_sensus")), 2),
-            },
-            "kpi_per_pokok": {
-                "kg_pkk": round(tbs_act / trees, 2) if trees else 0.0,
-                "jjg_pkk": round(jjg_act / trees, 2) if trees else 0.0,
-            },
-            # Struktur yang sama dengan GET /history?table=trx_produksi_tbs (slope, data_histori, ringkasan gap).
-            **block_production_history(db, block_id, year),
-        },
-        "rotasi_pusingan": {
-            "total_kegiatan": len(rotations),
-            "daftar_rotasi": [
-                {
-                    "id_rotasi_pusingan": r["id"], "tanggal": json_safe(r["period"]),
-                    "rotasi_ke": json_safe(r["rotation_no"]), "pusingan_hari": r["interval_days"],
-                    "status_pusingan": r["status"], "luas": num(r["area_ha"]), "pokok": whole(r["tree_count"]),
-                }
-                for r in rotations
-            ],
         },
     }

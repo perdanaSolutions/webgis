@@ -98,28 +98,90 @@ def test_blocks_geojson_hides_unauthorized_transaction_keys(client, auth, sample
 
 
 def test_block_detail(client, auth, sample_block):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"]}).json()
-    assert detail["informasi_blok"]["blok_id"] == sample_block["id"]
-    assert detail["informasi_blok"]["hierarki"]["kode_est"] == sample_block["estate"]
-    assert {"tbs", "janjang", "bjr", "kpi_per_pokok"} <= detail["produksi_tbs"].keys()
+    info = detail["informasi_blok"]
+    assert info["blok_id"] == sample_block["id"]
+    assert info["hierarki"]["kode_est"] == sample_block["estate"]
+    assert {"luas_tanam", "luas_tanah", "pokok", "sph", "tbs", "jjg", "bjr", "yield", "gap_act_bgt", "gap_act_sns"} <= info.keys()
+    assert "produksi_tbs" not in detail and "rotasi_pusingan" not in detail
 
     missing = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": "999999999"})
     assert missing.status_code == 404
 
-    # Bulan+tahun yang tidak ada -> data transaksi terakhir, bukan angka nol tahun kosong.
-    fallback = client.get("/api/v1/spatial/blok/detail", headers=auth,
-                          params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 2099}).json()
-    assert fallback["mode"] == "LATEST_TAHUN_TANAM"
-    assert fallback["periode"]["tahun"] and fallback["periode"]["tahun"] != 2099
+    # Bulan+tahun yang tidak ada tetap periode filter, angka nol, bukan transaksi terakhir.
+    empty = client.get("/api/v1/spatial/blok/detail", headers=auth,
+                       params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 2099}).json()
+    assert empty["mode"] == "PERIODE_BULAN_TAHUN"
+    assert empty["periode"] == {"bulan": 1, "tahun": 2099, "label_periode": "Tahun 2099"}
+    assert empty["informasi_blok"]["tbs"]["aktual"] == 0
+    assert empty["informasi_blok"]["yield"]["aktual"] == 0
+    assert empty["informasi_blok"]["gap_act_bgt"] == {"value": 0.0, "kategori": ""}
+    assert empty["informasi_blok"]["gap_act_sns"] == {"value": 0.0, "kategori": ""}
+
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT p.period,
+                   SUM(p.ffb_actual_kg) AS tbs_aktual, SUM(p.ffb_budget_kg) AS tbs_budget, SUM(p.ffb_census_kg) AS tbs_sensus,
+                   SUM(p.bunches_actual) AS jjg_aktual, AVG(p.bjr_actual) AS bjr_aktual,
+                   MAX(a.planted_area_ha) AS luas_tanam, MAX(a.land_area_ha) AS luas_tanah,
+                   MAX(a.tree_count) AS pokok, MAX(a.sph) AS sph
+            FROM trx.block_productions p
+            LEFT JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
+            WHERE p.block_id = :bid
+            GROUP BY p.period
+            ORDER BY p.period DESC LIMIT 1
+        """), {"bid": sample_block["id"]}).mappings().one()
 
     exact = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
         "blok_id": sample_block["id"],
-        "bulan": fallback["periode"]["bulan"],
-        "tahun": fallback["periode"]["tahun"],
+        "bulan": row["period"].month,
+        "tahun": row["period"].year,
     }).json()
-    assert exact["mode"] == "SPESIFIK_TAHUN_TANAM"
-    assert exact["periode"]["bulan"] == fallback["periode"]["bulan"]
-    assert exact["periode"]["tahun"] == fallback["periode"]["tahun"]
+    got = exact["informasi_blok"]
+    assert exact["mode"] == "PERIODE_BULAN_TAHUN"
+    assert exact["periode"]["bulan"] == row["period"].month
+    assert exact["periode"]["tahun"] == row["period"].year
+    assert exact["periode"]["label_periode"] == f"Tahun {row['period'].year}"
+
+    def money(value):
+        return round(float(value or 0), 2)
+
+    luas = money(row["luas_tanam"]) if row["luas_tanam"] is not None else 0.0
+
+    def yield_ha(kg):
+        return round(float(kg or 0) / 1000 / luas, 2) if luas else 0.0
+
+    def gap(actual, target):
+        if not target:
+            return 0.0
+        value = round((actual - target) / target * 100, 2)
+        return 0.0 if value == 0 else value
+
+    y_act = yield_ha(row["tbs_aktual"])
+    y_bgt = yield_ha(row["tbs_budget"])
+    y_sns = yield_ha(row["tbs_sensus"])
+    assert got["luas_tanam"] == luas
+    assert got["tbs"]["aktual"] == money(row["tbs_aktual"])
+    assert got["jjg"]["aktual"] == int(row["jjg_aktual"] or 0)
+    assert got["bjr"]["aktual"] == money(row["bjr_aktual"])
+    def kategori(value):
+        if value < -40:
+            return "GAP III"
+        if -40 <= value <= -20:
+            return "GAP II"
+        if -20 < value < 0:
+            return "GAP I"
+        if value > 0:
+            return "OPTIMUM"
+        return ""
+
+    assert got["yield"] == {"aktual": y_act, "budget": y_bgt, "sensus": y_sns}
+    assert got["gap_act_bgt"] == {"value": gap(y_act, y_bgt), "kategori": kategori(gap(y_act, y_bgt))}
+    assert got["gap_act_sns"] == {"value": gap(y_act, y_sns), "kategori": kategori(gap(y_act, y_sns))}
 
 
 def test_history_tables(client, auth, sample_block):

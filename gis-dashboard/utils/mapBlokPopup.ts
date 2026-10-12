@@ -295,41 +295,51 @@ function tonPerHa(kg: unknown, luasHa: unknown): string {
 export function blokPopupFromDetail(
   detail: Record<string, any> | null | undefined,
   overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
+  fallbackHierarchy?: { area?: string; pt?: string; estate?: string; afdeling?: string },
 ): BlokPopupData {
   if (detail && !detail.informasi_blok) {
-    return normalizeBlokDetailResponse(detail as BlokDetailResponse, undefined, overrides);
+    return normalizeBlokDetailResponse(detail as BlokDetailResponse, fallbackHierarchy, overrides);
   }
 
   const info = detail?.informasi_blok ?? {};
   const hierarchy = info.hierarki ?? {};
-  const totals = detail?.areal_statement?.grand_total ?? {};
-  const production = detail?.produksi_tbs ?? {};
-  const tbs = production.tbs ?? {};
-  const actualKg = Number(tbs.aktual);
-  const budgetKg = Number(tbs.budget);
+  const tbs = info.tbs ?? detail?.produksi_tbs?.tbs ?? {};
+  const jjg = info.jjg ?? {};
+  const yieldRow = info.yield ?? {};
+  const gapRow = info.gap_act_bgt ?? {};
   const period = detail?.periode ?? {};
-  const gap = Number.isFinite(actualKg) && Number.isFinite(budgetKg) && budgetKg !== 0
-    ? formatPercentId(((actualKg - budgetKg) / budgetKg) * 100)
-    : "-";
+  const pokok = Number(info.pokok);
+  const actualKg = Number(tbs.aktual);
+  const actualJjg = Number(jjg.aktual);
+  const gapNumber = Number(gapRow.value);
+  const legacyProduction = detail?.produksi_tbs ?? {};
+  const legacyTotals = detail?.areal_statement?.grand_total ?? {};
+  const hasYield = info.yield != null;
 
   return {
-    area: toDisplayText(hierarchy.nama_area || hierarchy.kode_area),
-    pt: toDisplayText(hierarchy.nama_pt || hierarchy.kode_pt),
-    estate: toDisplayText(hierarchy.nama_estate || hierarchy.kode_est),
-    afdeling: toDisplayText(hierarchy.kode_afd || hierarchy.nama_afd),
+    area: toDisplayText(hierarchy.nama_area || hierarchy.kode_area, fallbackHierarchy?.area || "-"),
+    pt: toDisplayText(hierarchy.nama_pt || hierarchy.kode_pt, fallbackHierarchy?.pt || "-"),
+    estate: toDisplayText(hierarchy.nama_estate || hierarchy.kode_est, fallbackHierarchy?.estate || "-"),
+    afdeling: toDisplayText(hierarchy.kode_afd || hierarchy.nama_afd, fallbackHierarchy?.afdeling || "-"),
     blok: toDisplayText(info.kode_blok || info.nama_blok),
     tt: toDisplayText(info.tahun_tanam),
     bibit: toDisplayText(info.jenis_bibit),
-    luas: toDisplayNumber(totals.luas_tanam),
-    pokok: toDisplayNumber(totals.total_pokok),
-    sph: toDisplayNumber(totals.sph),
-    bjrSdBi: toDisplayNumber(production.bjr?.aktual),
-    kgPkkSdBi: toDisplayNumber(production.kpi_per_pokok?.kg_pkk),
-    jjgPkkSdBi: toDisplayNumber(production.kpi_per_pokok?.jjg_pkk),
-    actSdBi: tonPerHa(tbs.aktual, totals.luas_tanam),
-    bgtSdBi: tonPerHa(tbs.budget, totals.luas_tanam),
-    gapSdBi: gap,
-    kategoriYield: toDisplayText(production.kategori_budget ?? tbs.kategori_yield),
+    luas: toDisplayNumber(hasYield ? info.luas_tanam : legacyTotals.luas_tanam),
+    pokok: toDisplayNumber(hasYield ? info.pokok : legacyTotals.total_pokok),
+    sph: toDisplayNumber(hasYield ? info.sph : legacyTotals.sph),
+    bjrSdBi: toDisplayNumber(hasYield ? info.bjr?.aktual : legacyProduction.bjr?.aktual),
+    kgPkkSdBi: pokok > 0 && Number.isFinite(actualKg)
+      ? formatNumberId(actualKg / pokok)
+      : toDisplayNumber(legacyProduction.kpi_per_pokok?.kg_pkk),
+    jjgPkkSdBi: pokok > 0 && Number.isFinite(actualJjg)
+      ? formatNumberId(actualJjg / pokok)
+      : toDisplayNumber(legacyProduction.kpi_per_pokok?.jjg_pkk),
+    actSdBi: hasYield ? toDisplayNumber(yieldRow.aktual) : tonPerHa(tbs.aktual, legacyTotals.luas_tanam),
+    bgtSdBi: hasYield ? toDisplayNumber(yieldRow.budget) : tonPerHa(tbs.budget, legacyTotals.luas_tanam),
+    gapSdBi: Number.isFinite(gapNumber) && gapRow.value !== "" && gapRow.value != null
+      ? formatPercentId(gapNumber)
+      : "-",
+    kategoriYield: toDisplayText(gapRow.kategori || legacyProduction.kategori_budget),
     bulan: overrides?.bulan ?? toDisplayText(period.bulan, String(new Date().getMonth() + 1)),
     tahun: overrides?.tahun ?? toDisplayText(period.tahun, String(new Date().getFullYear())),
     blokId: toDisplayText(info.blok_id, ""),

@@ -29,7 +29,7 @@ if baris:
 P = load_prod()
 p = P[(P.UnitCode == est) & (P.DivisionCode == dv) & (P.KodeBlok == blk) & (P.Year == tahun)].sort_values("Month")
 if bulan:
-    p = p[p.Month <= bulan]
+    p = p[p.Month == bulan]
 print(f"\nProduksi Excel {tahun}: {len(p)} baris, bulan {sorted(p.Month.tolist())}")
 cols = ["Month", "TbsAktual", "TbsBudget", "TbsSensus", "JanjangAktual", "JanjangBudget", "JanjangSensus", "BjrAktual", "BjrBudget", "BjrSensus"]
 print(p[cols].to_string(index=False))
@@ -47,20 +47,38 @@ print(f"\nRotasi Excel {tahun}: {len(r)} baris")
 
 db = SessionLocal()
 d = D.get_block_detail(db, str(blok_id), tahun=tahun, bulan=bulan)
-pt = d["produksi_tbs"]
-luas, trees = float(s.iloc[-1].LuasTanam), int(s.iloc[-1].TotalPokok)
-sm = lambda c: float(p[c].sum(min_count=1)) if len(p) else 0.0
+info = d["informasi_blok"]
+month = d["periode"]["bulan"]
+if month:
+    p = p[p.Month == month]
+    s = s[s.Month == month] if len(s) else s
+luas = round(float(s.iloc[-1].LuasTanam), 2) if len(s) else 0.0
+sm = lambda c: round(float(p[c].sum()), 2) if len(p) and p[c].notna().any() else 0.0
+avg = lambda c: round(float(p[c].mean()), 2) if len(p) and p[c].notna().any() else 0.0
 ta, tb, ts = sm("TbsAktual"), sm("TbsBudget"), sm("TbsSensus")
-ja = sm("JanjangAktual")
+yld = (lambda kg: round(kg / 1000 / luas, 2) if luas else 0.0)
+
+def gap(actual, target):
+    if not target:
+        return 0.0
+    value = round((actual - target) / target * 100, 2)
+    return 0.0 if value == 0 else value
+
+ya, yb, ys = yld(ta), yld(tb), yld(ts)
 rows = [
-    ("tbs.aktual", ta, pt["tbs"]["aktual"]), ("tbs.budget", tb, pt["tbs"]["budget"]), ("tbs.sensus", ts, pt["tbs"]["sensus"]),
-    ("janjang.aktual", int(ja), pt["janjang"]["aktual"]), ("janjang.budget", int(sm("JanjangBudget")), pt["janjang"]["budget"]),
-    ("janjang.sensus", int(sm("JanjangSensus")), pt["janjang"]["sensus"]),
-    ("bjr.aktual", round(ta / ja, 2) if ja else 0, pt["bjr"]["aktual"]), ("bjr.budget", round(float(p.BjrBudget.mean()), 2), pt["bjr"]["budget"]),
-    ("bjr.sensus", round(float(p.BjrSensus.mean()), 2) if p.BjrSensus.notna().any() else 0, pt["bjr"]["sensus"]),
-    ("luas", luas, pt["luas"]), ("ton", round(ta / 1000, 2), pt["ton"]), ("ton_ha", round(ta / 1000 / luas, 2), pt["ton_ha"]),
-    ("ton_ha_budget", round(tb / 1000 / luas, 2), pt["ton_ha_budget"]), ("ton_ha_sensus", round(ts / 1000 / luas, 2), pt["ton_ha_sensus"]),
-    ("kg_pkk", round(ta / trees, 2), pt["kpi_per_pokok"]["kg_pkk"]), ("jjg_pkk", round(int(ja) / trees, 2), pt["kpi_per_pokok"]["jjg_pkk"]),
+    ("tbs.aktual", ta, info["tbs"]["aktual"]), ("tbs.budget", tb, info["tbs"]["budget"]), ("tbs.sensus", ts, info["tbs"]["sensus"]),
+    ("jjg.aktual", int(sm("JanjangAktual")), info["jjg"]["aktual"]),
+    ("jjg.budget", int(sm("JanjangBudget")), info["jjg"]["budget"]),
+    ("jjg.sensus", int(sm("JanjangSensus")), info["jjg"]["sensus"]),
+    ("bjr.aktual", avg("BjrAktual"), info["bjr"]["aktual"]),
+    ("bjr.budget", avg("BjrBudget"), info["bjr"]["budget"]),
+    ("bjr.sensus", avg("BjrSensus"), info["bjr"]["sensus"]),
+    ("luas_tanam", luas, info["luas_tanam"]),
+    ("yield.aktual", ya, info["yield"]["aktual"]),
+    ("yield.budget", yb, info["yield"]["budget"]),
+    ("yield.sensus", ys, info["yield"]["sensus"]),
+    ("gap_act_bgt", gap(ya, yb), info["gap_act_bgt"]["value"]),
+    ("gap_act_sns", gap(ya, ys), info["gap_act_sns"]["value"]),
 ]
 print(f"\n{'field':18s}{'Excel':>18s}{'API':>18s}  status")
 bad = 0
@@ -68,12 +86,7 @@ for name, e, g in rows:
     ok = abs(float(e) - float(g)) <= 0.011
     bad += not ok
     print(f"{name:18s}{e:18.4f}{float(g):18.4f}  {'OK' if ok else 'BEDA'}")
-for _, row in p.iterrows():
-    h = next(x for x in pt["data_histori"] if x["bulan"] == int(row.Month))
-    e_ton = row.TbsAktual / 1000
-    ok = abs(e_ton - h["ton"]) <= 0.011
-    bad += not ok
-    print(f"histori bulan {int(row.Month):2d}  ton Excel={e_ton:9.4f}  API={h['ton']:9.2f}  bjr Excel={row.BjrAktual:7.3f} API={h['bjr']:6.2f}  {'OK' if ok else 'BEDA'}")
+print("kategori budget:", info["gap_act_bgt"]["kategori"], "| kategori sensus:", info["gap_act_sns"]["kategori"])
 
 if len(sys.argv) > 5:   # JSON hasil endpoint (file) untuk dibandingkan persis
     pasted = json.load(open(sys.argv[5], encoding="utf-8"))
