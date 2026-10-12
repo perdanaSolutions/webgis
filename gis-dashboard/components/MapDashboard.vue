@@ -454,8 +454,8 @@ function updateGeoJSONLayer(L: LeafletModule) {
       onEachFeature: (feature, leafletLayer) => {
         const popupHtml = buildInitialPopupContent(feature as Feature)
         leafletLayer.bindPopup(popupHtml, {
-          maxWidth: 340,
-          minWidth: 320,
+          maxWidth: 380,
+          minWidth: 360,
           ...popupPanPadding(),
           className: 'map-blok-popup-wrapper',
           closeOnClick: false,
@@ -854,8 +854,8 @@ watch(() => props.insets, () => applyInsets(), { deep: true })
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content {
   margin: 0;
-  width: 320px !important;
-  max-width: 320px;
+  width: 360px !important;
+  max-width: 360px;
   max-height: 72vh;
   overflow-y: auto;
   overflow-x: hidden;

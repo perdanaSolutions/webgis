@@ -1,23 +1,36 @@
 import { BUDGET_GAP_COLOR, readBudgetCategory } from "./mapLayers";
 
+export type BlokPopupMetric = {
+  aktual: string;
+  budget: string;
+  sensus: string;
+};
+
 export type BlokPopupData = {
   area: string;
   pt: string;
   estate: string;
   afdeling: string;
   blok: string;
-  tt: string;
+  tipe: string;
+  tahunTanam: string;
+  bulanTanam: string;
   bibit: string;
-  luas: string;
+  statusTanam: string;
+  topografi: string;
+  jenisTanah: string;
+  luasTanam: string;
+  luasTanah: string;
   pokok: string;
   sph: string;
-  bjrSdBi: string;
-  kgPkkSdBi: string;
-  jjgPkkSdBi: string;
-  actSdBi: string;
-  bgtSdBi: string;
-  gapSdBi: string;
-  kategoriYield: string;
+  tbs: BlokPopupMetric;
+  jjg: BlokPopupMetric;
+  bjr: BlokPopupMetric;
+  yieldHa: BlokPopupMetric;
+  gapBudget: string;
+  kategoriBudget: string;
+  gapSensus: string;
+  kategoriSensus: string;
   bulan: string;
   tahun: string;
   blokId: string;
@@ -167,6 +180,35 @@ function toDisplayNumber(value: unknown, fallback = "-"): string {
   return formatNumberId(Number(value));
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function metricOf(aktual: unknown, budget: unknown, sensus: unknown): BlokPopupMetric {
+  return {
+    aktual: toDisplayNumber(aktual),
+    budget: toDisplayNumber(budget),
+    sensus: toDisplayNumber(sensus),
+  };
+}
+
+function metricFromTriplet(source: Record<string, unknown> | null | undefined): BlokPopupMetric {
+  return metricOf(source?.aktual, source?.budget, source?.sensus);
+}
+
+const EMPTY_METRIC: BlokPopupMetric = { aktual: "-", budget: "-", sensus: "-" };
+
+function displayGap(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${formatNumberId(number)} %`;
+}
+
 function resolveGapPercent(detail: BlokDetailResponse): string {
   const act = Number(detail.act_sdbi);
   const bgt = Number(detail.bgt_sdbi);
@@ -201,95 +243,45 @@ export function normalizeBlokPopupData(
   },
   overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
 ): BlokPopupData {
-  const gapRaw = pickString(
-    properties,
-    ["gap_sdbi", "gap_sd_bi", "GAP_sd_Bi", "gap_sd", "gap"],
-    "",
-  );
-
-  const gapNumber =
-    gapRaw === "-"
-      ? NaN
-      : Number(String(gapRaw).replace("%", "").replace(",", "."));
+  const source = properties as Record<string, any>;
+  const statement = (source.areal_statement ?? {}) as Record<string, any>;
+  const prod = (source.produksi_tbs ?? {}) as Record<string, any>;
+  const gapBudget = prod.gap_budget_pct ?? source.gap_sdbi ?? source.gap_sd_bi ?? source.gap;
 
   return {
-    area:
-      hierarchy.area ||
-      pickString(properties, ["area", "kode_area", "nama_area"]),
+    area: hierarchy.area || pickString(properties, ["area", "nama_area", "kode_area"]),
     pt: hierarchy.pt || pickString(properties, ["pt", "nama_pt", "kode_pt"]),
-    estate:
-      hierarchy.estate ||
-      pickString(properties, ["estate", "nama_estate", "kode_est"]),
-    afdeling:
-      hierarchy.afdeling ||
-      pickString(properties, [
-        "afdeling",
-        "nama_afdeling",
-        "kode_afd",
-        "afd_id",
-      ]),
+    estate: hierarchy.estate || pickString(properties, ["estate", "nama_estate", "kode_est"]),
+    afdeling: hierarchy.afdeling || pickString(properties, ["afdeling", "nama_afdeling", "kode_afd", "afd_id"]),
     blok: pickString(properties, ["kode_blok", "nama_blok", "blok"]),
-    tt: pickString(properties, ["tahun_tanam", "TT", "tt"]),
+    tipe: pickString(properties, ["tipe_blok"]),
+    tahunTanam: pickString(properties, ["tahun_tanam", "TT", "tt"]),
+    bulanTanam: pickString(properties, ["bulan_tanam"]),
     bibit: pickString(properties, ["jenis_bibit", "Bibit", "bibit"]),
-    luas: pickNumber(properties, ["luas", "luas_tanam", "ltanam", "LTanam"]),
-    pokok: pickNumber(properties, ["pokok", "total_pokok", "Pokok"]),
-    sph: pickNumber(properties, ["sph", "SPH"]),
-    bjrSdBi: pickNumber(properties, [
-      "bjr_sdbi",
-      "bjr_sd_bi",
-      "BJR_sd_Bi",
-      "bjr_sensus",
-      "bjr_aktual",
-    ]),
-    kgPkkSdBi: pickNumber(properties, [
-      "kg_pkk_sdbi",
-      "kg_pkk_sd_bi",
-      "Kg_pkk_sd_Bi",
-      "kg_pkk",
-    ]),
-    jjgPkkSdBi: pickNumber(properties, [
-      "jjg_pkk_sdbi",
-      "jjg_pkk_sd_bi",
-      "Jjg_pkk_sd_Bi",
-      "jjg_pkk",
-    ]),
-    actSdBi: pickNumber(properties, [
-      "act_sdbi",
-      "act_sd_bi",
-      "ACT_sd_Bi",
-      "tbs_aktual",
-      "act_sd",
-    ]),
-    bgtSdBi: pickNumber(properties, [
-      "bgt_sdbi",
-      "bgt_sd_bi",
-      "BGT_sd_Bi",
-      "tbs_budget",
-      "bgt_sd",
-    ]),
-    gapSdBi: gapRaw === "-" ? "-" : formatPercentId(gapNumber),
-    kategoriYield: budgetCategoryLabel(properties),
-    bulan:
-      overrides?.bulan ??
-      pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
-    tahun:
-      overrides?.tahun ??
-      pickString(properties, ["tahun"], String(new Date().getFullYear())),
+    statusTanam: pickString(properties, ["status_tanam"]),
+    topografi: pickString(properties, ["jenis_topografi"]),
+    jenisTanah: pickString(properties, ["jenis_tanah"]),
+    luasTanam: pickNumber({ ...statement, ...properties }, ["luas_tanam", "luas", "ltanam", "LTanam"]),
+    luasTanah: pickNumber({ ...statement, ...properties }, ["luas_tanah"]),
+    pokok: pickNumber({ ...statement, ...properties }, ["pokok", "total_pokok", "Pokok"]),
+    sph: pickNumber({ ...statement, ...properties }, ["sph", "SPH"]),
+    tbs: metricOf(prod.tbs_aktual ?? source.tbs_aktual, prod.tbs_budget ?? source.tbs_budget, prod.tbs_sensus ?? source.tbs_sensus),
+    jjg: metricOf(prod.janjang_aktual ?? source.janjang_aktual, prod.janjang_budget ?? source.jjg_budget, prod.janjang_sensus ?? source.jjg_sensus),
+    bjr: metricOf(prod.bjr_aktual ?? source.bjr_aktual, prod.bjr_budget ?? source.bjr_budget, prod.bjr_sensus ?? source.bjr_sensus),
+    yieldHa: metricOf(prod.y_aktual ?? source.act_sdbi, prod.y_budget ?? source.bgt_sdbi, prod.y_sensus),
+    gapBudget: displayGap(gapBudget),
+    kategoriBudget: toDisplayText(prod.kategori_budget, budgetCategoryLabel(properties)),
+    gapSensus: displayGap(prod.gap_sensus_pct),
+    kategoriSensus: toDisplayText(prod.kategori_sensus),
+    bulan: overrides?.bulan ?? pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
+    tahun: overrides?.tahun ?? pickString(properties, ["tahun"], String(new Date().getFullYear())),
     blokId: pickString(properties, ["blok_id", "global_id", "GlobalID"], ""),
     kodeBlok: pickString(properties, ["kode_blok"], ""),
   };
 }
 
-/** ACT/BGT di popup = ton/ha sampai dengan bulan (kg produksi / 1.000 / luas ha). */
-function tonPerHa(kg: unknown, luasHa: unknown): string {
-  const kgValue = Number(kg);
-  const area = Number(luasHa);
-  if (!Number.isFinite(kgValue) || !Number.isFinite(area) || area <= 0) return "-";
-  return formatNumberId(kgValue / 1000 / area);
-}
-
 /**
- * Payload GET /spatial/blok/detail (struktur bersarang) -> baris popup peta.
+ * Payload GET /spatial/blok/detail (`informasi_blok`) -> baris popup peta.
  * Payload datar lama tetap lewat normalizeBlokDetailResponse.
  */
 export function blokPopupFromDetail(
@@ -303,18 +295,9 @@ export function blokPopupFromDetail(
 
   const info = detail?.informasi_blok ?? {};
   const hierarchy = info.hierarki ?? {};
-  const tbs = info.tbs ?? detail?.produksi_tbs?.tbs ?? {};
-  const jjg = info.jjg ?? {};
-  const yieldRow = info.yield ?? {};
-  const gapRow = info.gap_act_bgt ?? {};
   const period = detail?.periode ?? {};
-  const pokok = Number(info.pokok);
-  const actualKg = Number(tbs.aktual);
-  const actualJjg = Number(jjg.aktual);
-  const gapNumber = Number(gapRow.value);
-  const legacyProduction = detail?.produksi_tbs ?? {};
-  const legacyTotals = detail?.areal_statement?.grand_total ?? {};
-  const hasYield = info.yield != null;
+  const gapBudget = info.gap_act_bgt ?? {};
+  const gapSensus = info.gap_act_sns ?? {};
 
   return {
     area: toDisplayText(hierarchy.nama_area || hierarchy.kode_area, fallbackHierarchy?.area || "-"),
@@ -322,24 +305,25 @@ export function blokPopupFromDetail(
     estate: toDisplayText(hierarchy.nama_estate || hierarchy.kode_est, fallbackHierarchy?.estate || "-"),
     afdeling: toDisplayText(hierarchy.kode_afd || hierarchy.nama_afd, fallbackHierarchy?.afdeling || "-"),
     blok: toDisplayText(info.kode_blok || info.nama_blok),
-    tt: toDisplayText(info.tahun_tanam),
+    tipe: toDisplayText(info.tipe_blok),
+    tahunTanam: toDisplayText(info.tahun_tanam),
+    bulanTanam: toDisplayText(info.bulan_tanam),
     bibit: toDisplayText(info.jenis_bibit),
-    luas: toDisplayNumber(hasYield ? info.luas_tanam : legacyTotals.luas_tanam),
-    pokok: toDisplayNumber(hasYield ? info.pokok : legacyTotals.total_pokok),
-    sph: toDisplayNumber(hasYield ? info.sph : legacyTotals.sph),
-    bjrSdBi: toDisplayNumber(hasYield ? info.bjr?.aktual : legacyProduction.bjr?.aktual),
-    kgPkkSdBi: pokok > 0 && Number.isFinite(actualKg)
-      ? formatNumberId(actualKg / pokok)
-      : toDisplayNumber(legacyProduction.kpi_per_pokok?.kg_pkk),
-    jjgPkkSdBi: pokok > 0 && Number.isFinite(actualJjg)
-      ? formatNumberId(actualJjg / pokok)
-      : toDisplayNumber(legacyProduction.kpi_per_pokok?.jjg_pkk),
-    actSdBi: hasYield ? toDisplayNumber(yieldRow.aktual) : tonPerHa(tbs.aktual, legacyTotals.luas_tanam),
-    bgtSdBi: hasYield ? toDisplayNumber(yieldRow.budget) : tonPerHa(tbs.budget, legacyTotals.luas_tanam),
-    gapSdBi: Number.isFinite(gapNumber) && gapRow.value !== "" && gapRow.value != null
-      ? formatPercentId(gapNumber)
-      : "-",
-    kategoriYield: toDisplayText(gapRow.kategori || legacyProduction.kategori_budget),
+    statusTanam: toDisplayText(info.status_tanam),
+    topografi: toDisplayText(info.jenis_topografi),
+    jenisTanah: toDisplayText(info.jenis_tanah),
+    luasTanam: toDisplayNumber(info.luas_tanam),
+    luasTanah: toDisplayNumber(info.luas_tanah),
+    pokok: toDisplayNumber(info.pokok),
+    sph: toDisplayNumber(info.sph),
+    tbs: metricFromTriplet(info.tbs),
+    jjg: metricFromTriplet(info.jjg),
+    bjr: metricFromTriplet(info.bjr),
+    yieldHa: metricFromTriplet(info.yield),
+    gapBudget: displayGap(gapBudget.value),
+    kategoriBudget: toDisplayText(gapBudget.kategori),
+    gapSensus: displayGap(gapSensus.value),
+    kategoriSensus: toDisplayText(gapSensus.kategori),
     bulan: overrides?.bulan ?? toDisplayText(period.bulan, String(new Date().getMonth() + 1)),
     tahun: overrides?.tahun ?? toDisplayText(period.tahun, String(new Date().getFullYear())),
     blokId: toDisplayText(info.blok_id, ""),
@@ -352,14 +336,10 @@ export function blokPopupFromFeature(
   properties: Record<string, any>,
   overrides?: Partial<Pick<BlokPopupData, "bulan" | "tahun">>,
 ): BlokPopupData {
-  const statement = (properties.areal_statement ?? {}) as Record<string, any>;
   return normalizeBlokPopupData(
     {
       ...properties,
       nama_area: properties.nama_area ?? properties.kode_area,
-      luas: properties.luas ?? statement.luas_tanam,
-      pokok: properties.pokok ?? statement.total_pokok,
-      sph: properties.sph ?? statement.sph,
     },
     { area: "", pt: "", estate: "", afdeling: "" },
     overrides,
@@ -382,18 +362,25 @@ export function normalizeBlokDetailResponse(
     estate: toDisplayText(detail.nama_estate, hierarchy?.estate || "-"),
     afdeling: toDisplayText(detail.kode_afd, hierarchy?.afdeling || "-"),
     blok: toDisplayText(detail.kode_blok || detail.nama_blok),
-    tt: toDisplayText(detail.tahun_tanam),
+    tipe: "-",
+    tahunTanam: toDisplayText(detail.tahun_tanam),
+    bulanTanam: "-",
     bibit: toDisplayText(detail.jenis_bibit),
-    luas: toDisplayNumber(detail.luas),
+    statusTanam: toDisplayText(detail.status_tanam),
+    topografi: "-",
+    jenisTanah: "-",
+    luasTanam: toDisplayNumber(detail.luas),
+    luasTanah: "-",
     pokok: toDisplayNumber(detail.pokok),
     sph: toDisplayNumber(detail.sph),
-    bjrSdBi: toDisplayNumber(detail.bjr_sdbi),
-    kgPkkSdBi: toDisplayNumber(detail.kg_pkk_sdbi),
-    jjgPkkSdBi: toDisplayNumber(detail.jjg_pkk_sdbi),
-    actSdBi: toDisplayNumber(detail.act_sdbi),
-    bgtSdBi: toDisplayNumber(detail.bgt_sdbi),
-    gapSdBi: resolveGapPercent(detail),
-    kategoriYield: toDisplayText(detail.kategori_budget ?? detail.kategori_yield),
+    tbs: { ...EMPTY_METRIC },
+    jjg: metricOf(detail.janjang_aktual, undefined, undefined),
+    bjr: metricOf(detail.bjr_sdbi, undefined, undefined),
+    yieldHa: metricOf(detail.act_sdbi, detail.bgt_sdbi, undefined),
+    gapBudget: resolveGapPercent(detail),
+    kategoriBudget: toDisplayText(detail.kategori_budget ?? detail.kategori_yield),
+    gapSensus: "-",
+    kategoriSensus: "-",
     bulan:
       overrides?.bulan ??
       toDisplayText(detail.bulan, String(new Date().getMonth() + 1)),
@@ -405,23 +392,37 @@ export function normalizeBlokDetailResponse(
   };
 }
 
-function popupRow(label: string, value: string, valueStyle = "") {
+function popupRow(label: string, value: string, valueStyle = "", html = false) {
+  const shown = html ? value : escapeHtml(value);
   return `
-    <div style="display:grid;grid-template-columns:72px 8px minmax(0,1fr);gap:0;align-items:start;font-size:12px;line-height:1.45;">
+    <div style="display:grid;grid-template-columns:96px 8px minmax(0,1fr);gap:0;align-items:start;font-size:12px;line-height:1.45;">
       <span style="color:#6b7280;">${label}</span>
       <span style="color:#6b7280;">:</span>
-      <span style="color:#111827;font-weight:600;word-break:break-word;${valueStyle}">${value}</span>
+      <span style="color:#111827;font-weight:600;word-break:break-word;${valueStyle}">${shown}</span>
     </div>
   `;
 }
 
-function metricColumn(label: string, value: string) {
-  return `
-    <div style="min-width:0;text-align:center;">
-      <div style="font-size:11px;color:#6b7280;line-height:1.3;margin-bottom:2px;">${label}</div>
-      <div style="font-size:12px;font-weight:700;color:#111827;word-break:break-word;">${value}</div>
+function metricTable(rows: Array<{ label: string; metric: BlokPopupMetric }>) {
+  const head = `
+    <div style="display:grid;grid-template-columns:52px repeat(3,minmax(0,1fr));gap:4px;font-size:10px;color:#6b7280;text-align:right;">
+      <span></span><span>Aktual</span><span>Budget</span><span>Sensus</span>
     </div>
   `;
+  const body = rows.map((row) => `
+    <div style="display:grid;grid-template-columns:52px repeat(3,minmax(0,1fr));gap:4px;font-size:12px;line-height:1.4;">
+      <span style="color:#6b7280;">${row.label}</span>
+      <span style="text-align:right;font-weight:700;color:#111827;">${escapeHtml(row.metric.aktual)}</span>
+      <span style="text-align:right;font-weight:700;color:#111827;">${escapeHtml(row.metric.budget)}</span>
+      <span style="text-align:right;font-weight:700;color:#111827;">${escapeHtml(row.metric.sensus)}</span>
+    </div>
+  `).join("");
+  return `<div style="display:grid;gap:4px;margin-bottom:10px;padding-top:8px;border-top:1px solid #e5e7eb;">${head}${body}</div>`;
+}
+
+function gapLine(label: string, value: string, kategori: string) {
+  const swatch = categorySwatch(escapeHtml(kategori));
+  return popupRow(label, `${escapeHtml(value)} · ${swatch}`, `color:${getGapColor(value)};`, true);
 }
 
 function skeletonLine(width = "100%") {
@@ -430,7 +431,7 @@ function skeletonLine(width = "100%") {
 
 function skeletonRow() {
   return `
-    <div style="display:grid;grid-template-columns:72px 8px minmax(0,1fr);gap:0;align-items:center;">
+    <div style="display:grid;grid-template-columns:96px 8px minmax(0,1fr);gap:0;align-items:center;">
       ${skeletonLine("70%")}
       <span></span>
       ${skeletonLine("85%")}
@@ -479,9 +480,9 @@ export function buildBlokPopupSkeletonHtml(options: {
   kodeBlok?: string;
 }) {
   return `
-    <div class="map-blok-popup" style="width:320px;max-width:320px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+    <div class="map-blok-popup" style="width:360px;max-width:360px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
       <div style="display:grid;gap:8px;margin-bottom:12px;">
-        ${Array.from({ length: 10 }, () => skeletonRow()).join("")}
+        ${Array.from({ length: 14 }, () => skeletonRow()).join("")}
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;">
@@ -551,15 +552,14 @@ export function buildBlokPopupHtml(
   data: BlokPopupData,
   options?: { loading?: boolean; errorMessage?: string; notice?: string },
 ) {
-  const gapColor = getGapColor(data.gapSdBi);
   const banner = options?.errorMessage
-    ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${options.errorMessage}</p>`
+    ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${escapeHtml(options.errorMessage)}</p>`
     : options?.notice
-      ? `<p data-popup-notice style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.4;">${options.notice}</p>`
+      ? `<p data-popup-notice style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.4;">${escapeHtml(options.notice)}</p>`
       : "";
 
   return `
-    <div class="map-blok-popup" style="width:320px;max-width:320px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+    <div class="map-blok-popup" style="width:360px;max-width:360px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
       ${banner}
       <div style="display:grid;gap:4px;margin-bottom:10px;">
         ${popupRow("Area", data.area)}
@@ -567,24 +567,29 @@ export function buildBlokPopupHtml(
         ${popupRow("Estate", data.estate)}
         ${popupRow("Afdeling", data.afdeling)}
         ${popupRow("Blok", data.blok)}
-        ${popupRow("TT", data.tt)}
-        ${popupRow("Bibit", data.bibit)}
-        ${popupRow("Luas", data.luas)}
+        ${popupRow("Tipe Blok", data.tipe)}
+        ${popupRow("Tahun Tanam", data.tahunTanam)}
+        ${popupRow("Bulan Tanam", data.bulanTanam)}
+        ${popupRow("Jenis Bibit", data.bibit)}
+        ${popupRow("Status Tanam", data.statusTanam)}
+        ${popupRow("Topografi", data.topografi)}
+        ${popupRow("Jenis Tanah", data.jenisTanah)}
+        ${popupRow("Luas Tanam", data.luasTanam)}
+        ${popupRow("Luas Tanah", data.luasTanah)}
         ${popupRow("Pokok", data.pokok)}
         ${popupRow("SPH", data.sph)}
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;padding-top:2px;">
-        ${metricColumn("BJR(sd)Bi", data.bjrSdBi)}
-        ${metricColumn("Kg/pkk (sd)Bi", data.kgPkkSdBi)}
-        ${metricColumn("Jjg/pkk (sd)Bi", data.jjgPkkSdBi)}
-      </div>
+      ${metricTable([
+        { label: "TBS", metric: data.tbs },
+        { label: "JJG", metric: data.jjg },
+        { label: "BJR", metric: data.bjr },
+        { label: "Yield", metric: data.yieldHa },
+      ])}
 
       <div style="display:grid;gap:4px;margin-bottom:10px;">
-        ${popupRow("ACT(sd)Bi", data.actSdBi)}
-        ${popupRow("BGT(sd)Bi", data.bgtSdBi)}
-        ${popupRow("GAP(sd)Bi", data.gapSdBi, `color:${gapColor};`)}
-        ${popupRow("Kategori Yield", categorySwatch(data.kategoriYield))}
+        ${gapLine("Gap Budget", data.gapBudget, data.kategoriBudget)}
+        ${gapLine("Gap Sensus", data.gapSensus, data.kategoriSensus)}
       </div>
 
       ${buildPopupFooter(data, options?.loading)}

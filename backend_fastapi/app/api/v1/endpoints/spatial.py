@@ -135,7 +135,7 @@ def get_blocks_geojson(
     )
     user_access.apply_data_scope(db, current_user, flt)
     hide_keys = user_access.hidden_feature_keys(db, current_user)
-    return map_service.blocks_geojson(db, flt, as_of_period(bulan, tahun), hide_keys)
+    return map_service.blocks_geojson(db, flt, as_of_period(bulan, tahun), hide_keys, bulan, tahun)
 
 
 @router.get("/blok/detail", summary="Atribut popup peta blok")

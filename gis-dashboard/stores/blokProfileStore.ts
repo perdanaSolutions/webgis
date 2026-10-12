@@ -871,7 +871,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     tahun.value = value || currentYear();
   }
 
-  /** Klik peta: pilih blok dan muat kartu segera (tanpa menunggu Apply). */
+  /** Klik peta: muat detail blok. Histori kebun tidak diminta ulang. */
   async function selectBlock(value: string, source: "filter" | "map" = "filter") {
     if (source !== "map") {
       setBlok(value);
@@ -887,12 +887,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blokId.value = value;
     applied.value = { ...applied.value, blokId: value };
     const period = getCurrentPopupPeriod();
-    await Promise.all([
-      loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
-        detail.value = null;
-      }),
-      loadHistories(),
-    ]);
+    await loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
+      detail.value = null;
+    });
   }
 
   /** Tutup popup peta: kembalikan Filter Kebun dan kartu kanan ke pencarian terakhir, tanpa menggeser peta. */
@@ -932,10 +929,6 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     detail.value = null;
     detailKey = "";
     loadingDetail.value = false;
-    production.value = null;
-    areaStatement.value = null;
-    rotation.value = null;
-    await loadHistories();
   }
 
   function clearMap() {
@@ -1043,65 +1036,6 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       .sort((a, b) => a.tahun - b.tahun || (a.bulan ?? 0) - (b.bulan ?? 0));
   }
 
-  /** Satu baris dari yield periode filter bila histori belum termuat. */
-  function productionYearsFromDetail(payload: Record<string, any> | null): ProductionYear[] {
-    const info = payload?.informasi_blok;
-    const tahun = Number(payload?.periode?.tahun);
-    if (!info || !Number.isFinite(tahun)) return [];
-    const kg = Number(info.tbs?.aktual ?? 0);
-    const luas = Number(info.luas_tanam ?? 0);
-    const pokok = Number(info.pokok ?? 0);
-    const ton = Number.isFinite(kg) ? kg / 1000 : 0;
-    const bulan = payload?.periode?.bulan;
-    return [{
-      periode: tahun,
-      tahun,
-      bulan: bulan == null || bulan === "" ? null : Number(bulan),
-      ton,
-      luas: Number.isFinite(luas) ? luas : 0,
-      ton_ha: Number(info.yield?.aktual ?? 0),
-      bjr: Number(info.bjr?.aktual ?? 0),
-      jjg_ppk: pokok > 0 ? Number(info.jjg?.aktual ?? 0) / pokok : 0,
-      kg_ppk: pokok > 0 ? kg / pokok : 0,
-    }];
-  }
-
-  function areaStatementFromDetail(payload: Record<string, any> | null): AreaStatementHistory | null {
-    const info = payload?.informasi_blok;
-    if (!info) return null;
-    const luas = Number(info.luas_tanam);
-    const planted = Number.isFinite(luas) ? luas : 0;
-    const tahun = Number(info.tahun_tanam);
-    const division = String(info.hierarki?.kode_afd ?? "").trim();
-    const areaCode = info.hierarki?.kode_area ? String(info.hierarki.kode_area) : null;
-    const yearRows = Number.isFinite(tahun) ? [{ tahun_tanam: tahun, luas_tanam: planted }] : [];
-    const divisionRows = division ? [{ division_code: division, luas_tanam: planted }] : [];
-    if (!yearRows.length && !divisionRows.length) return null;
-    return {
-      status: "success",
-      message: "Data berhasil diekstrak",
-      data: {
-        group_tahun_tanam: { area_code: areaCode, details: yearRows, total_luas_tanam: planted },
-        group_divisi: { area_code: areaCode, details: divisionRows, total_luas_tanam: planted },
-      },
-    };
-  }
-
-  function rotationFromDetail(payload: Record<string, any> | null): RotationHistory | null {
-    const list = payload?.rotasi_pusingan?.daftar_rotasi;
-    if (!payload || !Array.isArray(list)) return null;
-    const kegiatan = (list as Array<Record<string, any>>)
-      .map((row) => ({
-        tanggal: String(row.tanggal ?? ""),
-        rotasi: String(row.rotasi_ke ?? "-"),
-        hari: Number(row.pusingan_hari ?? 0),
-        status: String(row.status_pusingan ?? ""),
-        luas: Number(row.luas ?? 0),
-        pokok: Number(row.pokok ?? 0),
-      }));
-    return { label: payload.periode?.label_periode, kegiatan, total_periode: kegiatan.length, data: [] };
-  }
-
   function slopeFromDetail(payload: Record<string, any> | null): SlopeShare[] {
     const totals = payload?.areal_statement?.grand_total as Record<string, number> | undefined;
     if (!totals) return [];
@@ -1138,68 +1072,25 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     };
   }
 
-  const GAP_BUCKETS: Array<[string, string]> = [
-    ["OPTIMUM", "Varians > 0%"],
-    ["GAP I", "Varians minus 0 sampai 20%"],
-    ["GAP II", "Varians minus 20 sampai 40%"],
-    ["GAP III", "Varians minus di atas 40%"],
-  ];
-
-  /** Satu blok: kategori gap yield pada periode filter. */
-  function gapSummaryFromDetail(
-    payload: Record<string, any> | null | undefined,
-    key: "gap_act_bgt" | "gap_act_sns",
-  ): ProductionGapSummary | null {
-    const info = payload?.informasi_blok;
-    const kategori = String(info?.[key]?.kategori ?? "").trim();
-    if (!kategori) return null;
-    const luas = Number(info?.luas_tanam ?? 0);
-    const planted = Number.isFinite(luas) ? luas : 0;
-    return {
-      periode: { tahun: payload?.periode?.tahun ?? null, bulan: payload?.periode?.bulan ?? null },
-      pembanding: key === "gap_act_bgt" ? "budget" : "sensus",
-      kategori: GAP_BUCKETS.map(([name, keterangan]) => ({
-        kategori: name,
-        keterangan,
-        luas: name === kategori ? planted : 0,
-        jumlah_blok: name === kategori ? 1 : 0,
-        persen_blok: name === kategori ? 100 : 0,
-      })),
-      grand_total: { luas: planted, jumlah_blok: 1, persen_blok: 100 },
-    };
-  }
-
-  /** Rekap gap produksi. Blok terpilih memakai gap yield periode filter. */
+  /** Kartu transaksi kanan hanya memakai histori dari apply, reset, atau muatan pertama. */
   const productionGapBudget = computed<ProductionGapSummary | null>(() =>
-    viewingBlock.value
-      ? (gapSummaryFromDetail(detail.value, "gap_act_bgt") ?? gapSummaryOf(production.value, "ringkasan_gap_budget"))
-      : gapSummaryOf(production.value, "ringkasan_gap_budget"),
+    gapSummaryOf(production.value, "ringkasan_gap_budget"),
   );
   const productionGapSensus = computed<ProductionGapSummary | null>(() =>
-    viewingBlock.value
-      ? (gapSummaryFromDetail(detail.value, "gap_act_sns") ?? gapSummaryOf(production.value, "ringkasan_gap_sensus"))
-      : gapSummaryOf(production.value, "ringkasan_gap_sensus"),
+    gapSummaryOf(production.value, "ringkasan_gap_sensus"),
   );
 
-  const productionYears = computed<ProductionYear[]>(() => {
-    if (viewingBlock.value) {
-      const fromHistory = mapHistoriRows((production.value?.data_histori ?? []) as Array<Record<string, any>>);
-      if (fromHistory.length) return fromHistory;
-      return productionYearsFromDetail(detail.value);
-    }
-    return mapHistoriRows((production.value?.data_histori ?? []) as Array<Record<string, any>>);
-  });
-
-  const areaStatementView = computed<AreaStatementHistory | null>(() =>
-    viewingBlock.value ? areaStatementFromDetail(detail.value) : areaStatement.value,
+  const productionYears = computed<ProductionYear[]>(() =>
+    mapHistoriRows((production.value?.data_histori ?? []) as Array<Record<string, any>>),
   );
 
-  const rotationView = computed<RotationHistory | null>(() =>
-    viewingBlock.value ? (rotationFromDetail(detail.value) ?? rotation.value) : rotation.value,
-  );
+  const areaStatementView = computed<AreaStatementHistory | null>(() => areaStatement.value);
+
+  const rotationView = computed<RotationHistory | null>(() => rotation.value);
 
   /** Porsi kelas kemiringan. Blok terpilih memakai persentase areal statement di /blok/detail. */
   const slopeShares = computed<SlopeShare[]>(() => {
+    if (viewingBlock.value && mapDrillActive) return slopeFromDetail(detail.value);
     if (viewingBlock.value) {
       const fromDetail = slopeFromDetail(detail.value);
       if (fromDetail.length) return fromDetail;

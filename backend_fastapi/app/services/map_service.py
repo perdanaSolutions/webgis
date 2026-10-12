@@ -3,19 +3,22 @@ GeoJSON untuk peta: batas blok (+ ringkasan transaksi) dan titik TPH.
 
 Semantik periode batas blok = "kondisi per periode": untuk tiap blok diambil
 batas TERBARU dengan period <= periode yang diminta (tanpa parameter = terbaru).
-Ringkasan trx memakai aturan yang sama per tabel, karena data trx dan batas
-blok tidak selalu punya bulan yang sama.
+
+`areal_statement` dan `produksi_tbs` selalu satu periode yang sama:
+bulan+tahun diisi -> periode itu persis; selain itu periode terakhir yang ada
+di salah satu tabel (dibatasi akhir tahun bila hanya tahun). Yield dan kategori
+gap memakai rumus yang sama dengan detail blok.
 """
 from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.block_detail_service import _yield_ton_ha, gap_kategori, gap_value
 from app.services.block_filter import BlockFilter, statement_as_of_join
 from app.services.hierarchy_service import BLOCK_ATTRIBUTE_COLUMNS
-from app.services.history_service import gap_category, gap_pct
 from app.utils.geojson import feature_collection, make_feature
-from app.utils.parsing import json_safe
+from app.utils.parsing import json_safe, num, whole
 from app.utils.period import period_label, period_parts, to_period
 
 
@@ -27,63 +30,141 @@ def resolve_period(db: Session, table_sql: str, bulan: int | None, tahun: int | 
     return db.execute(text(f"SELECT max(period) FROM {table_sql} {where}"), {"tahun": tahun}).scalar()
 
 
-def _trx_summaries(db: Session, block_ids: list[int], as_of: date | None) -> dict[int, dict]:
+def _money(value) -> float:
+    return round(num(value), 2)
+
+
+def _optional_money(value) -> float:
+    return _money(value) if value is not None else 0.0
+
+
+def _statement_payload(period: date, row) -> dict:
+    return {
+        "luas_tanam": _optional_money(row["planted_area_ha"] if row else None),
+        "luas_tanah": _optional_money(row["land_area_ha"] if row else None),
+        "total_pokok": whole(row["tree_count"]) if row and row["tree_count"] is not None else 0,
+        "sph": _optional_money(row["sph"] if row else None),
+        "periode": period_label(period),
+    }
+
+
+def _produksi_payload(period: date, luas: float, row) -> dict:
+    """Yield dan gap sama dengan detail blok: ton/ha dibulatkan dulu, lalu variansnya."""
+    tbs_aktual = _money(row["ffb_actual_kg"]) if row else 0.0
+    tbs_budget = _money(row["ffb_budget_kg"]) if row else 0.0
+    tbs_sensus = _money(row["ffb_census_kg"]) if row else 0.0
+    y_aktual = _yield_ton_ha(tbs_aktual, luas)
+    y_budget = _yield_ton_ha(tbs_budget, luas)
+    y_sensus = _yield_ton_ha(tbs_sensus, luas)
+    gap_budget = gap_value(y_aktual, y_budget)
+    gap_sensus = gap_value(y_aktual, y_sensus)
+    return {
+        "tbs_aktual": tbs_aktual,
+        "tbs_budget": tbs_budget,
+        "tbs_sensus": tbs_sensus,
+        "janjang_aktual": whole(row["bunches_actual"]) if row else 0,
+        "bjr_aktual": _money(row["bjr_actual"]) if row else 0.0,
+        "luas_tanam": luas,
+        "y_aktual": y_aktual,
+        "y_budget": y_budget,
+        "y_sensus": y_sensus,
+        "gap_budget_pct": gap_budget,
+        "gap_sensus_pct": gap_sensus,
+        "kategori_budget": gap_kategori(gap_budget) or None,
+        "kategori_sensus": gap_kategori(gap_sensus) or None,
+        "periode": period_label(period),
+    }
+
+
+def _shared_period_sql(exact: bool, as_of: date | None) -> str:
+    """Satu periode per blok, dipakai bersama oleh areal statement dan produksi."""
+    if exact:
+        return """
+            SELECT bl.id AS block_id, CAST(:period AS date) AS period
+            FROM master.blocks bl
+            WHERE bl.id = ANY(:ids)
+        """
+    bound = "AND period <= :as_of" if as_of else ""
+    return f"""
+        SELECT block_id, MAX(period) AS period
+        FROM (
+            SELECT block_id, period FROM trx.area_statements
+            WHERE block_id = ANY(:ids) {bound}
+            UNION ALL
+            SELECT block_id, period FROM trx.block_productions
+            WHERE block_id = ANY(:ids) {bound}
+        ) src
+        GROUP BY block_id
+    """
+
+
+def _trx_summaries(
+    db: Session,
+    block_ids: list[int],
+    as_of: date | None,
+    bulan: int | None = None,
+    tahun: int | None = None,
+) -> dict[int, dict]:
     if not block_ids:
         return {}
-    params = {"ids": block_ids, "as_of": as_of}
-    period_filter = "AND period <= :as_of" if as_of else ""
+    exact = bulan is not None and tahun is not None
+    params: dict = {"ids": block_ids}
+    if exact:
+        params["period"] = to_period(bulan, tahun)
+    elif as_of is not None:
+        params["as_of"] = as_of
     summary: dict[int, dict] = {bid: {} for bid in block_ids}
 
-    for r in db.execute(text(f"""
-        SELECT DISTINCT ON (block_id) block_id, period, planted_area_ha, land_area_ha, tree_count, sph
-        FROM trx.area_statements WHERE block_id = ANY(:ids) {period_filter}
-        ORDER BY block_id, period DESC
-    """), params).mappings():
-        summary[r["block_id"]]["areal_statement"] = {
-            "luas_tanam": json_safe(r["planted_area_ha"]), "luas_tanah": json_safe(r["land_area_ha"]),
-            "total_pokok": json_safe(r["tree_count"]), "sph": json_safe(r["sph"]), "periode": period_label(r["period"]),
-        }
+    rows = db.execute(text(f"""
+        WITH periods AS (
+            {_shared_period_sql(exact, as_of)}
+        ),
+        statements AS (
+            SELECT DISTINCT ON (a.block_id)
+                   a.block_id, a.planted_area_ha, a.land_area_ha, a.tree_count, a.sph
+            FROM trx.area_statements a
+            JOIN periods per ON per.block_id = a.block_id AND per.period = a.period
+            ORDER BY a.block_id
+        ),
+        productions AS (
+            SELECT p.block_id,
+                   SUM(p.ffb_actual_kg) AS ffb_actual_kg,
+                   SUM(p.ffb_budget_kg) AS ffb_budget_kg,
+                   SUM(p.ffb_census_kg) AS ffb_census_kg,
+                   SUM(p.bunches_actual) AS bunches_actual,
+                   AVG(p.bjr_actual) AS bjr_actual
+            FROM trx.block_productions p
+            JOIN periods per ON per.block_id = p.block_id AND per.period = p.period
+            GROUP BY p.block_id
+        )
+        SELECT per.block_id, per.period,
+               s.planted_area_ha, s.land_area_ha, s.tree_count, s.sph,
+               (s.block_id IS NOT NULL) AS has_statement,
+               pr.ffb_actual_kg, pr.ffb_budget_kg, pr.ffb_census_kg,
+               pr.bunches_actual, pr.bjr_actual,
+               (pr.block_id IS NOT NULL) AS has_production
+        FROM periods per
+        LEFT JOIN statements s ON s.block_id = per.block_id
+        LEFT JOIN productions pr ON pr.block_id = per.block_id
+    """), params).mappings()
 
-    for r in db.execute(text(f"""
-        SELECT DISTINCT ON (p.block_id) p.block_id, p.period, p.ffb_actual_kg, p.ffb_budget_kg, p.ffb_census_kg,
-               p.bunches_actual, p.bjr_actual, st.planted_area_ha
-        FROM trx.block_productions p
-        LEFT JOIN LATERAL (
-            SELECT a.planted_area_ha FROM trx.area_statements a
-            WHERE a.block_id = p.block_id AND a.period <= p.period ORDER BY a.period DESC LIMIT 1
-        ) st ON true
-        WHERE p.block_id = ANY(:ids) {period_filter.replace('period', 'p.period')}
-        ORDER BY p.block_id, p.period DESC
-    """), params).mappings():
-        # Yield (ton/ha) & varians dihitung dari data DB, bukan dari kolom turunan di Excel.
-        luas = float(r["planted_area_ha"] or 0)
+    for r in rows:
+        if not r["has_statement"] and not r["has_production"]:
+            continue
+        period = r["period"]
+        statement = r if r["has_statement"] else None
+        production = r if r["has_production"] else None
+        luas = _optional_money(statement["planted_area_ha"]) if statement else 0.0
+        summary[r["block_id"]]["areal_statement"] = _statement_payload(period, statement)
+        summary[r["block_id"]]["produksi_tbs"] = _produksi_payload(period, luas, production)
 
-        def yield_ha(kg):
-            return float(kg) / 1000 / luas if luas and kg is not None else None
-
-        y_act, y_bgt, y_sns = yield_ha(r["ffb_actual_kg"]), yield_ha(r["ffb_budget_kg"]), yield_ha(r["ffb_census_kg"])
-        gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
-
-        def rnd(v):
-            return round(v, 2) if v is not None else None
-
-        summary[r["block_id"]]["produksi_tbs"] = {
-            "tbs_aktual": json_safe(r["ffb_actual_kg"]), "tbs_budget": json_safe(r["ffb_budget_kg"]),
-            "tbs_sensus": json_safe(r["ffb_census_kg"]),
-            "janjang_aktual": r["bunches_actual"], "bjr_aktual": json_safe(r["bjr_actual"]),
-            "luas_tanam": json_safe(r["planted_area_ha"]),
-            "y_aktual": rnd(y_act), "y_budget": rnd(y_bgt), "y_sensus": rnd(y_sns),
-            "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
-            "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
-            "periode": period_label(r["period"]),
-        }
-
+    period_filter = "AND h.period <= :as_of" if as_of else ""
     for r in db.execute(text(f"""
         SELECT DISTINCT ON (h.block_id) h.block_id, h.period, h.rotation_no, h.interval_days, rs.name AS status
         FROM trx.harvest_rotations h LEFT JOIN ref.rotation_statuses rs ON rs.id = h.rotation_status_id
-        WHERE h.block_id = ANY(:ids) {period_filter.replace('period', 'h.period')}
+        WHERE h.block_id = ANY(:ids) {period_filter}
         ORDER BY h.block_id, h.period DESC
-    """), params).mappings():
+    """), {"ids": block_ids, "as_of": as_of}).mappings():
         summary[r["block_id"]]["rotasi_terakhir"] = {
             "rotasi_ke": json_safe(r["rotation_no"]), "pusingan_hari": r["interval_days"],
             "status_pusingan": r["status"], "tanggal": json_safe(r["period"]),
@@ -91,7 +172,14 @@ def _trx_summaries(db: Session, block_ids: list[int], as_of: date | None) -> dic
     return summary
 
 
-def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None, hide_keys: tuple[str, ...] = ()):
+def blocks_geojson(
+    db: Session,
+    flt: BlockFilter,
+    as_of: date | None,
+    hide_keys: tuple[str, ...] = (),
+    bulan: int | None = None,
+    tahun: int | None = None,
+):
     joins, where_sql, params = flt.sql()
     params["as_of"] = as_of
     period_filter = "AND bb.period <= :as_of" if as_of else ""
@@ -109,7 +197,7 @@ def blocks_geojson(db: Session, flt: BlockFilter, as_of: date | None, hide_keys:
         ORDER BY bl.id
     """), params).mappings().all()
 
-    summaries = _trx_summaries(db, [r["id"] for r in rows], as_of)
+    summaries = _trx_summaries(db, [r["id"] for r in rows], as_of, bulan, tahun)
     features = []
     for r in rows:
         bulan, tahun = period_parts(r["boundary_period"])

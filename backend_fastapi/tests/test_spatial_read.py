@@ -86,6 +86,62 @@ def test_blocks_geojson(client, auth, sample_block):
     assert len(by_code["features"]) == 1
 
 
+def test_blocks_geojson_yield_matches_block_detail_period(client, auth, sample_block):
+    """Areal statement dan produksi GeoJSON memakai bulan+tahun yang sama, rumus yield = detail blok."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT p.period
+            FROM trx.block_productions p
+            JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
+            WHERE p.block_id = :bid
+            ORDER BY p.period DESC
+            LIMIT 1
+        """), {"bid": sample_block["id"]}).first()
+    assert row is not None, "Sampel tidak punya produksi dan areal statement di periode yang sama."
+    period = row[0]
+    params = {
+        "kode_est": sample_block["estate"],
+        "kode_blok": str(sample_block["id"]),
+        "bulan": period.month,
+        "tahun": period.year,
+    }
+
+    fc = client.get("/api/v1/spatial/geojson", headers=auth, params=params).json()
+    props = fc["features"][0]["properties"]
+    label = f"{period.month}-{period.year}"
+    assert props["areal_statement"]["periode"] == label
+    assert props["produksi_tbs"]["periode"] == label
+
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year,
+    }).json()["informasi_blok"]
+    prod = props["produksi_tbs"]
+    assert props["areal_statement"]["luas_tanam"] == detail["luas_tanam"]
+    assert prod["luas_tanam"] == detail["luas_tanam"]
+    assert prod["tbs_aktual"] == detail["tbs"]["aktual"]
+    assert prod["y_aktual"] == detail["yield"]["aktual"]
+    assert prod["y_budget"] == detail["yield"]["budget"]
+    assert prod["y_sensus"] == detail["yield"]["sensus"]
+    assert prod["gap_budget_pct"] == detail["gap_act_bgt"]["value"]
+    assert prod["gap_sensus_pct"] == detail["gap_act_sns"]["value"]
+    assert (prod["kategori_budget"] or "") == detail["gap_act_bgt"]["kategori"]
+    assert (prod["kategori_sensus"] or "") == detail["gap_act_sns"]["kategori"]
+
+    # Bulan lain di tahun yang sama tidak boleh mengembalikan periode produksi di atas.
+    other_month = 1 if period.month != 1 else 2
+    other = client.get("/api/v1/spatial/geojson", headers=auth, params={**params, "bulan": other_month}).json()
+    if other["features"]:
+        other_props = other["features"][0]["properties"]
+        other_label = f"{other_month}-{period.year}"
+        for key in ("areal_statement", "produksi_tbs"):
+            if key in other_props:
+                assert other_props[key]["periode"] == other_label
+
+
 def test_blocks_geojson_hides_unauthorized_transaction_keys(client, auth, sample_block, monkeypatch):
     from app.services import user_access
     monkeypatch.setattr(user_access, "hidden_feature_keys",

@@ -237,8 +237,6 @@ async function loadBlockPopup(
     const detail = await props.requestDetail(blokId, bulan, tahun);
     if (popupLoadSeq.get(blokId) !== seq) return;
     const popupData = blokPopupFromDetail(detail, { bulan, tahun });
-    const painted = readBudgetCategory((feature.properties ?? {}) as Record<string, any>);
-    if (painted) popupData.kategoriYield = painted;
     popupCache.set(blokId, { bulan, tahun, popupData });
     showBlockPopup(layer, feature, popupData, undefined, periodAvailabilityNotice(detail, { bulan, tahun }));
   } catch (error) {
@@ -262,8 +260,8 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
   layer.bindPopup(
     () => buildBlokPopupHtml(blokPopupFromFeature((feature.properties ?? {}) as Record<string, any>, getCurrentPopupPeriod())),
     {
-      maxWidth: 340,
-      minWidth: 320,
+      maxWidth: 380,
+      minWidth: 360,
       maxHeight: 460,
       className: "map-blok-popup-wrapper",
       closeOnClick: false,
@@ -812,7 +810,7 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-popup .bp-empty { margin: 0; font-size: 12px; color: #6b7280; }
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content-wrapper { border-radius: 10px; padding: 0; overflow: hidden; }
-.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content { margin: 0; width: 320px !important; max-height: 72vh; overflow: auto; }
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content { margin: 0; width: 360px !important; max-height: 72vh; overflow: auto; }
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip { background: #fff; }
 
 @keyframes map-blok-skeleton-shine {

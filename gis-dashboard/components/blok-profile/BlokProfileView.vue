@@ -186,9 +186,9 @@ async function waitForExportData() {
     const busy = layers.value.some((layer) => layer.enabled && layer.loading)
       || store.loadingBlocks
       || (!!store.blokId && store.loadingDetail)
-      || (store.canViewProduction && (store.blokId ? store.loadingDetail : store.loadingProduction))
-      || (store.canViewAreaStatement && (store.blokId ? store.loadingDetail : store.loadingAreaStatement))
-      || (store.canViewRotation && (store.blokId ? store.loadingDetail : store.loadingRotation))
+      || (store.canViewProduction && store.loadingProduction)
+      || (store.canViewAreaStatement && store.loadingAreaStatement)
+      || (store.canViewRotation && store.loadingRotation)
       || Boolean(slope?.enabled && slope.loading);
     if (!busy) return;
     await sleep(150);
@@ -531,26 +531,23 @@ onBeforeUnmount(() => {
           <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
         </div>
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
-          <ProductionChartCard :years="store.productionYears"
-            :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+          <ProductionChartCard :years="store.productionYears" :loading="store.loadingProduction" />
           <ProductionGapCard title="Gap terhadap Budget"
             caption="Varians produksi aktual dibanding budget pada periode terakhir." :data="store.productionGapBudget"
-            :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+            :loading="store.loadingProduction" />
           <ProductionGapCard title="Gap terhadap Sensus"
             caption="Varians produksi aktual dibanding sensus pada periode terakhir." :data="store.productionGapSensus"
-            :loading="store.blokId ? store.loadingDetail : store.loadingProduction" />
+            :loading="store.loadingProduction" />
         </div>
         <div v-else-if="activeRight === 'slope' && slopeLayerOn" id="bp-panel-slope" class="bp-collapse-panel">
           <SlopeInfoCard :features="slopeLayer?.data?.features ?? emptyFeatures" :loading="Boolean(slopeLayer?.loading)"
             :error="slopeLayer?.error ?? ''" :period="slopeLayer?.period ?? ''" />
         </div>
         <div v-else-if="activeRight === 'area'" id="bp-panel-area" class="bp-collapse-panel bp-collapse-stack">
-          <AreaStatementCard :data="store.areaStatementView"
-            :loading="store.blokId ? store.loadingDetail : store.loadingAreaStatement" />
+          <AreaStatementCard :data="store.areaStatementView" :loading="store.loadingAreaStatement" />
         </div>
         <div v-else-if="activeRight === 'rotasi'" id="bp-panel-rotasi" class="bp-collapse-panel">
-          <RotationCard :data="store.rotationView"
-            :loading="store.blokId ? store.loadingDetail : store.loadingRotation" />
+          <RotationCard :data="store.rotationView" :loading="store.loadingRotation" />
         </div>
       </aside>
     </div>
@@ -559,15 +556,15 @@ onBeforeUnmount(() => {
     <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel" :filter-line="pdfFilterLine"
       :summary="store.summary" :detail="store.detail" :loading-detail="store.loadingDetail"
       :can-view-production="store.canViewProduction" :production-years="store.productionYears"
-      :production-loading="store.blokId ? store.loadingDetail : store.loadingProduction"
+      :production-loading="store.loadingProduction"
       :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
       :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
       :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
       :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
       :area-statement="store.areaStatementView"
-      :area-loading="store.blokId ? store.loadingDetail : store.loadingAreaStatement"
+      :area-loading="store.loadingAreaStatement"
       :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
-      :rotation-loading="store.blokId ? store.loadingDetail : store.loadingRotation" />
+      :rotation-loading="store.loadingRotation" />
 
     <div v-if="exporting" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
       aria-labelledby="bp-pdf-loader-title" tabindex="-1">
