@@ -526,13 +526,16 @@ export function getBulanPopupLabel(bulan: string): string {
 /**
  * mode LATEST_TAHUN_TANAM = bulan+tahun yang diminta tidak punya transaksi,
  * data di popup adalah transaksi paling akhir. SPESIFIK_TAHUN_TANAM = periode itu ada.
+ * TIDAK_ADA_DATA = periode lebih awal dari transaksi pertama blok, tidak ada data yang bisa ditampilkan.
  */
 export function periodAvailabilityNotice(
   detail: Record<string, any> | null | undefined,
   requested: { bulan: string; tahun: string },
 ): string | undefined {
-  if (String(detail?.mode ?? "") !== "LATEST_TAHUN_TANAM") return undefined;
+  const mode = String(detail?.mode ?? "");
   const asked = `${getBulanPopupLabel(requested.bulan)} ${requested.tahun}`;
+  if (mode === "TIDAK_ADA_DATA") return `Tidak ada data pada periode ${asked}.`;
+  if (mode !== "LATEST_TAHUN_TANAM") return undefined;
   const actualMonth = detail?.periode?.bulan;
   const actualYear = detail?.periode?.tahun;
   const actual = actualMonth && actualYear
