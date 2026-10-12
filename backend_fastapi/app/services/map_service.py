@@ -4,10 +4,10 @@ GeoJSON untuk peta: batas blok (+ ringkasan transaksi) dan titik TPH.
 Semantik periode batas blok = "kondisi per periode": untuk tiap blok diambil
 batas TERBARU dengan period <= periode yang diminta (tanpa parameter = terbaru).
 
-`areal_statement` dan `produksi_tbs` selalu satu periode yang sama:
-bulan+tahun diisi -> periode itu persis; selain itu periode terakhir yang ada
-di salah satu tabel (dibatasi akhir tahun bila hanya tahun). Yield dan kategori
-gap memakai rumus yang sama dengan detail blok.
+`areal_statement` dan `produksi_tbs` selalu memakai periode batas blok yang tampil
+di properti (`bulan`/`tahun`, `periode_batas`), apa pun parameter bulan/tahun-nya,
+supaya ketiganya konsisten. Blok tanpa transaksi di periode itu tidak punya kedua key
+tersebut. Yield dan kategori gap memakai rumus yang sama dengan detail blok.
 """
 from datetime import date
 
@@ -76,25 +76,11 @@ def _produksi_payload(period: date, luas: float, row) -> dict:
     }
 
 
-def _shared_period_sql(exact: bool, as_of: date | None) -> str:
-    """Satu periode per blok, dipakai bersama oleh areal statement dan produksi."""
-    if exact:
-        return """
-            SELECT bl.id AS block_id, CAST(:period AS date) AS period
-            FROM master.blocks bl
-            WHERE bl.id = ANY(:ids)
-        """
-    bound = "AND period <= :as_of" if as_of else ""
-    return f"""
-        SELECT block_id, MAX(period) AS period
-        FROM (
-            SELECT block_id, period FROM trx.area_statements
-            WHERE block_id = ANY(:ids) {bound}
-            UNION ALL
-            SELECT block_id, period FROM trx.block_productions
-            WHERE block_id = ANY(:ids) {bound}
-        ) src
-        GROUP BY block_id
+def _shared_period_sql() -> str:
+    """Satu periode per blok (periode batas), dipakai bersama oleh areal statement dan produksi."""
+    return """
+        SELECT t.block_id, t.period
+        FROM unnest(CAST(:ids AS int[]), CAST(:periods AS date[])) AS t(block_id, period)
     """
 
 
@@ -102,22 +88,18 @@ def _trx_summaries(
     db: Session,
     block_ids: list[int],
     as_of: date | None,
-    bulan: int | None = None,
-    tahun: int | None = None,
+    block_periods: dict[int, date],
 ) -> dict[int, dict]:
+    """`block_periods` (id blok -> periode batas) menentukan periode areal statement & produksi tiap blok."""
     if not block_ids:
         return {}
-    exact = bulan is not None and tahun is not None
-    params: dict = {"ids": block_ids}
-    if exact:
-        params["period"] = to_period(bulan, tahun)
-    elif as_of is not None:
-        params["as_of"] = as_of
+    with_period = [bid for bid in block_ids if block_periods.get(bid)]
+    params: dict = {"ids": with_period, "periods": [block_periods[bid] for bid in with_period]}
     summary: dict[int, dict] = {bid: {} for bid in block_ids}
 
     rows = db.execute(text(f"""
         WITH periods AS (
-            {_shared_period_sql(exact, as_of)}
+            {_shared_period_sql()}
         ),
         statements AS (
             SELECT DISTINCT ON (a.block_id)
@@ -177,8 +159,6 @@ def blocks_geojson(
     flt: BlockFilter,
     as_of: date | None,
     hide_keys: tuple[str, ...] = (),
-    bulan: int | None = None,
-    tahun: int | None = None,
 ):
     joins, where_sql, params = flt.sql()
     params["as_of"] = as_of
@@ -197,17 +177,22 @@ def blocks_geojson(
         ORDER BY bl.id
     """), params).mappings().all()
 
-    summaries = _trx_summaries(db, [r["id"] for r in rows], as_of, bulan, tahun)
+    # Transaksi mengikuti periode batas blok yang tampil di properti (bulan/tahun sama).
+    block_periods = {r["id"]: r["boundary_period"] for r in rows}
+    summaries = _trx_summaries(db, [r["id"] for r in rows], as_of, block_periods)
     features = []
     for r in rows:
-        bulan, tahun = period_parts(r["boundary_period"])
+        boundary_bulan, boundary_tahun = period_parts(r["boundary_period"])
         properties = {
             "blok_id": r["id"], "nama_blok": f"Blok {r['code']}", "kode_blok": r["code"],
             "afd_id": r["division_id"], "kode_afd": r["division_code"],
             "kode_est": r["estate_code"], "nama_estate": r["estate_name"],
             "kode_pt": r["company_code"], "nama_pt": r["company_name"], "kode_area": r["area_code"],
             "tipe_blok": r["block_type"], "tahun_tanam": r["planting_year"], "jenis_bibit": r["seed_varieties"],
-            "status_tanam": r["planting_status"], "bulan": bulan, "tahun": tahun,
+            "status_tanam": r["planting_status"],
+            # Periode batas (poligon); areal_statement & produksi_tbs memakai periode yang sama.
+            # `bulan`/`tahun` dipertahankan untuk FE lama.
+            "periode_batas": period_label(r["boundary_period"]), "bulan": boundary_bulan, "tahun": boundary_tahun,
             **{k: v for k, v in summaries.get(r["id"], {}).items() if k not in hide_keys},
         }
         feature = make_feature(properties, r["geom_json"])
