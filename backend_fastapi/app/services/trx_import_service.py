@@ -6,8 +6,8 @@ Impor transaksi (file Excel atau JSON lewat API) ke skema trx v3:
 
 Ketiganya unik per (block_id, period), jadi impor = UPSERT: file yang sama
 boleh diunggah ulang, baris duplikat di dalam file -> baris terakhir yang dipakai.
-Produksi TBS bersifat GANTI per (tahun, bulan, estate): data lama estate & periode yang ada
-di file dan tidak ikut dikirim lagi ikut dihapus (lihat TrxKind.replace_scope).
+Produksi TBS lewat JSON bersifat GANTI per (tahun, bulan, estate): data lama estate & periode yang ada
+di file dan tidak ikut dikirim lagi ikut dihapus (lihat TrxKind.replace_scope). Lewat Excel tetap UPSERT.
 Validasi dilakukan di Python (sesuai CHECK constraint tabel), lalu data valid
 dimuat lewat COPY ke tabel staging dan di-upsert dalam SATU transaksi.
 
@@ -231,7 +231,8 @@ class TrxKind:
 
 
 def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, source_name: str | None,
-         user_id: UUID | None, first_row: int, scope: ImportScope | None = None) -> dict:
+         user_id: UUID | None, first_row: int, scope: ImportScope | None = None,
+         replace_mode: bool = False) -> dict:
     target, label = kind.target, kind.label
     scope_estate_id = None
     if scope:
@@ -244,7 +245,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         build, refs = kind.build_factory(db)
         result = _collect(db, rows, build, kind.dedupe, first_row, kind.strict_block, scope, scope_estate_id)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
-        replace = kind.replace_scope and bool(result.rows)
+        replace = kind.replace_scope and replace_mode and bool(result.rows)
         pairs = _replace_pairs(db, result, scope, scope_estate_id) if replace else []
         existing = _count_in_scope(db, kind.target, pairs) if pairs else 0
         written = kind.load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
@@ -268,7 +269,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "data_diperbarui": written["diperbarui"],
         "data_tidak_berubah": success - written["baru"] - written["diperbarui"],
         "parameter": {"year": scope.year, "month": scope.month, "unit_code": scope.unit_code} if scope else None,
-        "mode": ("TIMPA" if existing else "BARU") if kind.replace_scope else None,
+        "mode": ("TIMPA" if existing else "BARU") if kind.replace_scope and replace_mode else None,
         "data_lama_ditemukan": existing,
         "data_lama_dihapus": deleted,
         "duplicate_in_file": result.duplicates_merged,
@@ -564,7 +565,7 @@ def import_excel(db: Session, kind: TrxKind, filename: str | None, content: byte
                  scope: ImportScope | None = None) -> dict:
     rows = read_excel_rows(filename, content)
     return _run(db, kind, rows=rows, source_type="EXCEL_UPLOAD", source_name=filename, user_id=user_id, first_row=2,
-                scope=scope)
+                scope=scope)  # Excel: upsert saja, tanpa menghapus blok yang tidak ikut dikirim
 
 
 def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str | None, user_id: UUID | None,
@@ -572,7 +573,7 @@ def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str |
     """Baris JSON memakai nama kolom yang sama dengan header Excel (spasi di tepi nama kolom diabaikan)."""
     rows = [{str(k).strip(): v for k, v in row.items()} for row in rows]
     return _run(db, kind, rows=rows, source_type="JSON_API", source_name=source_name or "JSON API",
-                user_id=user_id, first_row=1, scope=scope)
+                user_id=user_id, first_row=1, scope=scope, replace_mode=True)
 
 
 def import_area_statements(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:

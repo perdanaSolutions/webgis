@@ -115,3 +115,26 @@ def test_new_period_is_mode_baru(db, blocks):
     assert details["mode"] == "BARU"
     assert details["data_lama_ditemukan"] == 0
     assert details["data_lama_dihapus"] == 0
+
+
+def test_excel_import_is_upsert_only_and_never_deletes(db, blocks):
+    import io
+
+    import openpyxl
+
+    _import(db, [_row(x, 2099, 1) for x in blocks])  # lewat JSON: 3 blok untuk Januari
+
+    a = blocks[0]
+    sheet = openpyxl.Workbook()
+    ws = sheet.active
+    ws.append(["Year", "Month", "UnitCode", "DivisionCode", "KodeBlok", "TbsAktual"])
+    ws.append([2099, 1, a[0], a[1], a[2], 7.0])  # Excel hanya memuat satu blok
+    buffer = io.BytesIO()
+    sheet.save(buffer)
+
+    db.execute(text("DROP TABLE IF EXISTS _stage"))
+    details = svc.import_productions(db, "tes.xlsx", buffer.getvalue(), None)["details"]
+    assert details["success_count"] == 1
+    assert details["data_lama_dihapus"] == 0
+    assert details["mode"] is None
+    assert len(_remaining(db, blocks)) == 3  # dua blok lain tetap ada
