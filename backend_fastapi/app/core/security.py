@@ -26,3 +26,13 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
     to_encode = {"exp": expire, "sub": str(subject)}
     encoded_jwt = encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
+
+SERVICE_TOKEN_TYPE = "service"
+SCOPE_PRODUKSI_IMPORT = "produksi_tbs:import"
+
+
+def create_service_token(user_id: Any, token_version: int, expires_at: datetime, scopes: list[str]) -> str:
+    """JWT akun layanan: hanya berlaku di endpoint yang meminta salah satu scope-nya."""
+    payload = {"sub": str(user_id), "typ": SERVICE_TOKEN_TYPE, "scope": scopes, "tv": token_version,
+               "exp": expires_at}
+    return encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

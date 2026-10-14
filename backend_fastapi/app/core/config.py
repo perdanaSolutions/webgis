@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     UPLOAD_MAX_MB: int = 50
 
+    # Token akun layanan (sistem lain): masa berlaku bawaan & batas maksimum, dalam hari.
+    SERVICE_TOKEN_DEFAULT_DAYS: int = 365
+    SERVICE_TOKEN_MAX_DAYS: int = 1825
+
     SUPERADMIN_ROLE: str = "superadmin"
 
     # Konfigurasi seed admin (wajib dari .env)

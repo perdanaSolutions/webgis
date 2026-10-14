@@ -5,6 +5,7 @@ from jwt import decode, PyJWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import SCOPE_PRODUKSI_IMPORT, SERVICE_TOKEN_TYPE
 from app.core.database import SessionLocal
 from app.db.session import set_audit_actor
 from app.models.auth import User, Permission, Role
@@ -31,8 +32,11 @@ def get_db() -> Generator:
     finally:
         db.close()
 
-def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
-    """Dependency untuk mengambil data user yang sedang login berdasarkan JWT Token"""
+def _authenticate(db: Session, token: str | None, scope: str | None = None) -> User:
+    """
+    Token biasa -> user login. Token layanan (typ=service) hanya diterima endpoint yang meminta `scope`
+    yang ada di token, dan hanya selama akunnya aktif serta versi tokennya masih yang terbaru.
+    """
     if not token:
         raise _unauthorized("Tidak terautentikasi")
     credentials_exception = _unauthorized("Token tidak valid atau telah kedaluwarsa")
@@ -44,17 +48,42 @@ def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(
             raise credentials_exception
     except PyJWTError:
         raise credentials_exception
-        
+
+    is_service_token = payload.get("typ") == SERVICE_TOKEN_TYPE
+    if is_service_token and (scope is None or scope not in (payload.get("scope") or [])):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"errors": [{"type": "forbidden", "field": "auth", "input": None,
+                                "msg": "Token layanan tidak berlaku untuk endpoint ini"}]},
+        )
+
     # Cari user di database
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Akun tidak aktif")
+    if is_service_token:
+        if not user.is_service_account or payload.get("tv") != user.token_version:
+            raise _unauthorized("Token layanan sudah dicabut atau diganti")
+    elif user.is_service_account:
+        raise credentials_exception  # akun layanan hanya boleh memakai token layanan
 
     # Trigger audit membaca pelaku dari setting app.user_id (lihat app/db/session.py)
     set_audit_actor(db, user.id)
     return user
+
+
+def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
+    """Dependency untuk mengambil data user yang sedang login berdasarkan JWT Token"""
+    return _authenticate(db, token)
+
+
+def user_or_service(scope: str):
+    """Dependency: user login biasa, atau akun layanan yang tokennya memuat `scope`."""
+    def dependency(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
+        return _authenticate(db, token, scope)
+    return dependency
 
 
 def user_has_permission(db: Session, user: User, permission: str) -> bool:
@@ -85,5 +114,6 @@ class PermissionChecker:
 
 DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CanImportProduksiJson = Annotated[User, Depends(user_or_service(SCOPE_PRODUKSI_IMPORT))]
 CanUploadGeojson = Annotated[User, Depends(PermissionChecker("upload:geojson"))]
 CanWriteAnnouncement = Annotated[User, Depends(PermissionChecker("pengumuman:write"))]

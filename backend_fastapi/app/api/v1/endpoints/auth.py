@@ -87,7 +87,7 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
     ).first()
     
     # Validasi kecocokan password
-    if not user or not security.verify_password(input_password, user.hashed_password):
+    if not user or user.is_service_account or not security.verify_password(input_password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={

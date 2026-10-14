@@ -3,12 +3,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from uuid import UUID
 import math
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.api import deps
 from app.core import security
 from app.models.auth import User, Role, UserActivityLog
-from app.schemas.user import UserCreate, UserUpdate, UserResponse
+from app.core.config import settings
+from app.schemas.user import ServiceTokenRequest, UserCreate, UserUpdate, UserResponse
 from app.schemas.spatial import PaginatedResponse  # Menggunakan wrapper pagination kita sebelumnya
 
 router = APIRouter()
@@ -52,6 +55,19 @@ def _user_has_activity(db: Session, user_id: UUID) -> bool:
         .first()
         is not None
     )
+
+def _is_superadmin(user: User) -> bool:
+    return any(role.nama == settings.SUPERADMIN_ROLE for role in user.roles)
+
+
+def _issue_service_token(user: User, days: int) -> tuple[str, datetime]:
+    """Terbitkan token layanan baru; versi dinaikkan sehingga token sebelumnya langsung tidak berlaku."""
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+    user.token_version = (user.token_version or 1) + 1
+    user.token_expires_at = expires_at
+    token = security.create_service_token(user.id, user.token_version, expires_at, [security.SCOPE_PRODUKSI_IMPORT])
+    return token, expires_at
+
 
 # 1. READ ALL USERS (Dengan Server-Side Pagination & Search)
 @router.get("/", response_model=PaginatedResponse)
@@ -111,20 +127,55 @@ def create_user(
     if db.query(User).filter(User.email == payload.email.lower()).first():
         raise HTTPException(status_code=409, detail="Email sudah terdaftar.")
 
+    if payload.is_service_account and not _is_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="Hanya superadmin yang boleh membuat akun layanan.")
+
     roles = _roles_by_ids(db, payload.role_ids)
 
     new_user = User(
         username=payload.username.lower(),
         email=payload.email.lower(),
         nama_lengkap=payload.nama_lengkap,
-        hashed_password=security.get_password_hash(payload.password),
+        # Akun layanan tidak punya password yang bisa dipakai: login ditolak untuknya.
+        hashed_password=security.get_password_hash(payload.password or secrets.token_urlsafe(32)),
         is_active=payload.is_active,
+        is_service_account=payload.is_service_account,
         roles=roles,
     )
-    db.add(new_user)
+    token = None
+    if payload.is_service_account:
+        db.add(new_user)
+        db.flush()  # id dibutuhkan untuk token
+        token, _ = _issue_service_token(new_user, payload.masa_berlaku_token_hari)
+    else:
+        db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return _to_user_response(new_user, False)
+    response = _to_user_response(new_user, False)
+    return response.model_copy(update={"access_token": token, "token_type": "bearer" if token else None})
+
+
+# 2b. TERBITKAN ULANG TOKEN AKUN LAYANAN
+@router.post("/{user_id}/service-token", response_model=UserResponse)
+def reissue_service_token(
+    user_id: UUID,
+    payload: ServiceTokenRequest,
+    db: Session = Depends(deps.get_db),
+    current_user = Depends(deps.get_current_user)
+):
+    """Token lama langsung tidak berlaku. Token baru hanya ditampilkan sekali di respons ini."""
+    if not _is_superadmin(current_user):
+        raise HTTPException(status_code=403, detail="Hanya superadmin yang boleh menerbitkan token akun layanan.")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+    if not user.is_service_account:
+        raise HTTPException(status_code=400, detail="User ini bukan akun layanan.")
+    token, _ = _issue_service_token(user, payload.masa_berlaku_token_hari)
+    db.commit()
+    db.refresh(user)
+    response = _to_user_response(user, _user_has_activity(db, user.id))
+    return response.model_copy(update={"access_token": token, "token_type": "bearer"})
 
 
 # 3. UPDATE USER DETAILS & PASSWORD
@@ -138,6 +189,7 @@ def update_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
 
     # Mencegah penonaktifan akun superadmin bawaan secara tidak sengaja
     if user.username == "superadmin" and payload.is_active is False:
@@ -173,6 +225,7 @@ def delete_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
 
     if user.username == "superadmin":
         raise HTTPException(status_code=400, detail="Akun 'superadmin' utama sistem tidak boleh dihapus.")

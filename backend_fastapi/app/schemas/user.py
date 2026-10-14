@@ -1,4 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, model_validator
+
+from app.core.config import settings
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
@@ -22,15 +24,45 @@ class UserBase(BaseModel):
 
 # Schema untuk Input saat Membuat User Baru (Wajib isi password)
 class UserCreate(UserBase):
-    password: str
+    password: Optional[str] = None  # wajib untuk user biasa; akun layanan tidak memakai password
     role_ids: List[UUID] = []
     role_id: Optional[UUID] = None
+    # Akun layanan = akun untuk sistem lain: tidak bisa login, hanya memakai Bearer token berumur panjang.
+    is_service_account: bool = False
+    masa_berlaku_token_hari: Optional[int] = Field(
+        default=None, ge=1,
+        description="Masa berlaku token akun layanan (hari). Kosong = SERVICE_TOKEN_DEFAULT_DAYS. "
+                    "Maksimum SERVICE_TOKEN_MAX_DAYS.",
+    )
 
     @model_validator(mode="after")
-    def require_roles(self):
+    def validate_account_type(self):
         self.role_ids = _unique_role_ids(self.role_ids, self.role_id)
+        if self.is_service_account:
+            days = self.masa_berlaku_token_hari or settings.SERVICE_TOKEN_DEFAULT_DAYS
+            if days > settings.SERVICE_TOKEN_MAX_DAYS:
+                raise ValueError(f"masa_berlaku_token_hari maksimal {settings.SERVICE_TOKEN_MAX_DAYS} hari.")
+            self.masa_berlaku_token_hari = days
+            return self
+        if self.masa_berlaku_token_hari is not None:
+            raise ValueError("masa_berlaku_token_hari hanya untuk akun layanan (is_service_account=true).")
+        if not self.password:
+            raise ValueError("Password wajib diisi.")
         if not self.role_ids:
             raise ValueError("Minimal satu role wajib dipilih.")
+        return self
+
+
+class ServiceTokenRequest(BaseModel):
+    masa_berlaku_token_hari: Optional[int] = Field(
+        default=None, ge=1, description="Kosong = SERVICE_TOKEN_DEFAULT_DAYS. Maksimum SERVICE_TOKEN_MAX_DAYS.")
+
+    @model_validator(mode="after")
+    def validate_days(self):
+        days = self.masa_berlaku_token_hari or settings.SERVICE_TOKEN_DEFAULT_DAYS
+        if days > settings.SERVICE_TOKEN_MAX_DAYS:
+            raise ValueError(f"masa_berlaku_token_hari maksimal {settings.SERVICE_TOKEN_MAX_DAYS} hari.")
+        self.masa_berlaku_token_hari = days
         return self
 
 # Schema untuk Input saat Mengubah User (Password bersifat opsional)
@@ -71,6 +103,11 @@ class UserResponse(BaseModel):
     role: Optional[RoleInUser] = None
     # True jika user punya baris di audit.user_activities (tidak boleh dihapus)
     has_activity: bool = False
+    is_service_account: bool = False
+    token_expires_at: Optional[datetime] = None
+    # Token layanan hanya ditampilkan SEKALI, saat akun dibuat atau token diterbitkan ulang.
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
 
     class Config:
         from_attributes = True

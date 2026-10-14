@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, text, BigInteger, Boolean, Table, Identity
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, text, BigInteger, Boolean, Table, Identity
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -125,6 +125,10 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, server_default=text("true"), nullable=False)
+    # Akun layanan: dipakai sistem lain lewat token berumur panjang, tidak bisa login biasa.
+    is_service_account = Column(Boolean, server_default=text("false"), nullable=False)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    token_version = Column(Integer, server_default=text("1"), nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
