@@ -60,6 +60,17 @@ def _is_superadmin(user: User) -> bool:
     return any(role.nama == settings.SUPERADMIN_ROLE for role in user.roles)
 
 
+def _forbid_unless_superadmin(current_user: User, message: str, *, target: User | None = None,
+                              roles: list[Role] | None = None) -> None:
+    """Hanya superadmin yang boleh menyentuh akun superadmin atau memberi role superadmin."""
+    if _is_superadmin(current_user):
+        return
+    touches_superadmin = (target is not None and _is_superadmin(target)) or any(
+        role.nama == settings.SUPERADMIN_ROLE for role in roles or [])
+    if touches_superadmin:
+        raise HTTPException(status_code=403, detail=message)
+
+
 def _issue_service_token(user: User, days: int) -> tuple[str, datetime]:
     """Terbitkan token layanan baru; versi dinaikkan sehingga token sebelumnya langsung tidak berlaku."""
     expires_at = datetime.now(timezone.utc) + timedelta(days=days)
@@ -76,7 +87,7 @@ def get_users_list(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user = Depends(deps.PermissionChecker("user:read"))
 ):
     offset = (page - 1) * limit
     where_clauses = []
@@ -117,7 +128,7 @@ def get_users_list(
 def create_user(
     payload: UserCreate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user = Depends(deps.PermissionChecker("user:write"))
 ):
     # Cek duplikasi username
     if db.query(User).filter(User.username == payload.username.lower()).first():
@@ -131,6 +142,7 @@ def create_user(
         raise HTTPException(status_code=403, detail="Hanya superadmin yang boleh membuat akun layanan.")
 
     roles = _roles_by_ids(db, payload.role_ids)
+    _forbid_unless_superadmin(current_user, "Hanya superadmin yang boleh memberi role superadmin.", roles=roles)
 
     new_user = User(
         username=payload.username.lower(),
@@ -161,7 +173,7 @@ def reissue_service_token(
     user_id: UUID,
     payload: ServiceTokenRequest,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user = Depends(deps.PermissionChecker("user:write"))
 ):
     """Token lama langsung tidak berlaku. Token baru hanya ditampilkan sekali di respons ini."""
     if not _is_superadmin(current_user):
@@ -184,12 +196,13 @@ def update_user(
     user_id: UUID,
     payload: UserUpdate,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user = Depends(deps.PermissionChecker("user:write"))
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
+    _forbid_unless_superadmin(current_user, "Hanya superadmin yang boleh mengubah akun superadmin.", target=user)
 
     # Mencegah penonaktifan akun superadmin bawaan secara tidak sengaja
     if user.username == "superadmin" and payload.is_active is False:
@@ -204,7 +217,9 @@ def update_user(
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.role_ids is not None:
-        user.roles = _roles_by_ids(db, payload.role_ids)
+        new_roles = _roles_by_ids(db, payload.role_ids)
+        _forbid_unless_superadmin(current_user, "Hanya superadmin yang boleh memberi role superadmin.", roles=new_roles)
+        user.roles = new_roles
         
     # Jika frontend mengirimkan string password baru, lakukan hashing ulang
     if payload.password:
@@ -220,12 +235,13 @@ def update_user(
 def delete_user(
     user_id: UUID,
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user = Depends(deps.PermissionChecker("user:write"))
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
+    _forbid_unless_superadmin(current_user, "Hanya superadmin yang boleh menghapus akun superadmin.", target=user)
 
     if user.username == "superadmin":
         raise HTTPException(status_code=400, detail="Akun 'superadmin' utama sistem tidak boleh dihapus.")
