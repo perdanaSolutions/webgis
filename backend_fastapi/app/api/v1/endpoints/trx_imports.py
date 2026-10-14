@@ -94,7 +94,7 @@ def import_area_statements(db: DbSession, user: CurrentUser, file: UploadedFile)
 @areal_statement_router.post("/import-json", summary="Import Areal Statement dari JSON (upsert per blok & bulan)",
                              description=_AREA_JSON_DOC)
 def import_area_statements_json(db: DbSession, user: CurrentUser, payload: TrxJsonImport = Body(openapi_examples={
-    "lengkap": {"summary": "Seluruh 24 kolom", "value": {"sumber": "SAP", "data": [{
+    "lengkap": {"summary": "Seluruh 24 kolom", "value": {"sumber": "Engine", "data": [{
         "Year": 2026, "Month": 1, "AreaCode": "KUTIM2", "CompanyCode": 1500, "Estate": "Long Mesangat Estate",
         "UnitCode": "E013", "EstateShortName": "LME", "DivisionCode": "AFDI04", "KodeBlok": "H033",
         "TipeBlok": "Inti", "StatusTanam": "TM", "TahunTanam": 2007, "BulanTanam": "Sep", "LuasTanam": 41.38,
@@ -118,12 +118,16 @@ def import_productions(db: DbSession, user: CurrentUser, file: UploadedFile,
                         description=_PROD_JSON_DOC)
 def import_productions_json(db: DbSession, user: CanImportProduksiJson, year: Tahun = None, month: Bulan = None,
                             unit_code: UnitCodeParam = None, payload: TrxJsonImport = Body(openapi_examples={
-    "lengkap": {"summary": "Seluruh 14 kolom", "value": {"sumber": "SAP", "data": [{
+    "lengkap": {"summary": "Seluruh 14 kolom", "value": {"sumber": "Engine", "data": [{
         "Year": 2026, "Month": 1, "UnitCode": "E005", "DivisionCode": "AFDI01", "KodeBlok": "C012",
         "TbsAktual": 43630, "TbsBudget": 64290, "TbsSensus": 53020, "JanjangAktual": 2497, "JanjangBudget": 3681,
         "JanjangSensus": 3223, "BjrAktual": 17.47, "BjrBudget": 17.47, "BjrSensus": 16.45}]}},
     "minimal": {"summary": "Hanya kolom wajib", "value": {"data": [{
         "Year": 2026, "Month": 1, "UnitCode": "E005", "DivisionCode": "AFDI01", "KodeBlok": "C012"}]}},
+    "dengan_parameter": {
+        "summary": "Dengan query ?year=2026&month=1&unit_code=E005 (Year/Month/UnitCode tidak perlu di body)",
+        "value": {"data": [{"DivisionCode": "AFDI01", "KodeBlok": "C012", "TbsAktual": 43630, "JanjangAktual": 2497,
+                            "BjrAktual": 17.47}]}},
 })):
     scope = _production_scope(year, month, unit_code)
     return trx_import_service.import_json(db, PRODUCTION, payload.data, payload.sumber, user.id, scope)
@@ -137,7 +141,7 @@ def import_rotations(db: DbSession, user: CurrentUser, file: UploadedFile):
 @rotation_router.post("/import-json", summary="Import Rotasi & Pusingan dari JSON (upsert per blok & bulan)",
                       description=_ROT_JSON_DOC)
 def import_rotations_json(db: DbSession, user: CurrentUser, payload: TrxJsonImport = Body(openapi_examples={
-    "lengkap": {"summary": "Seluruh kolom Excel", "value": {"sumber": "SAP", "data": [{
+    "lengkap": {"summary": "Seluruh kolom Excel", "value": {"sumber": "Engine", "data": [{
         "Periode": 2026, "Area": "BERAU", "PT": "PT. INTI ENERGI KALTIM", "Estate": "Ampen Medang Estate",
         "Afdeling": "AFDI01", "Blok": "C012", "Luas": 26.55, "Pokok": 3709, "Rotasi": 4, "Pusingan": 3,
         "Status Pusingan": "Normal", "Bulan": "Jan", "BulanID": 1, "Tanggal": "2026-01-01"}]}},
