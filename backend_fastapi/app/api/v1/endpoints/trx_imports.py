@@ -8,7 +8,7 @@ from app.api.params import Bulan, Tahun, UploadedFile, read_upload
 from app.core.config import settings
 from app.core.exceptions import bad_request
 from app.schemas.trx_import import TrxJsonImport
-from app.services import trx_import_service
+from app.services import trx_import_analysis, trx_import_service
 from app.services.trx_import_service import AREA_STATEMENT, PRODUCTION, ROTATION, ImportScope
 
 areal_statement_router = APIRouter()
@@ -76,6 +76,22 @@ _ROT_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
 """
 
 
+_ANALISIS_DOC = """
+**Uji coba import Excel: tidak ada data yang disimpan.** Endpoint ini menjalankan proses import yang sama persis dengan
+endpoint import-nya lalu membatalkannya, jadi angka di laporan sama dengan hasil import sungguhan. Pakai ini dulu sebelum
+mengimpor, lalu unggah file yang sama ke endpoint import bila hasilnya sudah sesuai.
+
+**Isi laporan:**
+- `status_analisis` dan `kesimpulan`: ringkasan dalam kalimat (`SIAP`, `SIAP_DENGAN_CATATAN`, atau `TIDAK_ADA_DATA_VALID`).
+- Jumlah baris: `baris_siap`, `data_baru`, `data_diperbarui` (nilainya berbeda dari data yang ada), `data_tidak_berubah`,
+  dan `baris_ditolak` per alasan.
+- `peringatan`: masalah yang perlu dicek beserta sarannya (kolom wajib hilang, blok tidak ditemukan, nilai referensi
+  baru yang akan dibuat otomatis, dan sebagainya).
+- `rincian`: kolom yang dibaca dan tidak dibaca, jumlah data per periode dan per estate, daftar blok yang tidak
+  ditemukan beserta penyebabnya (estate tidak dikenal, afdeling tidak ada, atau blok tidak ada di afdeling), dan baris
+  yang ditolak lengkap dengan nomor baris Excel (maksimal 100 baris pertama).
+"""
+
 _JSON_DOC = "Nama kolom tiap baris sama dengan header Excel; validasi & upsert per blok & bulan juga sama."
 
 _AREA_JSON_DOC = (
@@ -141,6 +157,12 @@ def import_area_statements(db: DbSession, user: CurrentUser, file: UploadedFile)
     return trx_import_service.import_area_statements(db, file.filename, read_upload(file), user.id)
 
 
+@areal_statement_router.post("/import-excel/analyze", summary="Analisis Excel Areal Statement sebelum diimpor (tidak menyimpan data)",
+                             description=_ANALISIS_DOC)
+def analyze_area_statements(db: DbSession, user: CurrentUser, file: UploadedFile):
+    return trx_import_analysis.analyze_excel(db, AREA_STATEMENT, file.filename, read_upload(file))
+
+
 @areal_statement_router.post("/import-json", summary="Import Areal Statement dari JSON (upsert per blok & bulan)",
                              description=_AREA_JSON_DOC)
 def import_area_statements_json(db: DbSession, user: CurrentUser, payload: TrxJsonImport = Body(openapi_examples={
@@ -161,6 +183,12 @@ def import_area_statements_json(db: DbSession, user: CurrentUser, payload: TrxJs
                         description=_PROD_EXCEL_DOC)
 def import_productions(db: DbSession, user: CurrentUser, file: UploadedFile):
     return trx_import_service.import_productions(db, file.filename, read_upload(file), user.id)
+
+
+@production_router.post("/import-produksi-tbs/analyze", summary="Analisis Excel Produksi TBS sebelum diimpor (tidak menyimpan data)",
+                        description=_ANALISIS_DOC)
+def analyze_productions(db: DbSession, user: CurrentUser, file: UploadedFile):
+    return trx_import_analysis.analyze_excel(db, PRODUCTION, file.filename, read_upload(file))
 
 
 @production_router.post("/import-json", summary="Import Produksi TBS dari JSON (ganti per tahun, bulan & estate)",
@@ -186,6 +214,12 @@ def import_productions_json(db: DbSession, user: CanImportProduksiJson, year: Ta
                       description=_ROT_EXCEL_DOC)
 def import_rotations(db: DbSession, user: CurrentUser, file: UploadedFile):
     return trx_import_service.import_rotations(db, file.filename, read_upload(file), user.id)
+
+
+@rotation_router.post("/import-rotasi-pusingan/analyze", summary="Analisis Excel Rotasi & Pusingan sebelum diimpor (tidak menyimpan data)",
+                      description=_ANALISIS_DOC)
+def analyze_rotations(db: DbSession, user: CurrentUser, file: UploadedFile):
+    return trx_import_analysis.analyze_excel(db, ROTATION, file.filename, read_upload(file))
 
 
 @rotation_router.post("/import-json", summary="Import Rotasi & Pusingan dari JSON (upsert per blok & bulan)",

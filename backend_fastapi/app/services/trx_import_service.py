@@ -95,6 +95,7 @@ class ImportResult:
     conflict_samples: list[str] = field(default_factory=list)
     seen_pairs: set[tuple[int, date]] = field(default_factory=set)  # (blok, periode) yang ada di file, valid maupun ditolak
     seen_blocks: set[int] = field(default_factory=set)  # blok dari baris yang periodenya tidak terbaca (dilindungi di semua periode)
+    missing_blocks: dict[str, dict] = field(default_factory=dict)  # label estate/afdeling/blok -> penyebab & jumlah baris
     company_warnings: int = 0
     company_warning_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
@@ -158,10 +159,13 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
             result.missing_block += 1
             estate = next((e for e in estate_refs if e), "-")
             label = f"{estate}/{division or '-'}/{block_code}"
+            cause = index.miss_cause(estate_refs, division)
+            entry = result.missing_blocks.setdefault(label, {"penyebab": cause, "jumlah_baris": 0, "baris_contoh": number})
+            entry["jumlah_baris"] += 1
             if len(result.unmatched_samples) < 5:
                 result.unmatched_samples.append(f"baris {number}: {label}")
             result.rejected.append(quarantine.Rejected(
-                number, "BLOK_TIDAK_DITEMUKAN", f"Blok {label} tidak ada di master.", original))
+                number, "BLOK_TIDAK_DITEMUKAN", f"Blok {label} tidak ada di master ({cause}).", original))
             continue
         if scope and index.estate_by_block.get(block_id) != scope_estate_id:
             result.invalid += 1

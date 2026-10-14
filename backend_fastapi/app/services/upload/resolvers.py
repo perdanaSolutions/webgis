@@ -24,6 +24,7 @@ class BlockIndex:
     by_code: dict[str, list[int]] = field(default_factory=dict)               # kode blok -> [block_id]
     company_by_block: dict[int, str] = field(default_factory=dict)            # block_id -> kode PT (master.companies)
     estate_by_block: dict[int, int] = field(default_factory=dict)             # block_id -> estate_id
+    divisions: set[tuple[int, str]] = field(default_factory=set)              # (estate_id, afdeling) yang ada di master
 
     @classmethod
     def load(cls, db: Session) -> "BlockIndex":
@@ -32,6 +33,8 @@ class BlockIndex:
             for key in (r["code"], r["short_name"], r["name"]):
                 if key:
                     index.estate_ids.setdefault(norm_key(key), r["id"])
+        for r in db.execute(text("SELECT estate_id, code FROM master.divisions")).mappings():
+            index.divisions.add((r["estate_id"], norm_key(r["code"])))
         for r in db.execute(text("""
             SELECT bl.id, bl.code AS block_code, dv.code AS division_code, dv.estate_id, co.code AS company_code
             FROM master.blocks bl JOIN master.divisions dv ON dv.id = bl.division_id
@@ -48,6 +51,15 @@ class BlockIndex:
             if ref and (found := self.estate_ids.get(norm_key(ref))):
                 return found
         return None
+
+    def miss_cause(self, estate_refs: tuple, division: Any) -> str:
+        """Kenapa blok tidak ketemu: estate, afdeling, atau bloknya yang tidak ada di master."""
+        estate_id = self.estate_id(*estate_refs)
+        if estate_id is None:
+            return "estate tidak dikenal di master"
+        if not division or (estate_id, norm_key(division)) not in self.divisions:
+            return "afdeling tidak ada di estate ini"
+        return "blok tidak ada di afdeling ini"
 
     def resolve(self, estate_refs: tuple, division: Any, block: Any, allow_code_only: bool = False) -> int | None:
         block_key = norm_key(block)
