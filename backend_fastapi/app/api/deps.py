@@ -1,6 +1,6 @@
 from typing import Annotated, Generator
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from jwt import decode, PyJWTError
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,13 @@ from app.models.auth import User, Permission, Role
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form",  # <--- ARINGKAN KE SINI
     auto_error=False,  # tanpa token: kita sendiri yang membalas 401 dengan format error standar
+)
+
+
+# Skema Bearer murni (tempel token di Swagger): dipakai endpoint yang juga menerima token akun layanan.
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description="Token JWT: token login user, atau token akun layanan untuk sistem lain.",
 )
 
 
@@ -81,8 +88,9 @@ def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(
 
 def user_or_service(scope: str):
     """Dependency: user login biasa, atau akun layanan yang tokennya memuat `scope`."""
-    def dependency(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
-        return _authenticate(db, token, scope)
+    def dependency(db: Session = Depends(get_db),
+                   credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> User:
+        return _authenticate(db, credentials.credentials if credentials else None, scope)
     return dependency
 
 
