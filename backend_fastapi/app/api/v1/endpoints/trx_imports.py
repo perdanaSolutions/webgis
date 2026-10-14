@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Query
 
 from app.api.deps import CanImportProduksiJson, CurrentUser, DbSession
 from app.api.params import Bulan, Tahun, UploadedFile, read_upload
+from app.core.config import settings
 from app.core.exceptions import bad_request
 from app.schemas.trx_import import TrxJsonImport
 from app.services import trx_import_service
@@ -25,6 +26,54 @@ def _production_scope(year: int | None, month: int | None, unit_code: str | None
     if not all(given):
         raise bad_request("Parameter year, month, dan unit_code harus diisi bersamaan.", "year")
     return ImportScope(year=year, month=month, unit_code=unit_code.strip())
+
+
+_EXCEL_ATURAN_UMUM = f"""
+### Aturan umum import Excel
+- **Format file:** `.xlsx` atau `.xls`, maksimal {settings.UPLOAD_MAX_MB} MB. Yang dibaca adalah **sheet pertama**, dan baris pertama harus berisi nama kolom (header).
+- **Cara mencari blok:** setiap baris dicocokkan ke master berdasarkan **estate + afdeling + blok**. Ketiganya harus ada dan cocok persis. Kalau tidak cocok (misalnya afdeling atau blok belum terdaftar), baris itu **ditolak**; sistem tidak menebak.
+- **Baris bermasalah tidak membatalkan baris lain.** Baris yang ditolak (blok tidak ketemu, nilai negatif, kolom wajib kosong, dan sebagainya) disimpan di **karantina** (`GET /api/v1/karantina`) beserta alasannya, sedangkan baris yang benar tetap masuk.
+- **File boleh diunggah ulang.** Sistem memakai pola *upsert* per blok dan bulan: blok yang sudah ada diperbarui, yang belum ada ditambahkan, dan baris yang isinya sama persis tidak ditulis ulang.
+- **Blok yang tidak ada di Excel tidak dihapus.** Import Excel hanya menambah dan memperbarui data. Penggantian satu estate-bulan hanya ada di import JSON produksi TBS.
+- **Satu transaksi:** kalau terjadi error sistem di tengah proses, tidak ada data yang tersimpan setengah-setengah.
+- **Hasil proses:** respons memuat `success_count` (baris masuk), `data_baru`, `data_diperbarui`, `data_tidak_berubah`, `missing_blok_count` (blok tidak ketemu), `invalid_prop_count` (nilai tidak valid), `karantina_count`, serta contoh baris yang bermasalah.
+- Penanda kosong dari Excel seperti `(blank)` atau `(Blanks)` dianggap sel kosong.
+"""
+
+_AREA_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
+### Aturan khusus Areal Statement
+- **Kolom (24):** Year, Month, AreaCode, CompanyCode, Estate, UnitCode, EstateShortName, DivisionCode, KodeBlok, TipeBlok, StatusTanam, TahunTanam, BulanTanam, LuasTanam, LuasTanah, TotalPokok, SPH, JenisBibit, JenisTopografi, TanahDatar, Berbukit, Gelombang, Curam, JenisTanah.
+- **Wajib diisi:** periode (Year dan Month), AreaCode, StatusTanam, KodeBlok, DivisionCode, dan satu penanda estate (UnitCode, EstateShortName, atau Estate). Kolom lain boleh kosong.
+- **StatusTanam kosong** membuat baris ditolak.
+- **TahunTanam** harus antara 1900 dan 2100; `0` atau kosong berarti belum ditanam. **BulanTanam** boleh berupa angka atau nama bulan (Jan, Januari).
+- **Persentase topografi** (TanahDatar, Berbukit, Gelombang, Curam): tiap kolom 0-100 dan jumlahnya tidak boleh lebih dari 100.
+- **LuasTanam, LuasTanah, TotalPokok, SPH** tidak boleh negatif.
+- **JenisBibit** boleh lebih dari satu, dipisah koma, `/`, `;`, `+`, `&`, atau kata "dan".
+- **CompanyCode** hanya dicek sebagai **peringatan**. Kalau berbeda dari PT blok di master, baris tetap masuk dan perbedaannya dilaporkan di `peringatan_company_code`.
+- **TipeBlok** (Inti/Plasma) ikut memperbarui tipe blok di master.
+- **Nilai referensi baru** (AreaCode, status tanam, jenis tanah, topografi, bibit, atau tipe blok yang belum terdaftar) dibuat otomatis. Periksa `nilai_referensi_baru` di hasil agar tidak ada salah ketik.
+- **Baris ganda** (blok dan bulan yang sama muncul lebih dari sekali): baris yang terakhir yang dipakai.
+"""
+
+_PROD_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
+### Aturan khusus Produksi TBS
+- **Kolom (14):** Year, Month, UnitCode, DivisionCode, KodeBlok, TbsAktual, TbsBudget, TbsSensus, JanjangAktual, JanjangBudget, JanjangSensus, BjrAktual, BjrBudget, BjrSensus.
+- **Wajib diisi:** periode (Year dan Month), KodeBlok, DivisionCode, dan satu penanda estate (UnitCode, EstateShortName, atau Estate). Sembilan kolom nilai (TBS dalam kg, janjang, BJR) boleh kosong dan akan disimpan kosong.
+- **Nilai tidak boleh negatif.**
+- **Baris ganda** (blok dan bulan yang sama muncul lebih dari sekali): kalau hanya satu baris yang punya TbsAktual atau JanjangAktual, baris itulah yang dipakai dan baris sensus-saja diabaikan; kalau semua baris identik, dipakai satu; selain itu semua baris ganda **ditolak** (alasan `DUPLIKAT_BERTENTANGAN`).
+- **Berbeda dengan import JSON:** Excel tidak menghapus blok yang tidak ikut dikirim. Mode ganti per estate-bulan hanya berlaku di `import-json`.
+"""
+
+_ROT_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
+### Aturan khusus Rotasi & Pusingan
+- **Kolom:** Periode, Area, PT, Estate, Afdeling, Blok, Luas, Pokok, Rotasi, Pusingan, Status Pusingan, Bulan, BulanID, Tanggal.
+- **Wajib diisi:** tahun (kolom Periode), bulan, Blok, Afdeling, dan estate. Bulan boleh berupa angka atau nama (`1`, `Jan`, `Januari`); kalau kolom Bulan kosong, bulan diambil dari kolom Tanggal.
+- **Estate dikenali** dari kode estate (UnitCode), singkatan, atau nama estate (misalnya `Ampen Medang Estate`).
+- **Area, PT, dan BulanID** boleh ada di file tetapi **tidak disimpan**.
+- **Luas, Pokok, Rotasi, Pusingan** tidak boleh negatif dan boleh kosong.
+- **Status Pusingan** yang belum terdaftar dibuat otomatis; periksa `nilai_referensi_baru` agar tidak ada salah ketik.
+- **Baris ganda** (blok dan bulan yang sama muncul lebih dari sekali): baris yang terakhir yang dipakai.
+"""
 
 
 _JSON_DOC = "Nama kolom tiap baris sama dengan header Excel; validasi & upsert per blok & bulan juga sama."
@@ -86,7 +135,8 @@ _ROT_JSON_DOC = (
     "- **Area, PT, dan BulanID** boleh dikirim tetapi tidak disimpan; bulan diambil dari Bulan atau Tanggal."
 )
 
-@areal_statement_router.post("/import-excel", summary="Import Areal Statement dari Excel (upsert per blok & bulan)")
+@areal_statement_router.post("/import-excel", summary="Import Areal Statement dari Excel (upsert per blok & bulan)",
+                             description=_AREA_EXCEL_DOC)
 def import_area_statements(db: DbSession, user: CurrentUser, file: UploadedFile):
     return trx_import_service.import_area_statements(db, file.filename, read_upload(file), user.id)
 
@@ -107,11 +157,10 @@ def import_area_statements_json(db: DbSession, user: CurrentUser, payload: TrxJs
     return trx_import_service.import_json(db, AREA_STATEMENT, payload.data, payload.sumber, user.id)
 
 
-@production_router.post("/import-produksi-tbs", summary="Import Produksi TBS dari Excel (ganti per tahun, bulan & estate)")
-def import_productions(db: DbSession, user: CurrentUser, file: UploadedFile,
-                       year: Tahun = None, month: Bulan = None, unit_code: UnitCodeParam = None):
-    scope = _production_scope(year, month, unit_code)
-    return trx_import_service.import_productions(db, file.filename, read_upload(file), user.id, scope)
+@production_router.post("/import-produksi-tbs", summary="Import Produksi TBS dari Excel (upsert per blok & bulan)",
+                        description=_PROD_EXCEL_DOC)
+def import_productions(db: DbSession, user: CurrentUser, file: UploadedFile):
+    return trx_import_service.import_productions(db, file.filename, read_upload(file), user.id)
 
 
 @production_router.post("/import-json", summary="Import Produksi TBS dari JSON (ganti per tahun, bulan & estate)",
@@ -133,7 +182,8 @@ def import_productions_json(db: DbSession, user: CanImportProduksiJson, year: Ta
     return trx_import_service.import_json(db, PRODUCTION, payload.data, payload.sumber, user.id, scope)
 
 
-@rotation_router.post("/import-rotasi-pusingan", summary="Import Rotasi & Pusingan dari Excel (upsert per blok & bulan)")
+@rotation_router.post("/import-rotasi-pusingan", summary="Import Rotasi & Pusingan dari Excel (upsert per blok & bulan)",
+                      description=_ROT_EXCEL_DOC)
 def import_rotations(db: DbSession, user: CurrentUser, file: UploadedFile):
     return trx_import_service.import_rotations(db, file.filename, read_upload(file), user.id)
 
