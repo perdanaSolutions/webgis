@@ -22,6 +22,8 @@ class BlockIndex:
     by_path: dict[tuple[int, str, str], int] = field(default_factory=dict)   # (estate_id, div, blok) -> block_id
     estate_ids: dict[str, int] = field(default_factory=dict)                  # kode/singkatan/nama estate -> id
     by_code: dict[str, list[int]] = field(default_factory=dict)               # kode blok -> [block_id]
+    company_by_block: dict[int, str] = field(default_factory=dict)            # block_id -> kode PT (master.companies)
+    estate_by_block: dict[int, int] = field(default_factory=dict)             # block_id -> estate_id
 
     @classmethod
     def load(cls, db: Session) -> "BlockIndex":
@@ -31,9 +33,12 @@ class BlockIndex:
                 if key:
                     index.estate_ids.setdefault(norm_key(key), r["id"])
         for r in db.execute(text("""
-            SELECT bl.id, bl.code AS block_code, dv.code AS division_code, dv.estate_id
+            SELECT bl.id, bl.code AS block_code, dv.code AS division_code, dv.estate_id, co.code AS company_code
             FROM master.blocks bl JOIN master.divisions dv ON dv.id = bl.division_id
+            JOIN master.estates es ON es.id = dv.estate_id JOIN master.companies co ON co.id = es.company_id
         """)).mappings():
+            index.company_by_block[r["id"]] = r["company_code"]
+            index.estate_by_block[r["id"]] = r["estate_id"]
             index.by_path[(r["estate_id"], norm_key(r["division_code"]), norm_key(r["block_code"]))] = r["id"]
             index.by_code.setdefault(norm_key(r["block_code"]), []).append(r["id"])
         return index
@@ -62,6 +67,7 @@ class BlockIndex:
     def add(self, estate_id: int, division: str, block: str, block_id: int) -> None:
         self.by_path[(estate_id, norm_key(division), norm_key(block))] = block_id
         self.by_code.setdefault(norm_key(block), []).append(block_id)
+        self.estate_by_block[block_id] = estate_id
 
 
 def locate_blocks_by_geometry(db: Session, items: list[tuple[str, int | None]]) -> list[int | None]:

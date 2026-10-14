@@ -1,5 +1,5 @@
 """Aturan impor Excel yang tidak butuh database."""
-from app.services.trx_import_service import keep_last, production_dedupe
+from app.services.trx_import_service import check_company, keep_last, production_dedupe
 from app.utils.parsing import clean_str, is_blank, to_month
 
 
@@ -33,3 +33,10 @@ def test_production_conflicting_duplicates_are_skipped():
 def test_identical_duplicates_keep_one():
     assert production_dedupe([(1, _prod(5, 5, 1)), (2, _prod(5, 5, 1))])[0] == _prod(5, 5, 1)
     assert keep_last([(1, {"a": 1}), (2, {"a": 2})])[0] == {"a": 2}
+
+
+def test_company_code_mismatch_is_warning_only():
+    assert check_company({"CompanyCode": 1500}, "1500") is None
+    assert check_company({"CompanyCode": 1500.0}, "1500") is None
+    assert check_company({}, "1500") is None  # kolom opsional
+    assert "1600" in check_company({"CompanyCode": 1600}, "1500")

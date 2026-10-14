@@ -48,6 +48,6 @@ api_router.include_router(layers.router, prefix="/spatial")
 api_router.include_router(geo_catalog.router, prefix="/spatial", tags=["Katalog & Layer Dinamis"])
 
 api_router.include_router(trx_imports.areal_statement_router, prefix="/areal-statement", tags=["Areal Statement"])
-api_router.include_router(trx_imports.production_router, prefix="/pokok-produksi", tags=["Pokok Produksi"])
+api_router.include_router(trx_imports.production_router, prefix="/pokok-produksi", tags=["Produksi TBS"])
 api_router.include_router(trx_imports.rotation_router, prefix="/trx-rotasi-pusingan", tags=["trx-rotasi-pusingan"])
 

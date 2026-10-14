@@ -6,11 +6,13 @@ Impor transaksi (file Excel atau JSON lewat API) ke skema trx v3:
 
 Ketiganya unik per (block_id, period), jadi impor = UPSERT: file yang sama
 boleh diunggah ulang, baris duplikat di dalam file -> baris terakhir yang dipakai.
+Produksi TBS bersifat GANTI per (tahun, bulan, estate): data lama estate & periode yang ada
+di file dan tidak ikut dikirim lagi ikut dihapus (lihat TrxKind.replace_scope).
 Validasi dilakukan di Python (sesuai CHECK constraint tabel), lalu data valid
 dimuat lewat COPY ke tabel staging dan di-upsert dalam SATU transaksi.
 
-Blok dicari dari (estate, afdeling, kode blok); kalau kolom estate/afdeling
-tidak ada di file, dipakai kode blok saja selama kode itu unik di seluruh master.
+Blok dicari dari (estate, afdeling, kode blok) dan ketiganya wajib cocok dengan master;
+tidak ada tebakan lewat kode blok saja.
 
 Impor JSON memakai nama kolom yang sama dengan header Excel dan melewati
 validasi + upsert yang sama persis; bedanya hanya sumber barisnya.
@@ -24,6 +26,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import bad_request
 from app.services.data_version import HISTORY, bump
 
 from app.services.upload.batch import final_status, finish_batch, start_batch
@@ -38,10 +41,37 @@ DIVISION_COLUMNS = ("DivisionCode", "Divisi", "Afdeling", "KodeAfdeling", "Kode 
 BLOCK_COLUMNS = ("KodeBlok", "Kode Blok", "Blok", "kode_blok", "BlockCode")
 MONTH_COLUMNS = ("Month", "Bulan", "bulan")
 YEAR_COLUMNS = ("Year", "Tahun", "tahun", "Periode")
+COMPANY_COLUMNS = ("CompanyCode", "Company Code", "KodePT", "Kode PT", "company_code")
 
 
 class RowError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ImportScope:
+    """Parameter (Year, Month, UnitCode): impor hanya untuk estate & bulan ini; datanya menimpa yang lama."""
+
+    year: int
+    month: int
+    unit_code: str
+
+    @property
+    def period(self) -> date:
+        return date(self.year, self.month, 1)
+
+
+def _scope_row(row: dict, scope: ImportScope) -> dict:
+    """Salinan baris dengan Year/Month/UnitCode yang kosong diisi dari parameter."""
+    data = dict(row)
+    has_date = pick(row, "Tanggal", "tanggal", "Date") is not None
+    if pick(row, *YEAR_COLUMNS) is None and not has_date:
+        data["Year"] = scope.year
+    if pick(row, *MONTH_COLUMNS) is None and not has_date:
+        data["Month"] = scope.month
+    if not any(pick(row, c) for c in ESTATE_COLUMNS):
+        data["UnitCode"] = scope.unit_code
+    return data
 
 
 @dataclass
@@ -63,6 +93,10 @@ class ImportResult:
     unmatched_samples: list[str] = field(default_factory=list)
     invalid_samples: list[str] = field(default_factory=list)
     conflict_samples: list[str] = field(default_factory=list)
+    seen_pairs: set[tuple[int, date]] = field(default_factory=set)  # (blok, periode) yang ada di file, valid maupun ditolak
+    seen_blocks: set[int] = field(default_factory=set)  # blok dari baris yang periodenya tidak terbaca (dilindungi di semua periode)
+    company_warnings: int = 0
+    company_warning_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
     rejected: list[quarantine.Rejected] = field(default_factory=list)  # baris tidak lolos -> karantina
 
@@ -91,6 +125,14 @@ def _period(row: dict) -> date:
     return date(year, month, 1)
 
 
+def check_company(row: dict, actual_code: str | None) -> str | None:
+    """Peringatan (bukan penolakan) bila CompanyCode di file berbeda dari PT blok di master."""
+    declared = clean_str(pick(row, *COMPANY_COLUMNS))
+    if declared is None or norm_key(declared) == norm_key(actual_code):
+        return None
+    return f"CompanyCode {declared} berbeda dari PT blok di master ({actual_code or '-'})"
+
+
 def _non_negative(value, label: str):
     if value is not None and value < 0:
         raise RowError(f"{label} tidak boleh negatif")
@@ -98,18 +140,20 @@ def _non_negative(value, label: str):
 
 
 def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedupe: Deduper,
-             first_row: int = 2) -> ImportResult:
+             first_row: int = 2, strict_block: bool = False, scope: ImportScope | None = None,
+             scope_estate_id: int | None = None) -> ImportResult:
     index = BlockIndex.load(db)
     result = ImportResult(total=len(rows))
-    for number, row in enumerate(rows, start=first_row):  # Excel: baris 1 = header; JSON: item ke-1 = baris 1
+    for number, original in enumerate(rows, start=first_row):  # Excel: baris 1 = header; JSON: item ke-1 = baris 1
+        row = _scope_row(original, scope) if scope else original
         block_code = pick(row, *BLOCK_COLUMNS)
         if clean_str(block_code) is None:
             result.invalid += 1
-            result.rejected.append(quarantine.Rejected(number, "KODE_BLOK_KOSONG", "Kode blok kosong.", row))
+            result.rejected.append(quarantine.Rejected(number, "KODE_BLOK_KOSONG", "Kode blok kosong.", original))
             continue
         estate_refs = tuple(pick(row, c) for c in ESTATE_COLUMNS)
         division = pick(row, *DIVISION_COLUMNS)
-        block_id = index.resolve(estate_refs, division, block_code, allow_code_only=True)
+        block_id = index.resolve(estate_refs, division, block_code, allow_code_only=not strict_block)
         if block_id is None:
             result.missing_block += 1
             estate = next((e for e in estate_refs if e), "-")
@@ -117,16 +161,33 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
             if len(result.unmatched_samples) < 5:
                 result.unmatched_samples.append(f"baris {number}: {label}")
             result.rejected.append(quarantine.Rejected(
-                number, "BLOK_TIDAK_DITEMUKAN", f"Blok {label} tidak ada di master.", row))
+                number, "BLOK_TIDAK_DITEMUKAN", f"Blok {label} tidak ada di master.", original))
             continue
+        if scope and index.estate_by_block.get(block_id) != scope_estate_id:
+            result.invalid += 1
+            message = f"Blok bukan milik estate parameter UnitCode {scope.unit_code}"
+            if len(result.invalid_samples) < 5:
+                result.invalid_samples.append(f"baris {number}: {message}")
+            result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", message, original))
+            continue
+        period = None
         try:
+            if strict_block and (warning := check_company(row, index.company_by_block.get(block_id))):
+                result.company_warnings += 1
+                if len(result.company_warning_samples) < 5:
+                    result.company_warning_samples.append(f"baris {number}: {warning}")
             period = _period(row)
+            result.seen_pairs.add((block_id, period))
+            if scope and period != scope.period:
+                raise RowError(f"periode {period.month}-{period.year} tidak sesuai parameter {scope.month}-{scope.year}")
             values = build(row)
         except RowError as exc:
+            if period is None:
+                result.seen_blocks.add(block_id)
             result.invalid += 1
             if len(result.invalid_samples) < 5:
                 result.invalid_samples.append(f"baris {number}: {exc}")
-            result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", str(exc), row))
+            result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", str(exc), original))
             continue
         result.groups.setdefault((block_id, period), []).append((number, values))
 
@@ -165,18 +226,29 @@ class TrxKind:
     build_factory: Callable[[Session], tuple[Callable[[dict], dict], dict]]
     load: Callable[[Session, list[dict], UUID], dict]
     dedupe: Deduper = keep_last
+    replace_scope: bool = False  # ganti data lama per (periode, estate) yang ada di file
+    strict_block: bool = False  # blok wajib cocok estate+afdeling+blok (tanpa tebakan lewat kode blok saja)
 
 
 def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, source_name: str | None,
-         user_id: UUID | None, first_row: int) -> dict:
+         user_id: UUID | None, first_row: int, scope: ImportScope | None = None) -> dict:
     target, label = kind.target, kind.label
+    scope_estate_id = None
+    if scope:
+        scope_estate_id = BlockIndex.load(db).estate_id(scope.unit_code)
+        if scope_estate_id is None:
+            raise bad_request(f"UnitCode {scope.unit_code} tidak ada di master estate.", "unit_code")
     batch_id = start_batch(db, source_type=source_type, target_table=target, source_name=source_name,
                            user_id=user_id, period=None, metadata={"jenis": label})
     try:
         build, refs = kind.build_factory(db)
-        result = _collect(db, rows, build, kind.dedupe, first_row)
+        result = _collect(db, rows, build, kind.dedupe, first_row, kind.strict_block, scope, scope_estate_id)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
+        replace = kind.replace_scope and bool(result.rows)
+        pairs = _replace_pairs(db, result, scope, scope_estate_id) if replace else []
+        existing = _count_in_scope(db, kind.target, pairs) if pairs else 0
         written = kind.load(db, result.rows, batch_id) if result.rows else {"baru": 0, "diperbarui": 0}
+        deleted = _delete_replaced(db, kind.target, pairs, result) if pairs else 0
         quarantined = quarantine.save(db, batch_id, target, result.rejected)
         stored_version = bump(db, HISTORY) if result.rows else None
         db.commit()
@@ -195,6 +267,10 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "data_baru": written["baru"],
         "data_diperbarui": written["diperbarui"],
         "data_tidak_berubah": success - written["baru"] - written["diperbarui"],
+        "parameter": {"year": scope.year, "month": scope.month, "unit_code": scope.unit_code} if scope else None,
+        "mode": ("TIMPA" if existing else "BARU") if kind.replace_scope else None,
+        "data_lama_ditemukan": existing,
+        "data_lama_dihapus": deleted,
         "duplicate_in_file": result.duplicates_merged,
         "konflik_duplikat_tidak_dimuat": result.conflicts,
         "missing_blok_count": result.missing_block,
@@ -204,6 +280,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "sample_unmatched_excel": result.unmatched_samples,
         "sample_invalid_rows": result.invalid_samples,
         "sample_konflik": result.conflict_samples,
+        "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
         "karantina_count": quarantined,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,
@@ -214,6 +291,43 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
     finish_batch(db, batch_id, status, written["baru"] + written["diperbarui"],
                  None if status == "SUCCESS" else "Sebagian baris tidak diimpor.", {"detail_statistik": details})
     return {"status": "success", "message": f"Proses impor {label} selesai.", "details": details}
+
+
+def _replace_pairs(db: Session, result: ImportResult, scope: ImportScope | None,
+                   scope_estate_id: int | None) -> list[tuple[int, date]]:
+    """(estate, periode) yang diganti: sesuai parameter bila ada, kalau tidak dari baris valid di file."""
+    if scope:
+        return [(scope_estate_id, scope.period)]
+    estate_of = dict(db.execute(text(
+        "SELECT bl.id, dv.estate_id FROM master.blocks bl JOIN master.divisions dv ON dv.id = bl.division_id "
+        "WHERE bl.id = ANY(:ids)"), {"ids": list({r["block_id"] for r in result.rows})}).all())
+    return sorted({(estate_of[r["block_id"]], r["period"]) for r in result.rows})
+
+
+_IN_SCOPE = """
+    FROM {table} p JOIN master.blocks bl ON bl.id = p.block_id JOIN master.divisions dv ON dv.id = bl.division_id
+    WHERE (dv.estate_id, p.period) IN (SELECT * FROM unnest(CAST(:est AS bigint[]), CAST(:per AS date[])))
+"""
+
+
+def _count_in_scope(db: Session, table: str, pairs: list[tuple[int, date]]) -> int:
+    return db.execute(text("SELECT count(*) " + _IN_SCOPE.format(table=table)),
+                      {"est": [e for e, _ in pairs], "per": [p for _, p in pairs]}).scalar_one()
+
+
+def _delete_replaced(db: Session, table: str, pairs: list[tuple[int, date]], result: ImportResult) -> int:
+    """
+    Mode ganti: untuk setiap (estate, periode), hapus data lama blok yang TIDAK dikirim lagi untuk periode itu.
+    Blok yang muncul di file pada periode tersebut (termasuk baris yang ditolak) tidak dihapus, supaya baris
+    bermasalah tidak menghilangkan data lama. File tanpa baris valid tidak pernah menghapus apa pun.
+    """
+    keep = sorted(result.seen_pairs)
+    return db.execute(text(
+        f"DELETE FROM {table} WHERE id IN (SELECT p.id " + _IN_SCOPE.format(table=table) +
+        " AND NOT (p.block_id = ANY(:keep_blocks) OR (p.block_id, p.period) IN "
+        "(SELECT * FROM unnest(CAST(:keep_b AS bigint[]), CAST(:keep_p AS date[])))))"),
+        {"est": [e for e, _ in pairs], "per": [p for _, p in pairs], "keep_blocks": sorted(result.seen_blocks),
+         "keep_b": [b for b, _ in keep], "keep_p": [p for _, p in keep]}).rowcount
 
 
 def _upsert_changed(db: Session, table: str, stage: str, columns: tuple[str, ...], batch_id: UUID) -> dict:
@@ -342,7 +456,8 @@ def _load_area_statements(db: Session, rows: list[dict], batch_id: UUID) -> dict
     return counts
 
 
-AREA_STATEMENT = TrxKind("trx.area_statements", "areal statement", _area_statement_builder, _load_area_statements)
+AREA_STATEMENT = TrxKind("trx.area_statements", "areal statement", _area_statement_builder, _load_area_statements,
+                         strict_block=True)
 
 
 # =====================================================================
@@ -406,6 +521,8 @@ PRODUCTION = TrxKind(
     "trx.block_productions", "data produksi TBS", _production_builder,
     lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.block_productions", _PROD_DDL, _PROD_COLUMNS),
     production_dedupe,
+    replace_scope=True,
+    strict_block=True,
 )
 
 
@@ -435,6 +552,7 @@ _ROT_DDL = "area_ha numeric, tree_count integer, rotation_no numeric, interval_d
 ROTATION = TrxKind(
     "trx.harvest_rotations", "data rotasi & pusingan", _rotation_builder,
     lambda s, rows, batch: _upsert_simple(s, rows, batch, "trx.harvest_rotations", _ROT_DDL, _ROT_COLUMNS),
+    strict_block=True,
 )
 
 
@@ -442,24 +560,28 @@ ROTATION = TrxKind(
 # PINTU MASUK: EXCEL & JSON
 # =====================================================================
 
-def import_excel(db: Session, kind: TrxKind, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
+def import_excel(db: Session, kind: TrxKind, filename: str | None, content: bytes, user_id: UUID | None,
+                 scope: ImportScope | None = None) -> dict:
     rows = read_excel_rows(filename, content)
-    return _run(db, kind, rows=rows, source_type="EXCEL_UPLOAD", source_name=filename, user_id=user_id, first_row=2)
+    return _run(db, kind, rows=rows, source_type="EXCEL_UPLOAD", source_name=filename, user_id=user_id, first_row=2,
+                scope=scope)
 
 
-def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str | None, user_id: UUID | None) -> dict:
+def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str | None, user_id: UUID | None,
+                scope: ImportScope | None = None) -> dict:
     """Baris JSON memakai nama kolom yang sama dengan header Excel (spasi di tepi nama kolom diabaikan)."""
     rows = [{str(k).strip(): v for k, v in row.items()} for row in rows]
     return _run(db, kind, rows=rows, source_type="JSON_API", source_name=source_name or "JSON API",
-                user_id=user_id, first_row=1)
+                user_id=user_id, first_row=1, scope=scope)
 
 
 def import_area_statements(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
     return import_excel(db, AREA_STATEMENT, filename, content, user_id)
 
 
-def import_productions(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
-    return import_excel(db, PRODUCTION, filename, content, user_id)
+def import_productions(db: Session, filename: str | None, content: bytes, user_id: UUID | None,
+                       scope: ImportScope | None = None) -> dict:
+    return import_excel(db, PRODUCTION, filename, content, user_id, scope)
 
 
 def import_rotations(db: Session, filename: str | None, content: bytes, user_id: UUID | None) -> dict:
