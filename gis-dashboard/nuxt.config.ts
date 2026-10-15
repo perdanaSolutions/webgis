@@ -21,7 +21,17 @@ export default defineNuxtConfig({
       apiBaseUrlPython: process.env.NUXT_PUBLIC_API_BASE_URL_PYTHON,
     },
   },
-  routeRules: {},
+  // Dev proxy (opsional, via env): set NUXT_DEV_API_PROXY_TARGET=http://144.91.90.112:8083
+  // dan NUXT_PUBLIC_API_BASE_URL_PYTHON=/api di .env lokal -> browser memanggil
+  // /api di origin yang sama (localhost) sehingga tidak ada CORS sama sekali.
+  // Tanpa env ini (produksi) tidak ada rule tambahan.
+  routeRules: process.env.NUXT_DEV_API_PROXY_TARGET
+    ? {
+        "/api/**": {
+          proxy: `${process.env.NUXT_DEV_API_PROXY_TARGET.replace(/\/+$/, "")}/api/**`,
+        },
+      }
+    : {},
   // Pastikan Leaflet berjalan di sisi klien saja (Client-side only)
   modules: ["@nuxtjs/tailwindcss", "@pinia/nuxt", "@vite-pwa/nuxt"],
   ssr: true,
