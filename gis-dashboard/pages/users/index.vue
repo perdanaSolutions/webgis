@@ -23,6 +23,9 @@ const deleteError = ref("");
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
 const showPassword = ref(false);
+// Hanya saat edit: akun terkunci karena salah password; admin memilih "Buka kunci" untuk membukanya.
+const wasLocked = ref(false);
+const unlockAccount = ref(false);
 
 const form = reactive<CreateUserPayload>({
   username: "",
@@ -53,6 +56,8 @@ function resetForm() {
   form.role_ids = [];
   form.is_active = true;
   form.password = "";
+  wasLocked.value = false;
+  unlockAccount.value = false;
   showPassword.value = false;
 }
 
@@ -70,6 +75,8 @@ function fillFormFromUser(user: UserItem) {
   form.nama_lengkap = user.nama_lengkap ?? "";
   form.role_ids = (user.roles ?? []).map((r) => r.id);
   form.is_active = Boolean(user.is_active);
+  wasLocked.value = Boolean(user.is_locked);
+  unlockAccount.value = false;
   form.password = "";
   showPassword.value = false;
 }
@@ -153,6 +160,7 @@ async function submitForm() {
       role_ids: form.role_ids,
       is_active: form.is_active,
       password: form.password,
+      ...(wasLocked.value && unlockAccount.value ? { is_locked: false } : {}),
     };
 
     await manageUserStore.updateUser(selectedUserId.value, payload);
@@ -313,11 +321,13 @@ function filterRoleOption(
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
                 <td class="px-4 py-3">{{(item.roles ?? []).map((r) => r.nama).join(', ')}}</td>
                 <td class="px-4 py-3">
-                  <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
-                    ? 'bg-success-lighter text-success'
-                    : 'bg-slate-muted text-slate-muted'
+                  <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_locked
+                    ? 'bg-error-light text-error'
+                    : item.is_active
+                      ? 'bg-success-lighter text-success'
+                      : 'bg-slate-muted text-slate-muted'
                     ">
-                    {{ item.is_active ? "Aktif" : "Nonaktif" }}
+                    {{ item.is_locked ? "Terkunci" : item.is_active ? "Aktif" : "Nonaktif" }}
                   </span>
                 </td>
                 <td class="px-4 py-3">
@@ -424,6 +434,15 @@ function filterRoleOption(
               { label: 'Nonaktif', value: false }
             ]" item-title="label" item-value="value" variant="outlined" density="comfortable"
               class="w-full custom-underlined-input" @update:model-value="form.is_active = $event"></v-select>
+          </div>
+
+          <div v-if="formMode === 'edit' && wasLocked">
+            <label class="mb-1 block text-label">Kunci Akun</label>
+            <v-select v-model="unlockAccount" :items="[
+              { label: 'Terkunci (salah password 5 kali)', value: false },
+              { label: 'Buka kunci', value: true }
+            ]" item-title="label" item-value="value" variant="outlined" density="comfortable"
+              class="w-full custom-underlined-input"></v-select>
           </div>
 
           <div class="md:col-span-2">

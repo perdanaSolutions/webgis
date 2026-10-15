@@ -129,6 +129,9 @@ class User(Base):
     is_service_account = Column(Boolean, server_default=text("false"), nullable=False)
     token_expires_at = Column(DateTime(timezone=True), nullable=True)
     token_version = Column(Integer, server_default=text("1"), nullable=False)
+    # Penguncian akun: terkunci setelah salah password MAX_FAILED_LOGIN_ATTEMPTS kali berturut-turut.
+    failed_login_attempts = Column(Integer, server_default=text("0"), nullable=False)
+    locked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -148,6 +151,10 @@ class User(Base):
         back_populates="user",
         passive_deletes=True,
     )
+
+    @property
+    def is_locked(self) -> bool:
+        return self.locked_at is not None
 
     @property
     def role(self):

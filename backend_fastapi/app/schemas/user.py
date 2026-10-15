@@ -74,6 +74,8 @@ class UserUpdate(BaseModel):
     role_id: Optional[UUID] = None
     password: Optional[str] = None  # Diisi hanya jika ingin ganti password
     is_active: Optional[bool] = None
+    # False = buka kunci akun yang terkunci karena salah password berulang kali.
+    is_locked: Optional[bool] = None
 
     @model_validator(mode="after")
     def normalize_roles(self):
@@ -104,6 +106,7 @@ class UserResponse(BaseModel):
     # True jika user punya baris di audit.user_activities (tidak boleh dihapus)
     has_activity: bool = False
     is_service_account: bool = False
+    is_locked: bool = False
     token_expires_at: Optional[datetime] = None
     # Token layanan hanya ditampilkan SEKALI, saat akun dibuat atau token diterbitkan ulang.
     access_token: Optional[str] = None

@@ -19,6 +19,8 @@ from app.services.user_activity import record_user_activity
 import jwt
 
 router = APIRouter()
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+LOCKED_MESSAGE = "Akun Anda terkunci karena salah memasukkan password 5 kali berturut-turut. Silakan hubungi PA."
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login/swagger-form")
 
 # =====================================================================
@@ -86,8 +88,31 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
         )
     ).first()
     
+    # Akun terkunci ditolak sebelum password diperiksa (password benar pun tidak diterima)
+    if user and not user.is_service_account and user.locked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"errors": [{"type": "account_locked", "field": "auth", "msg": LOCKED_MESSAGE, "input": None}]},
+        )
+
     # Validasi kecocokan password
     if not user or user.is_service_account or not security.verify_password(input_password, user.hashed_password):
+        if user and not user.is_service_account:
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            just_locked = user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS
+            if just_locked:
+                user.locked_at = datetime.now(timezone.utc)
+            record_user_activity(
+                db, user, "LOGIN", "auth",
+                detail={"reason": "account_locked" if just_locked else "invalid_credentials",
+                        "failed_attempts": user.failed_login_attempts},
+            )
+            db.commit()
+            if just_locked:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={"errors": [{"type": "account_locked", "field": "auth", "msg": LOCKED_MESSAGE, "input": None}]},
+                )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -107,6 +132,9 @@ def process_user_login(db: Session, input_identifier: str, input_password: str) 
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"errors": [{"type": "inactive_account", "field": "auth", "msg": "Akun tidak aktif", "input": None}]},
         )
+
+    # Login berhasil: hitung salah password dimulai dari nol lagi
+    user.failed_login_attempts = 0
 
     # Buat JWT Access Token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

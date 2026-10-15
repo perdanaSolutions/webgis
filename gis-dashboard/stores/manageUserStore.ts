@@ -9,6 +9,8 @@ export type UserItem = {
   nama_lengkap: string;
   roles: RoleItem[];
   is_active: boolean;
+  /** True jika akun terkunci karena salah password 5 kali; dibuka admin dengan is_locked=false */
+  is_locked?: boolean;
   /** True jika user punya log di audit.user_activities — tidak boleh dihapus */
   has_activity?: boolean;
   created_at?: string;
@@ -31,6 +33,8 @@ export type UpdateUserPayload = {
   role_ids: string[];
   password: string;
   is_active: boolean;
+  /** Kirim false untuk membuka kunci akun */
+  is_locked?: boolean;
 };
 
 export type UserListResponse = {

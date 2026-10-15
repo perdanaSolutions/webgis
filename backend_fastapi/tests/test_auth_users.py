@@ -102,6 +102,34 @@ def test_user_lifecycle(client, auth):
     assert inactive_login.status_code == 403
 
 
+def test_login_locks_after_5_wrong_passwords(client, auth):
+    roles = client.get("/api/v1/roles/", headers=auth).json()
+    viewer = next(r for r in roles if r["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    username = f"lock_{suffix}"
+    user = client.post("/api/v1/users/", headers=auth, json={
+        "username": username, "email": f"{username}@example.com", "nama_lengkap": "Lock",
+        "role_ids": [viewer["id"]], "password": "rahasia123"}).json()
+
+    def attempt(password):
+        return client.post("/api/v1/auth/login", json={"email": username, "password": password})
+
+    for _ in range(4):
+        assert attempt("salah").status_code == 401
+    assert attempt("rahasia123").status_code == 200  # login berhasil mereset hitungan
+    for _ in range(4):
+        assert attempt("salah").status_code == 401
+
+    locked = attempt("salah")  # percobaan ke-5
+    assert locked.status_code == 403
+    assert "hubungi PA" in locked.text
+    assert attempt("rahasia123").status_code == 403  # password benar pun ditolak saat terkunci
+
+    unlocked = client.put(f"/api/v1/users/{user['id']}", headers=auth, json={"is_locked": False})
+    assert unlocked.status_code == 200 and unlocked.json()["is_locked"] is False
+    assert attempt("rahasia123").status_code == 200
+
+
 def test_audit_actor_is_recorded(client, auth, superadmin_id):
     suffix = uuid.uuid4().hex[:8]
     response = client.post("/api/v1/menus/", headers=auth, json={"title": f"Audit {suffix}", "icon": "mdi-test"})

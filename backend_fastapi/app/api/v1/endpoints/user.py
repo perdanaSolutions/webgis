@@ -216,6 +216,9 @@ def update_user(
         user.nama_lengkap = payload.nama_lengkap
     if payload.is_active is not None:
         user.is_active = payload.is_active
+    if payload.is_locked is False:
+        user.locked_at = None
+        user.failed_login_attempts = 0
     if payload.role_ids is not None:
         new_roles = _roles_by_ids(db, payload.role_ids)
         _forbid_unless_superadmin(current_user, "Hanya superadmin yang boleh memberi role superadmin.", roles=new_roles)
