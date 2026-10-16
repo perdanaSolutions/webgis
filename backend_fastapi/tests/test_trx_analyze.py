@@ -59,7 +59,7 @@ def test_production_analysis_explains_each_rejection_and_saves_nothing(client, a
     content = _xlsx(HEADER, [
         [2099, 1, e, d, b, 10.0],                  # valid
         [2099, 1, "ZZ99", d, b, 10.0],             # estate tidak dikenal
-        [2099, 1, e, "AFDZZ99", b, 10.0],          # afdeling tidak ada
+        [2099, 1, e, "AFDZZ99", "ZZ998", 10.0],    # afdeling tidak ada (blok juga tidak ada di estate)
         [2099, 1, e, d, "ZZ999", 10.0],            # blok tidak ada di afdeling
         [2099, 1, e, d, b, -5.0],                  # nilai negatif (blok dan periode sama dengan baris valid)
     ])

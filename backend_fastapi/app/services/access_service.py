@@ -2,11 +2,12 @@
 Hak akses role: menu (auth.role_menus), data wilayah (auth.role_data_scopes)
 dan tabel transaksi (auth.permissions dengan resource = '<schema>.<tabel>', action = 'read').
 
-Scope data di v3 menunjuk tepat SATU node hierarki (area / company / estate /
-division) lewat id. FE lama bekerja dengan kode (kode_area, kode_pt, kode_est,
-kode_afd). Area sebuah company/estate/division diambil dari area statement
-terbaru blok di scope itu saja, supaya login dan /auth/me tidak memindai
-semua blok lewat master.v_block_hierarchy.
+Scope data di v3 menunjuk tepat SATU node hierarki (group / area / company /
+estate / division) lewat id. Scope grup diuraikan menjadi PT anggotanya saat dibaca,
+jadi PT yang kelak dipindah ke grup itu ikut terjangkau. FE lama bekerja dengan kode (kode_area, kode_pt, kode_est,
+kode_afd). Area sebuah company/estate/division = area saat ini estate-nya
+(master.estates.area_id, struktur v2), dibaca langsung dari estate/afdeling
+tanpa memindai blok.
 """
 import json
 from collections import OrderedDict
@@ -26,65 +27,95 @@ _SCOPE_EXPANSION_SQL = """
 WITH s AS (
     SELECT * FROM auth.role_data_scopes WHERE role_id = ANY(CAST(:role_ids AS uuid[]))
 ),
-scoped_blocks AS MATERIALIZED (
-    SELECT bl.id AS block_id,
-           dv.id AS division_id,
-           es.id AS estate_id,
-           co.id AS company_id
-    FROM master.blocks bl
-    JOIN master.divisions dv ON dv.id = bl.division_id
-    JOIN master.estates es ON es.id = dv.estate_id
-    JOIN master.companies co ON co.id = es.company_id
+h AS (  -- area saat ini estate (struktur v2); estate tanpa afdeling tetap ikut lewat LEFT JOIN
+    SELECT DISTINCT es.area_id, es.company_id, es.id AS estate_id, dv.id AS division_id
+    FROM master.estates es
+    LEFT JOIN master.divisions dv ON dv.estate_id = es.id
     WHERE EXISTS (
         SELECT 1
         FROM s
-        WHERE s.company_id = co.id
+        WHERE s.company_id = es.company_id
            OR s.estate_id = es.id
            OR s.division_id = dv.id
     )
-),
-h AS (
-    SELECT DISTINCT la.area_id, sb.company_id, sb.estate_id, sb.division_id
-    FROM scoped_blocks sb
-    LEFT JOIN LATERAL (
-        SELECT a.area_id
-        FROM trx.area_statements a
-        WHERE a.block_id = sb.block_id
-        ORDER BY a.period DESC
-        LIMIT 1
-    ) la ON true
 )
 SELECT s.id, s.role_id, s.created_at, 'area' AS level,
        ar.code AS area_code, ar.name AS area_name,
        NULL::bigint AS company_id, NULL AS company_code, NULL AS company_name,
        NULL::bigint AS estate_id, NULL AS estate_code, NULL AS estate_name,
-       NULL::bigint AS division_id, NULL AS division_code
+       NULL::bigint AS division_id, NULL AS division_code, NULL AS group_code
 FROM s JOIN master.areas ar ON ar.id = s.area_id
+UNION ALL
+-- Grup: satu baris per (PT anggota, area estate PT itu); dibaca seperti scope PT.
+SELECT DISTINCT s.id, s.role_id, s.created_at, 'group',
+       ar.code, ar.name, co.id, co.code, co.name,
+       NULL::bigint, NULL, NULL, NULL::bigint, NULL, gr.code
+FROM s JOIN master.groups gr ON gr.id = s.group_id
+JOIN master.companies co ON co.group_id = gr.id
+LEFT JOIN master.estates es ON es.company_id = co.id
+LEFT JOIN master.areas ar ON ar.id = es.area_id
 UNION ALL
 SELECT DISTINCT s.id, s.role_id, s.created_at, 'company',
        ar.code, ar.name, co.id, co.code, co.name,
-       NULL::bigint, NULL, NULL, NULL::bigint, NULL
+       NULL::bigint, NULL, NULL, NULL::bigint, NULL, gr.code
 FROM s JOIN master.companies co ON co.id = s.company_id
+LEFT JOIN master.groups gr ON gr.id = co.group_id
 LEFT JOIN h ON h.company_id = co.id
 LEFT JOIN master.areas ar ON ar.id = h.area_id
 UNION ALL
 SELECT DISTINCT s.id, s.role_id, s.created_at, 'estate',
        ar.code, ar.name, co.id, co.code, co.name,
-       es.id, es.code, es.name, NULL::bigint, NULL
+       es.id, es.code, es.name, NULL::bigint, NULL, gr.code
 FROM s JOIN master.estates es ON es.id = s.estate_id
 JOIN master.companies co ON co.id = es.company_id
+LEFT JOIN master.groups gr ON gr.id = co.group_id
 LEFT JOIN h ON h.estate_id = es.id
 LEFT JOIN master.areas ar ON ar.id = h.area_id
 UNION ALL
 SELECT DISTINCT s.id, s.role_id, s.created_at, 'division',
        ar.code, ar.name, co.id, co.code, co.name,
-       es.id, es.code, es.name, dv.id, dv.code
+       es.id, es.code, es.name, dv.id, dv.code, gr.code
 FROM s JOIN master.divisions dv ON dv.id = s.division_id
 JOIN master.estates es ON es.id = dv.estate_id
 JOIN master.companies co ON co.id = es.company_id
+LEFT JOIN master.groups gr ON gr.id = co.group_id
 LEFT JOIN h ON h.division_id = dv.id
 LEFT JOIN master.areas ar ON ar.id = h.area_id
 ORDER BY 1
+"""
+
+# Pohon Grup -> PT -> Area -> Estate -> Afdeling: tiap scope menjadi satu jalur sampai node yang diberikan.
+_GROUP_TREE_SQL = """
+WITH s AS (
+    SELECT * FROM auth.role_data_scopes WHERE role_id = ANY(CAST(:role_ids AS uuid[]))
+)
+SELECT s.role_id, 'group' AS level, gr.code AS group_code, gr.name AS group_name,
+       NULL::bigint AS company_id, NULL AS company_code, NULL AS company_name, NULL AS area_code, NULL AS area_name,
+       NULL::bigint AS estate_id, NULL AS estate_code, NULL AS estate_name, NULL::bigint AS division_id, NULL AS division_code
+FROM s JOIN master.groups gr ON gr.id = s.group_id
+UNION ALL
+SELECT s.role_id, 'company', gr.code, gr.name, co.id, co.code, co.name, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+FROM s JOIN master.companies co ON co.id = s.company_id LEFT JOIN master.groups gr ON gr.id = co.group_id
+UNION ALL
+SELECT DISTINCT s.role_id, 'area', gr.code, gr.name, co.id, co.code, co.name, ar.code, ar.name,
+       NULL::bigint, NULL, NULL, NULL::bigint, NULL
+FROM s JOIN master.areas ar ON ar.id = s.area_id
+JOIN master.estates es ON es.area_id = ar.id
+JOIN master.companies co ON co.id = es.company_id LEFT JOIN master.groups gr ON gr.id = co.group_id
+UNION ALL
+SELECT s.role_id, 'estate', gr.code, gr.name, co.id, co.code, co.name, ar.code, ar.name,
+       es.id, es.code, es.name, NULL::bigint, NULL
+FROM s JOIN master.estates es ON es.id = s.estate_id
+JOIN master.companies co ON co.id = es.company_id LEFT JOIN master.groups gr ON gr.id = co.group_id
+LEFT JOIN master.areas ar ON ar.id = es.area_id
+UNION ALL
+SELECT s.role_id, 'division', gr.code, gr.name, co.id, co.code, co.name, ar.code, ar.name,
+       es.id, es.code, es.name, dv.id, dv.code
+FROM s JOIN master.divisions dv ON dv.id = s.division_id
+JOIN master.estates es ON es.id = dv.estate_id
+JOIN master.companies co ON co.id = es.company_id LEFT JOIN master.groups gr ON gr.id = co.group_id
+LEFT JOIN master.areas ar ON ar.id = es.area_id
+ORDER BY 2, 3, 6, 8, 11, 14
 """
 
 
@@ -99,27 +130,70 @@ def expanded_scopes(db: Session, role_ids: list[UUID]) -> list[dict]:
 
 
 def scopes_as_codes(rows: list[dict]) -> list[dict]:
-    """Bentuk `akses_data` di response login/me (kode saja)."""
+    """Bentuk `akses_data` di response login/me (kode saja). Scope grup muncul sebagai PT-PT anggotanya."""
     seen, result = set(), []
     for r in rows:
         item = (r["area_code"], r["company_code"], r["estate_code"], r["division_code"])
         if item not in seen:
             seen.add(item)
-            result.append({"kode_pt": item[1], "kode_est": item[2], "kode_area": item[0], "kode_afd": item[3]})
+            result.append({"kode_grup": r.get("group_code"), "kode_pt": item[1], "kode_est": item[2],
+                           "kode_area": item[0], "kode_afd": item[3]})
     return result
 
 
 def scopes_as_log_rows(rows: list[dict]) -> list[dict]:
-    """Bentuk `akses_data` di RoleResponse (baris log lama, lengkap dengan id scope)."""
-    return [
-        {
-            "id": r["id"], "role_id": str(r["role_id"]), "level": r["level"],
-            "kode_area": r["area_code"], "kode_pt": r["company_code"],
-            "kode_est": r["estate_code"], "kode_afd": r["division_code"],
-            "created_date": r["created_at"], "update_date": r["created_at"],
-        }
-        for r in rows
-    ]
+    """Bentuk `akses_data` di RoleResponse (satu baris per scope, lengkap dengan id untuk DELETE)."""
+    result, seen_group = [], set()
+    for r in rows:
+        if r["level"] == "group":  # scope grup diuraikan per PT; laporkan sekali saja
+            if r["id"] in seen_group:
+                continue
+            seen_group.add(r["id"])
+            codes = {"kode_area": None, "kode_pt": None, "kode_est": None, "kode_afd": None}
+        else:
+            codes = {"kode_area": r["area_code"], "kode_pt": r["company_code"],
+                     "kode_est": r["estate_code"], "kode_afd": r["division_code"]}
+        result.append({"id": r["id"], "role_id": str(r["role_id"]), "level": r["level"],
+                       "kode_grup": r.get("group_code"), **codes,
+                       "created_date": r["created_at"], "update_date": r["created_at"]})
+    return result
+
+
+def group_trees(db: Session, role_ids: list) -> dict[str, list[dict]]:
+    """id role -> pohon akses Grup -> PT -> Area -> Estate -> Afdeling (struktur v2)."""
+    trees: dict[str, OrderedDict] = {}
+    if not role_ids:
+        return {}
+    for r in db.execute(text(_GROUP_TREE_SQL), {"role_ids": [str(x) for x in role_ids]}).mappings():
+        groups = trees.setdefault(str(r["role_id"]), OrderedDict())
+        node = groups.setdefault(r["group_code"], {"kode_grup": r["group_code"], "nama_grup": r["group_name"] or r["group_code"],
+                                                   "penuh": False, "perusahaan": OrderedDict()})
+        path = [("group", node)]
+        if r["company_id"] is not None:
+            node = node["perusahaan"].setdefault(r["company_id"], {
+                "id_perusahaan": str(r["company_id"]), "kode_pt": r["company_code"],
+                "nama_perusahaan": r["company_name"] or r["company_code"], "penuh": False, "area": OrderedDict()})
+            path.append(("company", node))
+            if r["level"] in ("area", "estate", "division"):
+                node = node["area"].setdefault(r["area_code"], {
+                    "kode_area": r["area_code"], "nama_area": r["area_name"] or r["area_code"],
+                    "penuh": False, "estate": OrderedDict()})
+                path.append(("area", node))
+            if r["estate_id"] is not None:
+                node = node["estate"].setdefault(r["estate_id"], {
+                    "id_estate": str(r["estate_id"]), "kode_est": r["estate_code"],
+                    "nama_estate": r["estate_name"] or r["estate_code"], "penuh": False, "afdeling": OrderedDict()})
+                path.append(("estate", node))
+            if r["division_id"] is not None:
+                node["afdeling"].setdefault(r["division_id"], {"id_afdeling": str(r["division_id"]),
+                                                               "kode_afd": r["division_code"]})
+        if r["level"] != "division":
+            dict(path)[r["level"]]["penuh"] = True
+
+    def as_list(node: dict) -> dict:
+        return {k: ([as_list(child) for child in v.values()] if isinstance(v, OrderedDict) else v) for k, v in node.items()}
+
+    return {role_id: [as_list(g) for g in groups.values()] for role_id, groups in trees.items()}
 
 
 def scopes_as_tree(rows: list[dict]) -> list[dict]:
@@ -170,13 +244,27 @@ def _resolve_id(db: Session, table: str, value: str | None, extra_where: str = "
 def _insert_scope(db: Session, role_id: UUID, **ids: int | None) -> int:
     result = db.execute(
         text("""
-            INSERT INTO auth.role_data_scopes (role_id, area_id, company_id, estate_id, division_id)
-            VALUES (:role_id, :area_id, :company_id, :estate_id, :division_id)
+            INSERT INTO auth.role_data_scopes (role_id, group_id, area_id, company_id, estate_id, division_id)
+            VALUES (:role_id, :group_id, :area_id, :company_id, :estate_id, :division_id)
             ON CONFLICT DO NOTHING
         """),
-        {"role_id": str(role_id), "area_id": None, "company_id": None, "estate_id": None, "division_id": None, **ids},
+        {"role_id": str(role_id), "group_id": None, "area_id": None, "company_id": None, "estate_id": None,
+         "division_id": None, **ids},
     )
     return result.rowcount
+
+
+def add_group_scopes(db: Session, role_id: UUID, group_refs: list[str]) -> int:
+    """Scope seluruh grup (kode atau nama, tanpa membedakan huruf besar/kecil)."""
+    inserted = 0
+    for ref in group_refs:
+        group_id = db.execute(text(
+            "SELECT id FROM master.groups WHERE upper(code) = upper(:r) OR upper(name) = upper(:r) OR id::text = :r "
+            "ORDER BY (upper(code) = upper(:r)) DESC LIMIT 1"), {"r": str(ref).strip()}).scalar()
+        if group_id is None:
+            raise bad_request(f"Grup '{ref}' tidak ditemukan.", field="kode_grup")
+        inserted += _insert_scope(db, role_id, group_id=group_id)
+    return inserted
 
 
 def _lookup_keys(values: list[str]) -> list[str]:
@@ -361,8 +449,11 @@ def apply_akses_data(db: Session, role_id: UUID, items: list | None, *, replace:
 
 
 def add_scopes_from_legacy_payload(db: Session, role_id: UUID, items: list[AksesDataInput]) -> None:
-    """Payload `akses_data` lama di POST/PUT /roles: satu PT dengan list area/afdeling."""
+    """Payload `akses_data` lama di POST/PUT /roles: satu PT dengan list area/afdeling, atau satu grup."""
     for item in items:
+        if item.kode_grup:
+            add_group_scopes(db, role_id, [item.kode_grup])
+            continue
         estate_id = _resolve_id(db, "estates", item.kode_est)
         if item.kode_afd:
             for afd in item.kode_afd:

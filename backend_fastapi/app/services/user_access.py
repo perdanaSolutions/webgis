@@ -50,7 +50,7 @@ _GRANT_ALIASES = {
 _SCOPE_SQL = """
 SELECT DISTINCT
     a.code AS kode_area,
-    COALESCE(c_direct.code, c_via_estate.code, c_via_div.code) AS kode_pt,
+    COALESCE(c_direct.code, c_via_estate.code, c_via_div.code, c_group.code) AS kode_pt,
     COALESCE(e_direct.code, e_via_div.code) AS kode_est,
     d.code AS kode_afd
 FROM {table} AS s
@@ -61,8 +61,13 @@ LEFT JOIN master.companies AS c_via_estate ON c_via_estate.id = e_direct.company
 LEFT JOIN master.divisions AS d ON d.id = s.division_id
 LEFT JOIN master.estates AS e_via_div ON e_via_div.id = d.estate_id
 LEFT JOIN master.companies AS c_via_div ON c_via_div.id = e_via_div.company_id
+LEFT JOIN master.companies AS c_group ON c_group.group_id = s.group_id
 WHERE s.role_id::text IN :role_ids
 """
+
+
+# Estate (alias `es`) yang area saat ininya termasuk area scope role (struktur v2: area melekat ke estate).
+_ESTATE_IN_AREAS = "es.area_id IN (SELECT id FROM master.areas WHERE upper(code) = ANY(CAST(:dsc_areas AS text[])))"
 
 
 def is_superadmin(user) -> bool:
@@ -161,6 +166,7 @@ def merged_access(db: Session, user) -> dict:
 
     def add_scope(row) -> None:
         item = {
+            "kode_grup": row.get("kode_grup"),
             "kode_pt": row.get("kode_pt"),
             "kode_est": row.get("kode_est"),
             "kode_area": row.get("kode_area"),
@@ -398,15 +404,12 @@ class DataScope:
                 "es.id = ANY(CAST(:dsc_estates AS bigint[]))",
                 "dv.id = ANY(CAST(:dsc_divisions AS bigint[]))",
             )
-            if id_parts:
+            if id_parts:  # area estate (struktur v2)
                 parts.append(
-                    "EXISTS (SELECT 1 FROM master.blocks bl "
-                    "JOIN master.divisions dv ON dv.id = bl.division_id "
+                    "EXISTS (SELECT 1 FROM master.divisions dv "
                     "JOIN master.estates es ON es.id = dv.estate_id "
                     "JOIN master.companies co ON co.id = es.company_id "
-                    "LEFT JOIN LATERAL (SELECT a.area_id FROM trx.area_statements a "
-                    "WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1) la ON true "
-                    f"WHERE la.area_id = ar.id AND ({' OR '.join(id_parts)}))"
+                    f"WHERE es.area_id = ar.id AND ({' OR '.join(id_parts)}))"
                 )
                 params.update(id_params)
         elif level == "company":
@@ -419,15 +422,7 @@ class DataScope:
             parts.extend(id_parts)
             params.update(id_params)
             if self.area_codes:
-                parts.append(
-                    "EXISTS (SELECT 1 FROM master.blocks bl "
-                    "JOIN master.divisions dv ON dv.id = bl.division_id "
-                    "JOIN master.estates es ON es.id = dv.estate_id "
-                    "LEFT JOIN LATERAL (SELECT a.area_id FROM trx.area_statements a "
-                    "WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1) la ON true "
-                    "LEFT JOIN master.areas ar ON ar.id = la.area_id "
-                    "WHERE es.company_id = co.id AND upper(ar.code) = ANY(CAST(:dsc_areas AS text[])))"
-                )
+                parts.append(f"EXISTS (SELECT 1 FROM master.estates es WHERE es.company_id = co.id AND {_ESTATE_IN_AREAS})")
                 params["dsc_areas"] = [code.upper() for code in self.area_codes]
         elif level == "estate":
             id_parts, id_params = self._id_parts(
@@ -438,14 +433,7 @@ class DataScope:
             parts.extend(id_parts)
             params.update(id_params)
             if self.area_codes:
-                parts.append(
-                    "EXISTS (SELECT 1 FROM master.blocks bl "
-                    "JOIN master.divisions dv ON dv.id = bl.division_id "
-                    "LEFT JOIN LATERAL (SELECT a.area_id FROM trx.area_statements a "
-                    "WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1) la ON true "
-                    "LEFT JOIN master.areas ar ON ar.id = la.area_id "
-                    "WHERE dv.estate_id = es.id AND upper(ar.code) = ANY(CAST(:dsc_areas AS text[])))"
-                )
+                parts.append(_ESTATE_IN_AREAS)
                 params["dsc_areas"] = [code.upper() for code in self.area_codes]
         elif level == "division":
             id_parts, id_params = self._id_parts(
@@ -456,14 +444,7 @@ class DataScope:
             parts.extend(id_parts)
             params.update(id_params)
             if self.area_codes:
-                parts.append(
-                    "EXISTS (SELECT 1 FROM master.blocks bl "
-                    "JOIN master.divisions dv2 ON dv2.id = bl.division_id "
-                    "LEFT JOIN LATERAL (SELECT a.area_id FROM trx.area_statements a "
-                    "WHERE a.block_id = bl.id ORDER BY a.period DESC LIMIT 1) la ON true "
-                    "LEFT JOIN master.areas ar ON ar.id = la.area_id "
-                    "WHERE dv2.id = dv.id AND upper(ar.code) = ANY(CAST(:dsc_areas AS text[])))"
-                )
+                parts.append(_ESTATE_IN_AREAS)
                 params["dsc_areas"] = [code.upper() for code in self.area_codes]
         else:
             return ("FALSE", {})
@@ -471,16 +452,14 @@ class DataScope:
             return ("FALSE", {})
         return ("(" + " OR ".join(parts) + ")", params)
 
-    def block_clause(self) -> tuple[str, dict, bool] | None:
-        """Klausa pada query `master.blocks bl` (+ dv, es, co, dan `ar` bila perlu). None = bebas."""
+    def block_clause(self) -> tuple[str, dict] | None:
+        """Klausa pada query `master.blocks bl` (+ dv, es, co). None = bebas."""
         if self.unrestricted:
             return None
         parts, params = [], {}
-        needs_area = False
         if self.area_codes:
-            parts.append("upper(ar.code) = ANY(CAST(:dsc_areas AS text[]))")
+            parts.append(_ESTATE_IN_AREAS)
             params["dsc_areas"] = [code.upper() for code in self.area_codes]
-            needs_area = True
         id_parts, id_params = self._id_parts(
             "co.id = ANY(CAST(:dsc_companies AS bigint[]))",
             "es.id = ANY(CAST(:dsc_estates AS bigint[]))",
@@ -489,8 +468,8 @@ class DataScope:
         parts.extend(id_parts)
         params.update(id_params)
         if not parts:
-            return ("FALSE", {}, False)
-        return ("(" + " OR ".join(parts) + ")", params, needs_area)
+            return ("FALSE", {})
+        return ("(" + " OR ".join(parts) + ")", params)
 
 
 def resolve_scope(db: Session, user) -> DataScope:
@@ -511,7 +490,7 @@ def resolve_scope(db: Session, user) -> DataScope:
         level = row.get("level")
         if level == "area" and row.get("area_code"):
             areas.append(row["area_code"])
-        elif level == "company" and row.get("company_id") is not None:
+        elif level in ("company", "group") and row.get("company_id") is not None:  # grup = semua PT anggotanya
             companies.append(row["company_id"])
         elif level == "estate" and row.get("estate_id") is not None:
             estates.append(row["estate_id"])
@@ -534,11 +513,9 @@ def apply_data_scope(db: Session, user, flt: BlockFilter) -> BlockFilter:
     clause = resolve_scope(db, user).block_clause()
     if clause is None:
         return flt
-    sql, params, needs_area = clause
+    sql, params = clause
     flt.extra_where.append(sql)
     flt.extra_params.update(params)
-    if needs_area:
-        flt.force_area_join = True
     return flt
 
 

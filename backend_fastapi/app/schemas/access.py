@@ -32,6 +32,7 @@ class AksesDataInput(BaseModel):
     """Payload lama saat create role: satu PT dengan daftar area/afdeling."""
 
     role_id: str | None = None
+    kode_grup: str | None = Field(None, description="Akses seluruh grup (semua PT di grup itu), mis. 'SGA'")
     kode_pt: str | None = None
     kode_est: str | None = None
     kode_area: list[str] | None = None
@@ -41,7 +42,8 @@ class AksesDataInput(BaseModel):
 class AksesDataResponse(BaseModel):
     id: int
     role_id: str
-    level: str = Field(description="area | company | estate | division")
+    level: str = Field(description="group | area | company | estate | division")
+    kode_grup: str | None = None
     kode_pt: str | None = None
     kode_est: str | None = None
     kode_area: str | None = None
@@ -89,3 +91,44 @@ class AreaTreeSchema(BaseModel):
     id_area: str
     nama_area: str | None = None
     perusahaan: list[PerusahaanItem] = []
+
+
+# Pohon akses struktur v2: Grup -> PT -> Area -> Estate -> Afdeling. `penuh` = seluruh node itu diberikan
+# (anak-anaknya tidak dirinci); node tanpa `penuh` hanya jalur menuju akses yang lebih sempit.
+class GroupTreeAfdeling(BaseModel):
+    id_afdeling: str
+    kode_afd: str | None = None
+
+
+class GroupTreeEstate(BaseModel):
+    id_estate: str
+    kode_est: str | None = None
+    nama_estate: str | None = None
+    penuh: bool = False
+    afdeling: list[GroupTreeAfdeling] = []
+
+
+class GroupTreeArea(BaseModel):
+    kode_area: str | None = None
+    nama_area: str | None = None
+    penuh: bool = False
+    estate: list[GroupTreeEstate] = []
+
+
+class GroupTreePerusahaan(BaseModel):
+    id_perusahaan: str
+    kode_pt: str | None = None
+    nama_perusahaan: str | None = None
+    penuh: bool = False
+    area: list[GroupTreeArea] = []
+
+
+class GroupTreeSchema(BaseModel):
+    kode_grup: str | None = Field(None, description="null = PT yang belum punya grup")
+    nama_grup: str | None = None
+    penuh: bool = False
+    perusahaan: list[GroupTreePerusahaan] = []
+
+
+class GroupScopeInput(BaseModel):
+    kode_grup: list[str] = Field(..., min_length=1, description="Kode/nama grup, mis. ['SGA']")

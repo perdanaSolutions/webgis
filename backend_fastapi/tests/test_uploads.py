@@ -114,15 +114,16 @@ def test_layer_analyze_reports_rejected_features(client, auth, sample_block, blo
 
 
 def test_wrong_block_label_is_matched_by_geometry(client, auth, sample_block, block_geometry):
-    # Label afdeling salah (kasus nyata di Sawit/TPH_Sample: AFDI03 padahal lokasinya AFDI04)
+    # Label afdeling & blok salah (kasus nyata di Sawit/TPH_Sample: AFDI03 padahal lokasinya AFDI04).
+    # Afdeling salah saja sudah cocok lewat UnitCode + Blok; pencocokan geometri untuk label yang tidak dikenali.
     props = _props(sample_block, OBJECTID=900005, Kategori="Kayu")
-    props["Afdeling"] = "AFD-SALAH"
+    props["Afdeling"], props["Blok"] = "AFD-SALAH", "BLOK-SALAH"
     content = _fc({"type": "Feature", "properties": props, "geometry": {"type": "Point", "coordinates": block_geometry["point"]}})
 
     analyze = _upload(client, auth, "/jembatan/upload-analyze", content).json()["data"]
     assert analyze["jembatan_siap_diunggah"] == 1 and analyze["dicocokkan_spasial"] == 1
     correction = analyze["koreksi_label_blok"][0]
-    assert correction["label_file"].endswith("/AFD-SALAH/" + sample_block["code"])
+    assert correction["label_file"].endswith("/AFD-SALAH/BLOK-SALAH")
     assert correction["blok_master"] == f"{sample_block['estate']}/{sample_block['division']}/{sample_block['code']}"
 
     detail = _upload(client, auth, "/jembatan/upload-execute", content).json()["detail"]
@@ -275,7 +276,9 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
                         params={"blok_id": sample_block["id"], "bulan": BULAN, "tahun": TAHUN}).json()
     info = detail["informasi_blok"]
     assert detail["mode"] == "PERIODE_BULAN_TAHUN"
-    assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}"}
+    assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}",
+                                 "year_to_date": False, "produksi_awal": f"{BULAN}-{TAHUN}",
+                                 "produksi_akhir": f"{BULAN}-{TAHUN}"}
     assert info["luas_tanam"] == 25.5
     assert info["luas_tanah"] == 26.0
     assert info["pokok"] == 3500

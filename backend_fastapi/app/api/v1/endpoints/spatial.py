@@ -7,12 +7,16 @@ bentuk response mengikuti kontrak frontend yang sudah ada.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel, Field
 
 from app.api import deps
 from app.api.params import read_upload
 from app.core.exceptions import bad_request
 from app.schemas.spatial import PaginatedResponse
-from app.services import block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, user_access
+from app.services import (
+    block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
+    user_access,
+)
 from app.services.block_filter import BlockFilter
 from app.services.layers.catalog_service import generic_tables
 from app.utils.period import as_of_period
@@ -33,10 +37,33 @@ def get_group_list(
     )
 
 
+class GroupChange(BaseModel):
+    kode_grup: str = Field(..., min_length=1, description="Kode/nama grup yang sudah terdaftar (mis. TPA, SGA)")
+
+
+class AreaChange(BaseModel):
+    kode_area: str = Field(..., min_length=1, description="Kode/nama area yang sudah terdaftar (mis. KUTIM4)")
+
+
+@router.put("/pt/{kode_pt}/grup", summary="Ganti grup PT (koreksi manual master)",
+            description="Grup resmi berasal dari upload GeoJSON blok; endpoint ini untuk koreksi satu PT. "
+                        "Hanya grup yang sudah terdaftar. Butuh permission `upload:geojson`.")
+def put_company_group(kode_pt: str, payload: GroupChange, db: deps.DbSession, current_user: deps.CanUploadGeojson):
+    return master_service.set_company_group(db, current_user, kode_pt, payload.kode_grup)
+
+
+@router.put("/estate/{kode_est}/area", summary="Ganti area saat ini estate (koreksi manual master)",
+            description="Area resmi berasal dari upload GeoJSON blok; riwayat area per bulan di areal statement tidak "
+                        "berubah. Hanya area yang sudah terdaftar. Butuh permission `upload:geojson`.")
+def put_estate_area(kode_est: str, payload: AreaChange, db: deps.DbSession, current_user: deps.CanUploadGeojson):
+    return master_service.set_estate_area(db, current_user, kode_est, payload.kode_area)
+
+
 @router.get("/area", response_model=PaginatedResponse)
 def get_area_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode area"),
     kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+    kode_pt: Optional[str] = Query(None, description="Kode/ID PT: hanya area estate PT ini"),
 
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
@@ -49,6 +76,7 @@ def get_area_list(
     del bulan, tahun
     return hierarchy_service.list_areas(
         db, search, page, limit, extra_clause=user_access.hierarchy_clause(db, current_user, "area"), grup=kode_grup,
+        kode_pt=kode_pt,
     )
 
 
@@ -150,7 +178,7 @@ def get_latest_period(
 ):
     flt = BlockFilter(grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd)
     user_access.apply_data_scope(db, current_user, flt)
-    return map_service.latest_periods(db, flt)
+    return map_service.latest_periods(db, flt, user_access.transaction_keys(db, current_user))
 
 
 _GEOJSON_DOC = """
@@ -214,6 +242,7 @@ def get_blok_detail(
     ownership: Optional[str] = Query(None),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to_date: bool = Query(False, description="true = TBS/janjang/BJR Januari s/d bulan periode (sama dengan GeoJSON)"),
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
@@ -221,6 +250,7 @@ def get_blok_detail(
     user_access.ensure_block_in_scope(db, current_user, block_id)
     detail = block_detail_service.get_block_detail(
         db, blok_id, tahun_tanam=tahun_tanam, ownership=ownership, bulan=bulan, tahun=tahun,
+        year_to_date=year_to_date,
     )
     return user_access.redact_block_detail(db, current_user, detail)
 
@@ -236,8 +266,10 @@ def get_history_tables(db=Depends(deps.get_db), current_user=Depends(deps.get_cu
 
 @router.get("/history/tahun-tanam", summary="Daftar tahun filter histori dari semua tabel schema trx")
 def get_history_planting_years(
-    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
-    area_id: Optional[str] = Query(None),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA) saat ini milik PT. Kosong = semua"),
+    area_id: Optional[str] = Query(
+        None, description="Kode/ID area. Memakai area SAAT INI estate (master), bukan AreaCode per bulan di areal statement",
+    ),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
@@ -265,8 +297,10 @@ def get_history_data(
         None, ge=0, le=2100,
         description="Filter tahun transaksi. Tabel trx yang punya planting_year disaring kolom itu; selain itu tahun kolom period.",
     ),
-    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
-    area_id: Optional[str] = Query(None),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA) saat ini milik PT. Kosong = semua"),
+    area_id: Optional[str] = Query(
+        None, description="Kode/ID area. Memakai area SAAT INI estate (master), bukan AreaCode per bulan di areal statement",
+    ),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),

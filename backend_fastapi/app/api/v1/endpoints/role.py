@@ -34,13 +34,19 @@ def _ensure_unique_name(db: Session, name: str, exclude_id: UUID | None = None) 
         raise conflict(ROLE_EXISTS)
 
 
-def _commit_role(db: Session) -> None:
-    """Pengaman bila dua permintaan menyimpan nama yang sama bersamaan (constraint UNIQUE)."""
+_NAME_CONSTRAINTS = ("roles_name_key", "ux_roles_name_lower")
+
+
+def _save_role(db: Session, step) -> None:
+    """
+    Jalankan flush/commit dengan pengaman bila dua permintaan menyimpan nama yang sama bersamaan:
+    pelanggaran UNIQUE nama role (bisa muncul saat flush maupun commit) dibalas 409 "Role sudah ada.".
+    """
     try:
-        db.commit()
+        step()
     except IntegrityError as exc:
         db.rollback()
-        if "roles_name_key" in str(exc.orig):
+        if any(name in str(exc.orig) for name in _NAME_CONSTRAINTS):
             raise conflict(ROLE_EXISTS) from exc
         raise
 
@@ -62,6 +68,7 @@ def _scope_rows(db: Session, roles: list[Role]) -> list[dict]:
                          WHEN division_id IS NOT NULL THEN 'division'
                          WHEN estate_id IS NOT NULL THEN 'estate'
                          WHEN company_id IS NOT NULL THEN 'company'
+                         WHEN group_id IS NOT NULL THEN 'group'
                          ELSE 'area'
                        END AS level,
                        NULL::text AS area_code,
@@ -83,6 +90,7 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
     scopes_by_role: dict[str, list[dict]] = {}
     for row in scopes:
         scopes_by_role.setdefault(str(row["role_id"]), []).append(row)
+    group_trees = access_service.group_trees(db, [role.id for role in roles])
 
     return [
         {
@@ -95,6 +103,7 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
             "akses_wilayah": access_service.scopes_as_tree(scopes_by_role.get(str(role.id), []))
             if scopes_by_role.get(str(role.id)) and "company_id" in scopes_by_role[str(role.id)][0]
             else [],
+            "akses_wilayah_grup": group_trees.get(str(role.id), []),
             "akses_transaksi": access_service.role_transaction_rows(db, role.id),
         }
         for role in roles
@@ -150,7 +159,7 @@ def create_role(
         deskripsi=payload.deskripsi
     )
     db.add(new_role)
-    db.flush() # Flush untuk mendapatkan new_role.id (UUID) sebelum di-commit
+    _save_role(db, db.flush)  # Flush untuk mendapatkan new_role.id (UUID) sebelum di-commit
 
     if payload.akses_menu:
         access_service.replace_menus(db, new_role.id, payload.akses_menu)
@@ -173,7 +182,7 @@ def create_role(
             "jumlah_transaksi": len(payload.akses_transaksi or []),
         },
     )
-    _commit_role(db)
+    _save_role(db, db.commit)
     db.refresh(new_role)
     return _serialize_roles(db, [new_role])[0]
 
@@ -198,6 +207,7 @@ def update_role(
     _ensure_unique_name(db, name, exclude_id=role.id)
     role.nama = name
     role.deskripsi = payload.deskripsi
+    _save_role(db, db.flush)  # nama bentrok langsung ketahuan di sini, bukan saat autoflush query akses
 
     # Hanya sinkronkan akses yang benar-benar dikirim. Default kosong bukan perintah hapus.
     sent = payload.model_fields_set
@@ -227,6 +237,6 @@ def update_role(
             "akses_transaksi_diubah": "akses_transaksi" in sent,
         },
     )
-    _commit_role(db)
+    _save_role(db, db.commit)
     db.refresh(role)
     return _serialize_roles(db, [role])[0]

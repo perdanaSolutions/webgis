@@ -103,7 +103,7 @@ def analyze_excel(db: Session, kind: TrxKind, filename: str | None, content: byt
     headers = list(rows[0].keys()) if rows else []
     try:
         build, refs = kind.build_factory(db)
-        result = _collect(db, rows, build, kind.dedupe, 2, kind.strict_block)
+        result = _collect(db, rows, build, kind.dedupe, 2, kind.strict_block, check_area_column=kind.check_area_column)
         new_refs = {name: r.created for name, r in refs.items() if r.created}
         written = {"baru": 0, "diperbarui": 0}
         if result.rows:
@@ -147,10 +147,24 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             "pesan": f"{result.company_warnings} baris punya CompanyCode yang berbeda dari PT blok di master. "
                      "Baris tetap diimpor; periksa 'peringatan_company_code' di rincian.",
         })
+    if result.division_warnings:
+        warnings.append({
+            "kode": "AFDELING_BERBEDA", "level": "PERINGATAN", "jumlah": result.division_warnings,
+            "pesan": f"{result.division_warnings} baris menunjuk blok yang ada di master tetapi di afdeling lain. "
+                     "Baris tetap diimpor ke blok itu (kunci UnitCode + Blok); afdeling di master tidak diubah "
+                     "(afdeling resmi mengikuti GeoJSON blok). Periksa 'peringatan_afdeling' di rincian.",
+        })
+    if result.area_warnings:
+        warnings.append({
+            "kode": "AREA_BERBEDA", "level": "PERINGATAN", "jumlah": result.area_warnings,
+            "pesan": f"{result.area_warnings} baris punya AreaCode yang berbeda dari area estate saat ini di master. "
+                     "Baris tetap diimpor dengan area di file sebagai riwayat bulan itu; area estate di master "
+                     "TIDAK diubah (area resmi mengikuti GeoJSON blok). Periksa 'peringatan_area' di rincian.",
+        })
     if result.group_warnings:
         warnings.append({
             "kode": "GRUP_BERBEDA", "level": "PERINGATAN", "jumlah": result.group_warnings,
-            "pesan": f"{result.group_warnings} baris punya Group yang berbeda dari grup estate di master. "
+            "pesan": f"{result.group_warnings} baris punya Group yang berbeda dari grup PT di master. "
                      "Baris tetap diimpor dan grup di master TIDAK diubah (grup resmi mengikuti GeoJSON blok); "
                      "periksa 'peringatan_grup' di rincian.",
         })
@@ -227,6 +241,8 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             "nilai_referensi_baru": new_refs,
             "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
             "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
+            "peringatan_area": {"jumlah": result.area_warnings, "contoh": result.area_warning_samples},
+            "peringatan_afdeling": {"jumlah": result.division_warnings, "contoh": result.division_warning_samples},
         },
     }
 

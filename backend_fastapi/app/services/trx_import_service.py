@@ -43,6 +43,7 @@ MONTH_COLUMNS = ("Month", "Bulan", "bulan")
 YEAR_COLUMNS = ("Year", "Tahun", "tahun", "Periode")
 COMPANY_COLUMNS = ("CompanyCode", "Company Code", "KodePT", "Kode PT", "company_code")
 GROUP_COLUMNS = ("Group", "Grup", "group")
+AREA_COLUMNS = ("AreaCode", "Area", "KodeArea")
 
 
 class RowError(ValueError):
@@ -101,6 +102,10 @@ class ImportResult:
     company_warning_samples: list[str] = field(default_factory=list)
     group_warnings: int = 0
     group_warning_samples: list[str] = field(default_factory=list)
+    area_warnings: int = 0
+    area_warning_samples: list[str] = field(default_factory=list)
+    division_warnings: int = 0  # blok ditemukan lewat UnitCode + Blok, afdeling di file berbeda dari master
+    division_warning_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
     rejected: list[quarantine.Rejected] = field(default_factory=list)  # baris tidak lolos -> karantina
 
@@ -137,15 +142,27 @@ def check_company(row: dict, actual_code: str | None) -> str | None:
     return f"CompanyCode {declared} berbeda dari PT blok di master ({actual_code or '-'})"
 
 
-def check_group(row: dict, actual_code: str | None) -> str | None:
-    """
-    Peringatan (bukan penolakan) bila Group di file berbeda dari grup estate di master.
-    Grup resmi berasal dari GeoJSON batas blok, jadi import transaksi tidak mengubahnya.
-    """
-    declared = clean_str(pick(row, *GROUP_COLUMNS))
+def _check_master(row: dict, columns: tuple[str, ...], actual_code: str | None, label: str) -> str | None:
+    declared = clean_str(pick(row, *columns))
     if declared is None or actual_code is None or norm_key(declared) == norm_key(actual_code):
         return None
-    return f"Group {declared} berbeda dari grup estate di master ({actual_code})"
+    return f"{columns[0]} {declared} berbeda dari {label} di master ({actual_code})"
+
+
+def check_group(row: dict, actual_code: str | None) -> str | None:
+    """
+    Peringatan (bukan penolakan) bila Group di file berbeda dari grup PT di master.
+    Grup resmi berasal dari GeoJSON batas blok, jadi import transaksi tidak mengubahnya.
+    """
+    return _check_master(row, GROUP_COLUMNS, actual_code, "grup PT")
+
+
+def check_area(row: dict, actual_code: str | None) -> str | None:
+    """
+    Peringatan bila AreaCode di file berbeda dari area saat ini estate di master (GeoJSON blok).
+    Area per baris tetap disimpan ke areal statement sebagai riwayat area bulan itu.
+    """
+    return _check_master(row, AREA_COLUMNS, actual_code, "area estate")
 
 
 def _non_negative(value, label: str):
@@ -156,7 +173,7 @@ def _non_negative(value, label: str):
 
 def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedupe: Deduper,
              first_row: int = 2, strict_block: bool = False, scope: ImportScope | None = None,
-             scope_estate_id: int | None = None) -> ImportResult:
+             scope_estate_id: int | None = None, check_area_column: bool = False) -> ImportResult:
     index = BlockIndex.load(db)
     result = ImportResult(total=len(rows))
     for number, original in enumerate(rows, start=first_row):  # Excel: baris 1 = header; JSON: item ke-1 = baris 1
@@ -188,6 +205,11 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
                 result.invalid_samples.append(f"baris {number}: {message}")
             result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", message, original))
             continue
+        if (master_division := index.other_division(block_id, division)):
+            result.division_warnings += 1
+            if len(result.division_warning_samples) < 5:
+                result.division_warning_samples.append(
+                    f"baris {number}: blok {block_code} ada di afdeling {master_division}, di file {division}")
         period = None
         try:
             if strict_block and (warning := check_company(row, index.company_by_block.get(block_id))):
@@ -198,6 +220,10 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
                 result.group_warnings += 1
                 if len(result.group_warning_samples) < 5:
                     result.group_warning_samples.append(f"baris {number}: {warning}")
+            if check_area_column and (warning := check_area(row, index.area_by_block.get(block_id))):
+                result.area_warnings += 1
+                if len(result.area_warning_samples) < 5:
+                    result.area_warning_samples.append(f"baris {number}: {warning}")
             period = _period(row)
             result.seen_pairs.add((block_id, period))
             if scope and period != scope.period:
@@ -250,6 +276,8 @@ class TrxKind:
     dedupe: Deduper = keep_last
     replace_scope: bool = False  # ganti data lama per (periode, estate) yang ada di file
     strict_block: bool = False  # blok wajib cocok estate+afdeling+blok (tanpa tebakan lewat kode blok saja)
+    # AreaCode di file dibandingkan dengan area estate (hanya jenis yang menyimpan area, yaitu areal statement)
+    check_area_column: bool = False
 
 
 def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, source_name: str | None,
@@ -265,7 +293,8 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
                            user_id=user_id, period=None, metadata={"jenis": label})
     try:
         build, refs = kind.build_factory(db)
-        result = _collect(db, rows, build, kind.dedupe, first_row, kind.strict_block, scope, scope_estate_id)
+        result = _collect(db, rows, build, kind.dedupe, first_row, kind.strict_block, scope, scope_estate_id,
+                          check_area_column=kind.check_area_column)
         result.new_refs = {name: r.created for name, r in refs.items() if r.created}
         replace = kind.replace_scope and replace_mode and bool(result.rows)
         pairs = _replace_pairs(db, result, scope, scope_estate_id) if replace else []
@@ -305,6 +334,8 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "sample_konflik": result.conflict_samples,
         "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
         "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
+        "peringatan_area": {"jumlah": result.area_warnings, "contoh": result.area_warning_samples},
+        "peringatan_afdeling": {"jumlah": result.division_warnings, "contoh": result.division_warning_samples},
         "karantina_count": quarantined,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,
@@ -477,11 +508,21 @@ def _load_area_statements(db: Session, rows: list[dict], batch_id: UUID) -> dict
               WHERE block_type_id IS NOT NULL ORDER BY block_id, period DESC) s
         WHERE bl.id = s.block_id AND bl.block_type_id IS DISTINCT FROM s.block_type_id
     """))
+    # Area saat ini estate resmi dari GeoJSON blok; areal statement hanya MENGISI estate yang belum punya area
+    # (area periode terbaru di file), tidak pernah mengganti area yang sudah ada.
+    db.execute(text("""
+        UPDATE master.estates es SET area_id = x.area_id
+        FROM (SELECT DISTINCT ON (dv.estate_id) dv.estate_id, s.area_id
+              FROM _as_stage s JOIN master.blocks bl ON bl.id = s.block_id
+              JOIN master.divisions dv ON dv.id = bl.division_id
+              WHERE s.area_id IS NOT NULL ORDER BY dv.estate_id, s.period DESC) x
+        WHERE es.id = x.estate_id AND es.area_id IS NULL
+    """))
     return counts
 
 
 AREA_STATEMENT = TrxKind("trx.area_statements", "areal statement", _area_statement_builder, _load_area_statements,
-                         strict_block=True)
+                         strict_block=True, check_area_column=True)
 
 
 # =====================================================================

@@ -50,7 +50,8 @@ _AREA_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
 - **LuasTanam, LuasTanah, TotalPokok, SPH** tidak boleh negatif.
 - **JenisBibit** boleh lebih dari satu, dipisah koma, `/`, `;`, `+`, `&`, atau kata "dan".
 - **CompanyCode** hanya dicek sebagai **peringatan**. Kalau berbeda dari PT blok di master, baris tetap masuk dan perbedaannya dilaporkan di `peringatan_company_code`.
-- **Group** (TPA/SGA) boleh kosong atau tidak ada. Kolom ini hanya dicek sebagai **peringatan**: grup resmi estate berasal dari GeoJSON batas blok, jadi import ini tidak mengubahnya. Perbedaan dilaporkan di `peringatan_grup`.
+- **Group** (TPA/SGA) boleh kosong atau tidak ada. Kolom ini hanya dicek sebagai **peringatan**: grup resmi PT berasal dari GeoJSON batas blok, jadi import ini tidak mengubahnya. Perbedaan dilaporkan di `peringatan_grup`.
+- **AreaCode** disimpan per baris sebagai riwayat area bulan itu. Bila berbeda dari area saat ini estate di master (dari GeoJSON blok), baris tetap masuk dan perbedaannya dilaporkan di `peringatan_area`; area estate di master tidak diubah. Hanya estate yang belum punya area di master yang diisi dari area periode terbaru di file.
 - **TipeBlok** (Inti/Plasma) ikut memperbarui tipe blok di master.
 - **Nilai referensi baru** (AreaCode, status tanam, jenis tanah, topografi, bibit, atau tipe blok yang belum terdaftar) dibuat otomatis. Periksa `nilai_referensi_baru` di hasil agar tidak ada salah ketik.
 - **Baris ganda** (blok dan bulan yang sama muncul lebih dari sekali): baris yang terakhir yang dipakai.
@@ -110,8 +111,10 @@ _AREA_JSON_DOC = (
     "dengan jumlah maksimal 100.\n"
     "- **CompanyCode:** hanya dibandingkan dengan PT blok di master; bila berbeda, baris tetap diproses dan muncul "
     "sebagai `peringatan_company_code` di hasil.\n"
-    "- **Group:** opsional; hanya dibandingkan dengan grup estate di master (grup resmi mengikuti GeoJSON blok). "
+    "- **Group:** opsional; hanya dibandingkan dengan grup PT di master (grup resmi mengikuti GeoJSON blok). "
     "Bila berbeda, baris tetap diproses dan muncul sebagai `peringatan_grup` di hasil.\n"
+    "- **AreaCode:** disimpan per baris sebagai riwayat area; bila berbeda dari area saat ini estate di master, "
+    "baris tetap diproses dan muncul sebagai `peringatan_area` (area estate di master tidak diubah).\n"
     "- Nama kolom alternatif yang juga diterima antara lain Tahun/Bulan (pengganti Year/Month)."
 )
 

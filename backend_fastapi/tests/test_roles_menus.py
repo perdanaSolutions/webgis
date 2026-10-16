@@ -191,3 +191,21 @@ def test_duplicate_role_name_is_rejected_with_message(client, auth):
         with engine.begin() as conn:  # API belum punya DELETE /roles -> bersihkan lewat SQL
             conn.execute(text("DELETE FROM auth.roles WHERE id IN (:a, :b)"),
                          {"a": first.json()["id"], "b": second.json()["id"]})
+
+
+def test_role_name_unique_guard_covers_flush_and_database(client, auth, monkeypatch):
+    """Pengecekan awal terlewat (dua request bersamaan) -> constraint DB tetap dibalas 409, bukan 500."""
+    from app.api.v1.endpoints import role as role_endpoint
+
+    suffix = uuid.uuid4().hex[:6]
+    first = client.post("/api/v1/roles/", headers=auth, json={"nama": f"Race {suffix}"})
+    assert first.status_code == 201
+    try:
+        monkeypatch.setattr(role_endpoint, "_ensure_unique_name", lambda *args, **kwargs: None)
+        for duplicate in (f"Race {suffix}", f"RACE {suffix}"):  # sama persis & beda huruf (indeks lower(name))
+            response = client.post("/api/v1/roles/", headers=auth, json={"nama": duplicate})
+            assert response.status_code == 409, (duplicate, response.text)
+            assert response.json()["errors"][0]["msg"] == "Role sudah ada."
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM auth.roles WHERE id = :id"), {"id": first.json()["id"]})
