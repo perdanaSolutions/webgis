@@ -225,6 +225,52 @@ function resolveGapPercent(detail: BlokDetailResponse): string {
   return "-";
 }
 
+function plainRecord(value: unknown): Record<string, any> | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, any>) : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" ? (value as Record<string, any>) : null;
+}
+
+/** "10-2026" -> { bulan: "10", tahun: "2026" }. */
+function parsePeriodLabel(value: unknown): { bulan: string; tahun: string } | null {
+  const match = /^(\d{1,2})-(\d{4})$/.exec(String(value ?? "").trim());
+  return match ? { bulan: String(Number(match[1])), tahun: match[2]! } : null;
+}
+
+/**
+ * Periode awal popup blok = bulan produksi yang dipakai mewarnai blok itu di peta
+ * (`produksi_tbs.periode` dari GeoJSON), supaya warna dan isi popup sama. Bila blok
+ * tidak punya data produksi, pakai `fallback` (periode filter).
+ */
+export function popupPeriodFromProperties(
+  properties: Record<string, any> | undefined,
+  fallback: { bulan: string; tahun: string },
+) {
+  return parsePeriodLabel(plainRecord(properties?.produksi_tbs)?.periode) ?? fallback;
+}
+
+export type PopupComparison = { periode: string; kategoriBudget: string; kategoriSensus: string };
+
+/** Kategori gap periode pembanding (`produksi_tbs_comparison` dari GeoJSON), bila filter pembanding dipakai. */
+export function comparisonFromProperties(properties: Record<string, any> | undefined): PopupComparison | null {
+  const comparison = plainRecord(properties?.produksi_tbs_comparison);
+  if (!comparison) return null;
+  const start = String(comparison.periode_awal ?? "");
+  const end = String(comparison.periode_akhir ?? comparison.periode ?? "");
+  return {
+    periode: start && start !== end ? `${start} s/d ${end}` : end,
+    kategoriBudget: toDisplayText(comparison.kategori_budget),
+    kategoriSensus: toDisplayText(comparison.kategori_sensus),
+  };
+}
+
 export function getCurrentPopupPeriod() {
   const now = new Date();
   return {
@@ -550,8 +596,16 @@ export function periodAvailabilityNotice(
 
 export function buildBlokPopupHtml(
   data: BlokPopupData,
-  options?: { loading?: boolean; errorMessage?: string; notice?: string },
+  options?: { loading?: boolean; errorMessage?: string; notice?: string; comparison?: PopupComparison | null },
 ) {
+  const comparison = options?.comparison
+    ? `
+      <div style="display:grid;gap:4px;margin:-4px 0 10px;padding-top:6px;border-top:1px dashed #e5e7eb;">
+        ${popupRow("Pembanding", escapeHtml(options.comparison.periode))}
+        ${popupRow("Kat. Budget", categorySwatch(escapeHtml(options.comparison.kategoriBudget)), "", true)}
+        ${popupRow("Kat. Sensus", categorySwatch(escapeHtml(options.comparison.kategoriSensus)), "", true)}
+      </div>`
+    : "";
   const banner = options?.errorMessage
     ? `<p data-popup-alert style="margin:0 0 10px;padding:8px 10px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;font-size:12px;line-height:1.4;">${escapeHtml(options.errorMessage)}</p>`
     : options?.notice
@@ -591,6 +645,7 @@ export function buildBlokPopupHtml(
         ${gapLine("Gap Budget", data.gapBudget, data.kategoriBudget)}
         ${gapLine("Gap Sensus", data.gapSensus, data.kategoriSensus)}
       </div>
+      ${comparison}
 
       ${buildPopupFooter(data, options?.loading)}
     </div>

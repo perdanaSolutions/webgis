@@ -25,6 +25,10 @@ const props = defineProps<{
   ownership: string;
   bulan: string;
   tahun: string;
+  /** true = produksi diakumulasi Januari s/d bulan Periode. */
+  yearToDate: boolean;
+  bulanComparison: string;
+  tahunComparison: string;
   scopeLevel: ScopeLevel;
   blockCount: number;
   loading: boolean;
@@ -43,6 +47,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:grup" | "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:bulan" | "update:tahun", value: string): void;
+  (e: "update:bulanComparison" | "update:tahunComparison", value: string): void;
+  (e: "update:yearToDate", value: boolean): void;
   (e: "apply"): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
@@ -62,6 +68,7 @@ const SCOPE_TEXT: Record<ScopeLevel, string> = {
 };
 
 const monthOptions = [{ label: "Semua bulan", value: "" }, ...BULAN_POPUP_OPTIONS];
+const comparisonMonthOptions = [{ label: "Tanpa pembanding", value: "" }, ...BULAN_POPUP_OPTIONS];
 const yearOptions = computed(() => {
   const current = new Date().getFullYear();
   return Array.from({ length: 11 }, (_, index) => {
@@ -72,15 +79,21 @@ const yearOptions = computed(() => {
 
 const scopeInfo = computed(() => {
   const month = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
-  const periode = [month, props.tahun].filter(Boolean).join(" ");
+  const periode = [props.yearToDate ? "YTD" : "", month, props.tahun].filter(Boolean).join(" ");
+  const comparisonMonth = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulanComparison)?.label ?? "";
+  const comparison = comparisonComplete.value ? `vs ${comparisonMonth} ${props.tahunComparison}` : "";
   const grupLabel = props.grup ? `Grup ${props.groupOptions.find((o) => o.value === props.grup)?.label ?? props.grup}` : "";
-  const extra = [grupLabel, props.ownership, periode].filter(Boolean);
+  const extra = [grupLabel, props.ownership, periode, comparison].filter(Boolean);
   const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
   const base = props.scopeLevel === "blok"
     ? `Pilihan: Blok${suffix}`
     : `Pilihan: ${SCOPE_TEXT[props.scopeLevel]}${suffix} · ${props.blockCount.toLocaleString("id-ID")} blok di peta terapan`;
   return `${base}. Tekan Apply Filter untuk memuat peta dan data transaksi.`;
 });
+
+/** Pembanding dipakai hanya bila bulan dan tahunnya diisi. */
+const comparisonComplete = computed(() => Boolean(props.bulanComparison && props.tahunComparison));
+const comparisonIncomplete = computed(() => Boolean(props.bulanComparison) !== Boolean(props.tahunComparison));
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0) + (props.showYieldGap ? 1 : 0));
 const totalCount = computed(() => props.layers.length + 2);
@@ -169,6 +182,35 @@ function onField(key: FieldKey, value: unknown) {
               :menu-props="{ contentClass: 'bp-filter-menu' }"
               @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
           </div>
+
+          <div class="mt-3 flex items-center justify-between gap-3">
+            <span class="min-w-0">
+              <span class="block text-13 font-semibold text-[#1f2a18]">Year to date</span>
+              <span class="block text-12 text-[#6e7866]">Produksi Januari s/d bulan Periode</span>
+            </span>
+            <button type="button" role="switch" :aria-checked="yearToDate" aria-label="Year to date" class="bp-switch"
+              :class="yearToDate && 'is-on'" :disabled="loading"
+              @click="emit('update:yearToDate', !yearToDate)"><span /></button>
+          </div>
+
+          <span class="bp-label mt-3">Periode pembanding</span>
+          <div class="grid grid-cols-2 gap-2">
+            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulanComparison || null"
+              :items="comparisonMonthOptions" item-title="label" item-value="value" placeholder="Bulan"
+              :disabled="loading" variant="solo" flat density="comfortable" hide-details single-line color="#638840"
+              base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+              :menu-props="{ contentClass: 'bp-filter-menu' }"
+              @update:model-value="emit('update:bulanComparison', $event == null ? '' : String($event))" />
+            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahunComparison || null"
+              :items="[{ label: 'Tahun', value: '' }, ...yearOptions]" item-title="label" item-value="value"
+              placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details
+              single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
+              no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu' }"
+              @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
+          </div>
+          <p v-if="comparisonIncomplete" class="mt-1 text-12 text-[#b45309]">
+            Isi bulan dan tahun pembanding agar kategori pembanding ikut dimuat.
+          </p>
         </div>
       </template>
 
