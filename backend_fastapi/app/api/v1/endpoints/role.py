@@ -1,16 +1,48 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import List
 
 from app.api import deps
+from app.core.exceptions import bad_request, conflict
 from app.models.auth import Role
 from app.schemas.role import RoleCreate, RoleResponse
 from app.services import access_service
 from app.services.user_activity import record_user_activity
 
 router = APIRouter()
+
+ROLE_EXISTS = "Role sudah ada."
+
+
+def _clean_name(name: str) -> str:
+    """Spasi di tepi dibuang dan spasi ganda dirapatkan (auth.roles menolak nama dengan spasi di tepi)."""
+    cleaned = " ".join((name or "").split())
+    if not cleaned:
+        raise bad_request("Nama role wajib diisi.", field="nama")
+    return cleaned
+
+
+def _ensure_unique_name(db: Session, name: str, exclude_id: UUID | None = None) -> None:
+    """Nama role unik tanpa membedakan huruf besar/kecil: 'Admin' sama dengan 'admin'."""
+    query = db.query(Role.id).filter(func.lower(Role.nama) == name.lower())
+    if exclude_id:
+        query = query.filter(Role.id != exclude_id)
+    if query.first():
+        raise conflict(ROLE_EXISTS)
+
+
+def _commit_role(db: Session) -> None:
+    """Pengaman bila dua permintaan menyimpan nama yang sama bersamaan (constraint UNIQUE)."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if "roles_name_key" in str(exc.orig):
+            raise conflict(ROLE_EXISTS) from exc
+        raise
 
 
 def _scope_rows(db: Session, roles: list[Role]) -> list[dict]:
@@ -109,13 +141,12 @@ def create_role(
 ):
     """Membuat role baru beserta konfigurasi Akses Menu, Data GIS, dan Transaksi."""
     # 1. Cek apakah nama role sudah terpakai
-    existing_role = db.query(Role).filter(Role.nama == payload.nama.lower()).first()
-    if existing_role:
-        raise HTTPException(status_code=400, detail=f"Role dengan nama '{payload.nama}' sudah ada.")
+    name = _clean_name(payload.nama)
+    _ensure_unique_name(db, name)
 
     # 2. Buat objek role baru
     new_role = Role(
-        nama=payload.nama,
+        nama=name,
         deskripsi=payload.deskripsi
     )
     db.add(new_role)
@@ -142,7 +173,7 @@ def create_role(
             "jumlah_transaksi": len(payload.akses_transaksi or []),
         },
     )
-    db.commit()
+    _commit_role(db)
     db.refresh(new_role)
     return _serialize_roles(db, [new_role])[0]
 
@@ -163,7 +194,9 @@ def update_role(
         raise HTTPException(status_code=404, detail="Role tidak ditemukan")
 
     before = {"nama": role.nama, "deskripsi": role.deskripsi}
-    role.nama = payload.nama.lower()
+    name = _clean_name(payload.nama).lower()
+    _ensure_unique_name(db, name, exclude_id=role.id)
+    role.nama = name
     role.deskripsi = payload.deskripsi
 
     # Hanya sinkronkan akses yang benar-benar dikirim. Default kosong bukan perintah hapus.
@@ -194,6 +227,6 @@ def update_role(
             "akses_transaksi_diubah": "akses_transaksi" in sent,
         },
     )
-    db.commit()
+    _commit_role(db)
     db.refresh(role)
     return _serialize_roles(db, [role])[0]
