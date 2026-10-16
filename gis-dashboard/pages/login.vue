@@ -89,7 +89,7 @@ async function onSubmit(event?: Event) {
               Masuk ke akun Anda
             </h1>
             <p class="mt-2 max-w-[320px] text-13 leading-6 text-muted-ios sm:text-14">
-              Gunakan email dan kata sandi terdaftar untuk mengakses dashboard.
+              Gunakan email dan password terdaftar untuk mengakses dashboard.
             </p>
           </div>
 
@@ -105,7 +105,7 @@ async function onSubmit(event?: Event) {
 
             <div>
               <label for="password" class="mb-2 block text-14 font-bold leading-none text-content-dark">
-                Kata Sandi
+                Password
               </label>
               <div class="relative">
                 <input id="password" v-model="form.password" :type="showPassword ? 'text' : 'password'"
