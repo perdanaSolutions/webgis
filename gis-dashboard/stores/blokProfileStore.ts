@@ -886,7 +886,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     await activateArea(next);
   }
 
-  /** Grup opsional: area saat ini dipertahankan bila masih ada di grup baru, kalau tidak area pertama. */
+  /**
+   * Grup opsional: area saat ini dipertahankan bila masih ada di grup baru (termasuk "Semua area"
+   * bagi akun yang boleh memilih semua), kalau tidak area pertama.
+   */
   async function setGrup(value: string) {
     const epoch = filterEpoch;
     const next = value || "";
@@ -894,7 +897,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     grup.value = next;
     await loadAreas();
     if (!filterAlive(epoch)) return;
-    const keep = areaOptions.value.some((option) => option.value === area.value);
+    const keep = (allowAllScope.value && !area.value)
+      || areaOptions.value.some((option) => option.value === area.value);
     await activateArea(keep ? area.value : firstOf(areaOptions.value));
   }
 

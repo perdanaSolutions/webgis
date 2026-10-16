@@ -150,7 +150,7 @@ def get_latest_period(
 ):
     flt = BlockFilter(grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd)
     user_access.apply_data_scope(db, current_user, flt)
-    return map_service.latest_periods(db, flt)
+    return map_service.latest_periods(db, flt, user_access.transaction_keys(db, current_user))
 
 
 _GEOJSON_DOC = """

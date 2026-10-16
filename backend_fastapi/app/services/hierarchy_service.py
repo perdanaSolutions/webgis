@@ -32,17 +32,18 @@ def _where(clauses: list[str]) -> str:
 
 def list_groups(db: Session, search: str | None, page: int, limit: int,
                 extra_clause: tuple[str, dict] | None = None) -> dict:
-    """Grup yang punya estate. `extra_clause` = klausa akses level estate (alias es/co)."""
+    """Grup yang punya estate yang boleh diakses. `extra_clause` = klausa akses level estate (alias es/co)."""
     clauses, params = [], {}
+    # Estate grup ini yang terlihat user; dipakai untuk menyaring grup dan menghitung jumlah_estate.
+    visible = ("FROM master.estates es JOIN master.companies co ON co.id = es.company_id WHERE es.group_id = gr.id"
+               + (f" AND {extra_clause[0]}" if extra_clause else ""))
     if extra_clause:
-        clauses.append(
-            "EXISTS (SELECT 1 FROM master.estates es JOIN master.companies co ON co.id = es.company_id "
-            f"WHERE es.group_id = gr.id AND {extra_clause[0]})")
+        clauses.append(f"EXISTS (SELECT 1 {visible})")
         params.update(extra_clause[1])
     _search_clause(["gr.code", "gr.name"], search, clauses, params)
     sql = f"""
         SELECT gr.id, gr.code, COALESCE(NULLIF(gr.name, ''), gr.code) AS name,
-               (SELECT count(*) FROM master.estates es WHERE es.group_id = gr.id) AS estate_count
+               (SELECT count(*) {visible}) AS estate_count
         FROM master.groups gr {_where(clauses)}
     """
     return paginate_sql(db, sql, params, "q.code", page, limit, lambda r: {
