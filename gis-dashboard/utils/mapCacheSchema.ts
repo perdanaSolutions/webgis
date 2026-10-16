@@ -14,7 +14,7 @@
  * worker menyimpan dokumen `/map` dan ubin peta dasar.
  */
 
-export const MAP_CACHE_SCHEMA = "1"
+export const MAP_CACHE_SCHEMA = "2"
 
 const PREFIX = `gis-map-pwa-v${MAP_CACHE_SCHEMA}`
 

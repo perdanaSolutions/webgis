@@ -555,6 +555,7 @@ def ensure_block_in_scope(db: Session, user, block_id: int) -> None:
 _FEATURE_TX = (
     ("areal_statement", "trx.area_statements"),
     ("produksi_tbs", "trx.block_productions"),
+    ("produksi_tbs_comparison", "trx.block_productions"),
     ("rotasi_terakhir", "trx.harvest_rotations"),
 )
 

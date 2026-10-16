@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from app.api import deps
 from app.api.params import read_upload
+from app.core.exceptions import bad_request
 from app.schemas.spatial import PaginatedResponse
 from app.services import block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, user_access
 from app.services.block_filter import BlockFilter
@@ -134,7 +135,28 @@ def get_blok_list(
     return hierarchy_service.list_blocks(db, search, flt, as_of_period(bulan, tahun), page, limit, tahun_tanam)
 
 
-@router.get("/geojson")
+_GEOJSON_DOC = """
+Batas blok (poligon terbaru s/d bulan/tahun) beserta ringkasan transaksi per blok.
+
+**Rentang `produksi_tbs`** ditentukan `bulan`, `tahun`, dan `year_to_date`:
+
+| year_to_date | bulan | Data yang diproses |
+|---|---|---|
+| true | diisi (mis. 10) | Januari s/d Oktober tahun itu |
+| true | kosong | Januari s/d bulan berjalan (tahun lalu: s/d Desember) |
+| false | diisi | bulan itu saja |
+| false | kosong | bulan terakhir yang sudah diupload di tahun itu (blok yang difilter) |
+
+`areal_statement` (dan luas tanam untuk yield) = statement terbaru di tahun yang sama s/d akhir rentang.
+`produksi_tbs.periode_awal` / `periode_akhir` / `year_to_date` menjelaskan rentang yang dipakai.
+
+**Pembanding:** bila `bulan_comparison` dan `tahun_comparison` diisi, tiap blok mendapat
+`produksi_tbs_comparison` (struktur sama dengan `produksi_tbs`, aturan `year_to_date` sama) untuk
+membandingkan `kategori_budget` / `kategori_sensus`. Keduanya harus diisi bersamaan.
+"""
+
+
+@router.get("/geojson", summary="GeoJSON batas blok + ringkasan transaksi", description=_GEOJSON_DOC)
 def get_blocks_geojson(
     kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     area_id: Optional[str] = Query(None),
@@ -143,19 +165,28 @@ def get_blocks_geojson(
     kode_afd: Optional[str] = Query(None),
     kode_blok: Optional[str] = Query(None),
     ownership: Optional[str] = Query(None),
-    tahun_tanam: Optional[int] = Query(None, ge=0, le=2100),
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to_date: bool = Query(False, description="true = akumulasi Januari s/d bulan (lihat tabel di atas)"),
+    bulan_comparison: Optional[int] = Query(None, ge=1, le=12,
+                                            description="Bulan pembanding (wajib bersama tahun_comparison)"),
+    tahun_comparison: Optional[int] = Query(None, ge=1900, le=2100,
+                                            description="Tahun pembanding (wajib bersama bulan_comparison)"),
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
+    if (bulan_comparison is None) != (tahun_comparison is None):
+        raise bad_request("bulan_comparison dan tahun_comparison harus diisi bersamaan.",
+                          field="bulan_comparison" if bulan_comparison is None else "tahun_comparison")
     flt = BlockFilter(
         grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
-        ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
+        ownership=ownership,
     )
     user_access.apply_data_scope(db, current_user, flt)
     hide_keys = user_access.hidden_feature_keys(db, current_user)
-    return map_service.blocks_geojson(db, flt, as_of_period(bulan, tahun), hide_keys)
+    comparison = (bulan_comparison, tahun_comparison) if bulan_comparison is not None else None
+    return map_service.blocks_geojson(db, flt, bulan, tahun, year_to_date=year_to_date, comparison=comparison,
+                                      hide_keys=hide_keys)
 
 
 @router.get("/blok/detail", summary="Atribut popup peta blok")
