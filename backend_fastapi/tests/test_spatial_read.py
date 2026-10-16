@@ -502,3 +502,34 @@ def test_geojson_without_params_uses_latest_uploaded_month(client, auth, sample_
         assert "produksi_tbs" not in props
         return
     assert props["produksi_tbs"]["periode"] == f"{latest.month}-{latest.year}"
+
+
+def test_latest_period_defaults_to_last_uploaded_production(client, auth, sample_block):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        latest = {
+            key: conn.execute(text(f"SELECT max(period) FROM {table} WHERE block_id IN "
+                                   "(SELECT bl.id FROM master.blocks bl JOIN master.divisions dv ON dv.id = bl.division_id "
+                                   "JOIN master.estates es ON es.id = dv.estate_id WHERE es.code = :e)"),
+                              {"e": sample_block["estate"]}).scalar()
+            for key, table in (("produksi_tbs", "trx.block_productions"), ("areal_statement", "trx.area_statements"),
+                               ("batas_blok", "spatial.block_boundaries"))
+        }
+    response = client.get("/api/v1/spatial/periode-terakhir", headers=auth, params={"kode_est": sample_block["estate"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected_source = next(key for key in ("produksi_tbs", "areal_statement", "batas_blok") if latest[key])
+    expected = latest[expected_source]
+    assert body["sumber"] == expected_source
+    assert (body["bulan"], body["tahun"], body["periode"]) == (expected.month, expected.year,
+                                                                f"{expected.month}-{expected.year}")
+    for key, period in latest.items():
+        assert body["per_data"][key] == ({"bulan": period.month, "tahun": period.year,
+                                          "periode": f"{period.month}-{period.year}"} if period else None)
+
+    empty = client.get("/api/v1/spatial/periode-terakhir", headers=auth, params={"kode_est": "TIDAK_ADA"}).json()
+    assert empty["bulan"] is None and empty["sumber"] is None
+    assert all(value is None for value in empty["per_data"].values())

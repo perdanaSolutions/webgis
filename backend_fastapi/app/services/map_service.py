@@ -179,6 +179,35 @@ def _trx_summaries(
     return summary
 
 
+_LATEST_SOURCES = (
+    ("produksi_tbs", "trx.block_productions"),
+    ("areal_statement", "trx.area_statements"),
+    ("rotasi_pusingan", "trx.harvest_rotations"),
+    ("batas_blok", "spatial.block_boundaries"),
+)
+# Sumber periode default: produksi dulu (dipakai warna peta), lalu areal statement, lalu batas blok.
+_DEFAULT_PRIORITY = ("produksi_tbs", "areal_statement", "batas_blok")
+
+
+def _period_info(period: date | None) -> dict | None:
+    return {"bulan": period.month, "tahun": period.year, "periode": period_label(period)} if period else None
+
+
+def latest_periods(db: Session, flt: BlockFilter) -> dict:
+    """Periode terakhir yang sudah diupload untuk blok dalam filter: default filter Periode di FE."""
+    blocks_sql, params = flt.block_ids_subquery()
+    selects = ", ".join(f"(SELECT max(period) FROM {table} WHERE block_id IN (SELECT id FROM b)) AS {key}"
+                        for key, table in _LATEST_SOURCES)
+    row = db.execute(text(f"WITH b AS ({blocks_sql}) SELECT {selects}"), params).mappings().one()
+    source = next((key for key in _DEFAULT_PRIORITY if row[key]), None)
+    default = row[source] if source else None
+    return {
+        **(_period_info(default) or {"bulan": None, "tahun": None, "periode": None}),
+        "sumber": source,
+        "per_data": {key: _period_info(row[key]) for key, _ in _LATEST_SOURCES},
+    }
+
+
 def blocks_geojson(
     db: Session,
     flt: BlockFilter,

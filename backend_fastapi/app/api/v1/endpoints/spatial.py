@@ -135,6 +135,24 @@ def get_blok_list(
     return hierarchy_service.list_blocks(db, search, flt, as_of_period(bulan, tahun), page, limit, tahun_tanam)
 
 
+@router.get("/periode-terakhir", summary="Periode terakhir yang sudah diupload (default filter Periode)",
+            description="Bulan/tahun default untuk filter Periode di peta: periode produksi TBS terakhir "
+                        "pada wilayah yang difilter; bila belum ada produksi, areal statement terakhir, lalu batas "
+                        "blok terakhir. `per_data` berisi periode terakhir tiap jenis data. Mengikuti hak akses user.")
+def get_latest_period(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+    area_id: Optional[str] = Query(None),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    flt = BlockFilter(grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd)
+    user_access.apply_data_scope(db, current_user, flt)
+    return map_service.latest_periods(db, flt)
+
+
 _GEOJSON_DOC = """
 Batas blok (poligon terbaru s/d bulan/tahun) beserta ringkasan transaksi per blok.
 
