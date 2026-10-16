@@ -147,6 +147,13 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             "pesan": f"{result.company_warnings} baris punya CompanyCode yang berbeda dari PT blok di master. "
                      "Baris tetap diimpor; periksa 'peringatan_company_code' di rincian.",
         })
+    if result.division_warnings:
+        warnings.append({
+            "kode": "AFDELING_BERBEDA", "level": "PERINGATAN", "jumlah": result.division_warnings,
+            "pesan": f"{result.division_warnings} baris menunjuk blok yang ada di master tetapi di afdeling lain. "
+                     "Baris tetap diimpor ke blok itu (kunci UnitCode + Blok); afdeling di master tidak diubah "
+                     "(afdeling resmi mengikuti GeoJSON blok). Periksa 'peringatan_afdeling' di rincian.",
+        })
     if result.area_warnings:
         warnings.append({
             "kode": "AREA_BERBEDA", "level": "PERINGATAN", "jumlah": result.area_warnings,
@@ -235,6 +242,7 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
             "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
             "peringatan_area": {"jumlah": result.area_warnings, "contoh": result.area_warning_samples},
+            "peringatan_afdeling": {"jumlah": result.division_warnings, "contoh": result.division_warning_samples},
         },
     }
 

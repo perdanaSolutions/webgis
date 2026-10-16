@@ -2,8 +2,9 @@
 Resolver id master & referensi untuk proses upload (dimuat sekali per upload, lalu lookup di memori).
 
 Kunci blok di v3: estates.code unik global, divisions unik per (estate, code),
-blocks unik per (division, code). Jadi blok cukup ditentukan oleh
-(estate, afdeling, blok) -- nama PT tidak dibutuhkan.
+blocks unik per (division, code). Blok dicari lewat (estate, afdeling, blok); bila
+tidak cocok persis, lewat kunci resmi UnitCode + Blok (estate + kode blok) asalkan
+hasilnya tepat satu blok -- afdeling di file boleh berbeda dari master.
 """
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,8 @@ class BlockIndex:
     by_path: dict[tuple[int, str, str], int] = field(default_factory=dict)   # (estate_id, div, blok) -> block_id
     estate_ids: dict[str, int] = field(default_factory=dict)                  # kode/singkatan/nama estate -> id
     by_code: dict[str, list[int]] = field(default_factory=dict)               # kode blok -> [block_id]
+    by_estate_block: dict[tuple[int, str], list[int]] = field(default_factory=dict)  # (estate_id, blok) -> [block_id]
+    division_by_block: dict[int, str] = field(default_factory=dict)          # block_id -> kode afdeling master
     company_by_block: dict[int, str] = field(default_factory=dict)            # block_id -> kode PT (master.companies)
     group_by_block: dict[int, str | None] = field(default_factory=dict)       # block_id -> kode grup PT (TPA/SGA)
     area_by_block: dict[int, str | None] = field(default_factory=dict)        # block_id -> kode area estate saat ini
@@ -49,8 +52,7 @@ class BlockIndex:
             index.group_by_block[r["id"]] = r["group_code"]
             index.area_by_block[r["id"]] = r["area_code"]
             index.estate_by_block[r["id"]] = r["estate_id"]
-            index.by_path[(r["estate_id"], norm_key(r["division_code"]), norm_key(r["block_code"]))] = r["id"]
-            index.by_code.setdefault(norm_key(r["block_code"]), []).append(r["id"])
+            index.add(r["estate_id"], r["division_code"], r["block_code"], r["id"])
         return index
 
     def estate_id(self, *refs: Any) -> int | None:
@@ -77,6 +79,10 @@ class BlockIndex:
             found = self.by_path.get((estate_id, norm_key(division), block_key))
             if found:
                 return found
+        if estate_id:  # kunci resmi UnitCode + Blok, hanya bila tidak ambigu (blok kembar di beberapa afdeling)
+            candidates = self.by_estate_block.get((estate_id, block_key), [])
+            if len(candidates) == 1:
+                return candidates[0]
         if allow_code_only:
             candidates = self.by_code.get(block_key, [])
             if len(candidates) == 1:
@@ -85,8 +91,25 @@ class BlockIndex:
 
     def add(self, estate_id: int, division: str, block: str, block_id: int) -> None:
         self.by_path[(estate_id, norm_key(division), norm_key(block))] = block_id
-        self.by_code.setdefault(norm_key(block), []).append(block_id)
+        if block_id not in self.by_code.setdefault(norm_key(block), []):
+            self.by_code[norm_key(block)].append(block_id)
+        if block_id not in self.by_estate_block.setdefault((estate_id, norm_key(block)), []):
+            self.by_estate_block[(estate_id, norm_key(block))].append(block_id)
         self.estate_by_block[block_id] = estate_id
+        self.division_by_block[block_id] = division
+
+    def duplicate_divisions(self, estate_refs: tuple, block: Any) -> list[str]:
+        """Afdeling master bila estate + kode blok menunjuk lebih dari satu blok (blok kembar), selain itu []."""
+        estate_id = self.estate_id(*estate_refs)
+        candidates = self.by_estate_block.get((estate_id, norm_key(block)), []) if estate_id else []
+        return sorted(self.division_by_block[c] for c in candidates) if len(candidates) > 1 else []
+
+    def other_division(self, block_id: int, division: Any) -> str | None:
+        """Afdeling master blok bila berbeda dari afdeling di file (blok ditemukan lewat UnitCode + Blok)."""
+        current = self.division_by_block.get(block_id)
+        if division and current and norm_key(current) != norm_key(division):
+            return current
+        return None
 
 
 def locate_blocks_by_geometry(db: Session, items: list[tuple[str, int | None]]) -> list[int | None]:

@@ -237,19 +237,24 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         key = _block_key(item)
         if key not in by_block:
             block_id = index.resolve((item.estate_code,), item.division, item.block)
-            by_block[key] = {"item": item, "fitur": [], "block_id": block_id,
-                             "status": "BLOK_BARU" if block_id is None
-                             else "DITIMPA" if block_id in existing_boundaries else "BARU"}
+            twins = index.duplicate_divisions((item.estate_code,), item.block) if block_id is None else []
+            by_block[key] = {"item": item, "fitur": [], "block_id": block_id, "kembar": twins,
+                             "status": "BLOK_KEMBAR" if twins else "BLOK_BARU" if block_id is None
+                             else "DITIMPA" if block_id in existing_boundaries else "BARU",
+                             # ditemukan lewat UnitCode + Blok di afdeling lain -> dipindah ke afdeling file
+                             "afdeling_master": index.other_division(block_id, item.division) if block_id else None}
         by_block[key]["fitur"].append(i)
         by_block[key].setdefault("items", []).append(item)
 
-    blocks = list(by_block.values())
+    twin_blocks = [b for b in by_block.values() if b["status"] == "BLOK_KEMBAR"]
+    blocks = [b for b in by_block.values() if b["status"] != "BLOK_KEMBAR"]
     plans, refs = _org_plans(db, (item for b in blocks for item in b["items"]))
     company_owner = _company_owner(_ref_lookup(db, "master.companies"))
     group_of = {p["key"]: p["file"] for p in plans["grup"]}
     area_of = {p["key"]: p["file"] for p in plans["area"]}
     changed = {kind: sum(p["status"] in ("DIISI", "BERUBAH") for p in plan) for kind, plan in plans.items()}
     new_master = [b for b in blocks if b["status"] == "BLOK_BARU"]
+    moved = [b for b in blocks if b["afdeling_master"]]
     overwritten = [b for b in blocks if b["status"] == "DITIMPA"]
     split = [b for b in blocks if len(b["fitur"]) > 1]
     valid_features = len(features) - len(invalid_rows) - len(invalid_geom_rows)
@@ -301,6 +306,19 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
             "kode": "MENIMPA_DATA_LAMA", "level": "INFO", "jumlah": len(overwritten),
             "pesan": f"{len(overwritten)} blok sudah punya batas di periode {label}; batas lamanya akan diganti.",
         })
+    if twin_blocks:
+        warnings.append({
+            "kode": "BLOK_KEMBAR_DI_MASTER", "level": "PERINGATAN", "jumlah": len(twin_blocks),
+            "pesan": f"{len(twin_blocks)} blok punya kode yang di master tercatat di beberapa afdeling, dan afdeling "
+                     "di file tidak sama dengan salah satunya. Blok ini DILEWATI (tidak dibuat blok baru) supaya "
+                     "tidak ada salinan ketiga. Tentukan blok yang benar dulu (lihat 'blok_kembar_di_master').",
+        })
+    if moved:
+        warnings.append({
+            "kode": "BLOK_PINDAH_AFDELING", "level": "PERINGATAN", "jumlah": len(moved),
+            "pesan": f"{len(moved)} blok sudah ada di master pada afdeling lain (dicocokkan lewat UnitCode + Blok) "
+                     "dan akan DIPINDAH ke afdeling sesuai file. Periksa 'blok_pindah_afdeling' di rincian.",
+        })
     if new_master:
         warnings.append({
             "kode": "BLOK_BARU_DI_MASTER", "level": "PERINGATAN", "jumlah": len(new_master),
@@ -321,6 +339,8 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
             parts.append(f"{len(invalid_rows) + len(invalid_geom_rows)} data dilewati.")
         if split:
             parts.append(f"{len(split)} blok terdiri dari beberapa poligon dan akan digabung.")
+        if twin_blocks:
+            parts.append(f"{len(twin_blocks)} blok dilewati karena kodenya kembar di master.")
         if changed["grup"]:
             parts.append(f"Grup {changed['grup']} PT akan diisi/diganti.")
         if changed["area"]:
@@ -362,6 +382,10 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
             "area_estate": [{k: v for k, v in p.items() if k != "key"} for p in plans["area"]],
             "blok_akan_ditimpa": [_block_label(b["item"]) for b in overwritten[:DETAIL_LIMIT]],
             "blok_baru_di_master": [_block_label(b["item"]) for b in new_master[:DETAIL_LIMIT]],
+            "blok_pindah_afdeling": [{"blok": _block_label(b["item"]), "afdeling_master": b["afdeling_master"]}
+                                     for b in moved[:DETAIL_LIMIT]],
+            "blok_kembar_di_master": [{"blok": _block_label(b["item"]), "afdeling_master": b["kembar"]}
+                                      for b in twin_blocks[:DETAIL_LIMIT]],
         },
     }
 
@@ -371,7 +395,8 @@ class _MasterCache:
     companies: dict[str, int] = field(default_factory=dict)   # kode/nama ternormalisasi -> id
     estates: dict[str, tuple[int, int]] = field(default_factory=dict)  # kode estate -> (id, company_id)
     divisions: dict[tuple[int, str], int] = field(default_factory=dict)
-    created: dict[str, int] = field(default_factory=lambda: {"perusahaan": 0, "estate": 0, "afdeling": 0, "blok": 0})
+    created: dict[str, int] = field(default_factory=lambda: {"perusahaan": 0, "estate": 0, "afdeling": 0, "blok": 0,
+                                                              "blok_pindah_afdeling": 0})
 
     @classmethod
     def load(cls, db: Session) -> "_MasterCache":
@@ -430,7 +455,12 @@ def _ensure_master(db: Session, cache: _MasterCache, index: BlockIndex, block_ty
         ).scalar_one()
         index.add(estate_id, item.division, item.block, block_id)
         cache.created["blok"] += 1
-    elif block_type_id is not None:
+        return block_id
+    if index.other_division(block_id, item.division):  # ditemukan lewat UnitCode + Blok: ikuti afdeling di file
+        db.execute(text("UPDATE master.blocks SET division_id = :d WHERE id = :id"), {"d": division_id, "id": block_id})
+        index.add(estate_id, item.division, item.block, block_id)
+        cache.created["blok_pindah_afdeling"] += 1
+    if block_type_id is not None:
         db.execute(
             text("UPDATE master.blocks SET block_type_id = :t WHERE id = :id AND block_type_id IS DISTINCT FROM :t"),
             {"t": block_type_id, "id": block_id},
@@ -510,8 +540,15 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         entry["features"].append((no, feature))
 
     success = 0  # jumlah fitur yang tersimpan (potongan blok terpecah dihitung masing-masing)
+    twin_skipped = 0
     for entry in blocks.values():
         item = entry["item"]
+        if index.resolve((item.estate_code,), item.division, item.block) is None and (
+                twins := index.duplicate_divisions((item.estate_code,), item.block)):
+            twin_skipped += len(entry["features"])
+            reason = f"Blok {item.block} di master tercatat di afdeling {', '.join(twins)}; tentukan blok yang benar dulu."
+            rejected.extend(quarantine.Rejected(no, "BLOK_KEMBAR_DI_MASTER", reason, f) for no, f in entry["features"])
+            continue
         block_type_id = block_types.resolve(item.block_type)  # di luar savepoint: id ref tetap valid
         savepoint = db.begin_nested()
         try:
@@ -549,6 +586,8 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         "sukses_master_estate_baru": cache.created["estate"],
         "sukses_master_afdeling_baru": cache.created["afdeling"],
         "sukses_master_blok_baru": cache.created["blok"],
+        "blok_pindah_afdeling": cache.created["blok_pindah_afdeling"],
+        "dilewati_blok_kembar_di_master": twin_skipped,
         "sukses_geometri_polygon_blok": success,
         "blok_unik_tersimpan": len(saved_blocks),
         "blok_terpecah_digabung": sum(len(e["features"]) > 1 for e in blocks.values()),

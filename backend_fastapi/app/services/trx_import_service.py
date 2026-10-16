@@ -104,6 +104,8 @@ class ImportResult:
     group_warning_samples: list[str] = field(default_factory=list)
     area_warnings: int = 0
     area_warning_samples: list[str] = field(default_factory=list)
+    division_warnings: int = 0  # blok ditemukan lewat UnitCode + Blok, afdeling di file berbeda dari master
+    division_warning_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
     rejected: list[quarantine.Rejected] = field(default_factory=list)  # baris tidak lolos -> karantina
 
@@ -203,6 +205,11 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
                 result.invalid_samples.append(f"baris {number}: {message}")
             result.rejected.append(quarantine.Rejected(number, "NILAI_TIDAK_VALID", message, original))
             continue
+        if (master_division := index.other_division(block_id, division)):
+            result.division_warnings += 1
+            if len(result.division_warning_samples) < 5:
+                result.division_warning_samples.append(
+                    f"baris {number}: blok {block_code} ada di afdeling {master_division}, di file {division}")
         period = None
         try:
             if strict_block and (warning := check_company(row, index.company_by_block.get(block_id))):
@@ -328,6 +335,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
         "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
         "peringatan_area": {"jumlah": result.area_warnings, "contoh": result.area_warning_samples},
+        "peringatan_afdeling": {"jumlah": result.division_warnings, "contoh": result.division_warning_samples},
         "karantina_count": quarantined,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,
