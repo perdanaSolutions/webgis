@@ -11,8 +11,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.trx_import_service import (
-    BLOCK_COLUMNS, COMPANY_COLUMNS, DIVISION_COLUMNS, ESTATE_COLUMNS, MONTH_COLUMNS, YEAR_COLUMNS, TrxKind,
-    _PROD_SOURCES, _collect, _period_summary,
+    BLOCK_COLUMNS, COMPANY_COLUMNS, DIVISION_COLUMNS, ESTATE_COLUMNS, GROUP_COLUMNS, MONTH_COLUMNS, YEAR_COLUMNS,
+    TrxKind, _PROD_SOURCES, _collect, _period_summary,
 )
 from app.services.upload.report import DETAIL_LIMIT, estate_summary
 from app.utils.excel import pick, read_excel_rows
@@ -86,7 +86,7 @@ def _column_report(kind: TrxKind, headers: list[str]) -> tuple[list[str], list[s
     """(kolom dibaca, kolom diabaikan/tidak dikenali, kelompok wajib yang tidak ada)."""
     ignored = set(IGNORED_COLUMNS.get(kind.target, ()))
     read = (set(BLOCK_COLUMNS) | set(DIVISION_COLUMNS) | set(ESTATE_COLUMNS) | set(MONTH_COLUMNS) | set(YEAR_COLUMNS)
-            | set(DATE_COLUMNS) | set(COMPANY_COLUMNS) | set(KIND_COLUMNS.get(kind.target, ())))
+            | set(DATE_COLUMNS) | set(COMPANY_COLUMNS) | set(GROUP_COLUMNS) | set(KIND_COLUMNS.get(kind.target, ())))
     used = [h for h in headers if h in read]
     skipped = [h for h in headers if h not in read]
     missing = [label for label, names in {**REQUIRED_GROUPS["common"], **REQUIRED_GROUPS.get(kind.target, {})}.items()
@@ -146,6 +146,13 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             "kode": "COMPANY_CODE_BERBEDA", "level": "PERINGATAN", "jumlah": result.company_warnings,
             "pesan": f"{result.company_warnings} baris punya CompanyCode yang berbeda dari PT blok di master. "
                      "Baris tetap diimpor; periksa 'peringatan_company_code' di rincian.",
+        })
+    if result.group_warnings:
+        warnings.append({
+            "kode": "GRUP_BERBEDA", "level": "PERINGATAN", "jumlah": result.group_warnings,
+            "pesan": f"{result.group_warnings} baris punya Group yang berbeda dari grup estate di master. "
+                     "Baris tetap diimpor dan grup di master TIDAK diubah (grup resmi mengikuti GeoJSON blok); "
+                     "periksa 'peringatan_grup' di rincian.",
         })
     if result.duplicates_merged:
         warnings.append({
@@ -219,6 +226,7 @@ def _report(db, kind, filename, headers, result, new_refs, written, total) -> di
             ],
             "nilai_referensi_baru": new_refs,
             "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
+            "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
         },
     }
 

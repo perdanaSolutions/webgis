@@ -25,12 +25,23 @@ class Company(Base):
     name: Mapped[str | None] = mapped_column(String(150))
 
 
+class Group(Base):
+    """Grup perusahaan (TPA, SGA). Melekat ke estate, bukan ke PT."""
+    __tablename__ = "groups"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True)
+    name: Mapped[str | None] = mapped_column(String(150))
+
+
 class Estate(Base):
     __tablename__ = "estates"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     company_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("master.companies.id"))
+    group_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master.groups.id"))
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str] = mapped_column(String(100))
     short_name: Mapped[str | None] = mapped_column(String(20))

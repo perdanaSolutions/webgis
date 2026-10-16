@@ -42,7 +42,7 @@ _EXCEL_ATURAN_UMUM = f"""
 
 _AREA_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
 ### Aturan khusus Areal Statement
-- **Kolom (24):** Year, Month, AreaCode, CompanyCode, Estate, UnitCode, EstateShortName, DivisionCode, KodeBlok, TipeBlok, StatusTanam, TahunTanam, BulanTanam, LuasTanam, LuasTanah, TotalPokok, SPH, JenisBibit, JenisTopografi, TanahDatar, Berbukit, Gelombang, Curam, JenisTanah.
+- **Kolom (25):** Year, Month, Group, AreaCode, CompanyCode, Estate, UnitCode, EstateShortName, DivisionCode, KodeBlok, TipeBlok, StatusTanam, TahunTanam, BulanTanam, LuasTanam, LuasTanah, TotalPokok, SPH, JenisBibit, JenisTopografi, TanahDatar, Berbukit, Gelombang, Curam, JenisTanah.
 - **Wajib diisi:** periode (Year dan Month), AreaCode, StatusTanam, KodeBlok, DivisionCode, dan satu penanda estate (UnitCode, EstateShortName, atau Estate). Kolom lain boleh kosong.
 - **StatusTanam kosong** membuat baris ditolak.
 - **TahunTanam** harus antara 1900 dan 2100; `0` atau kosong berarti belum ditanam. **BulanTanam** boleh berupa angka atau nama bulan (Jan, Januari).
@@ -50,6 +50,7 @@ _AREA_EXCEL_DOC = _EXCEL_ATURAN_UMUM + """
 - **LuasTanam, LuasTanah, TotalPokok, SPH** tidak boleh negatif.
 - **JenisBibit** boleh lebih dari satu, dipisah koma, `/`, `;`, `+`, `&`, atau kata "dan".
 - **CompanyCode** hanya dicek sebagai **peringatan**. Kalau berbeda dari PT blok di master, baris tetap masuk dan perbedaannya dilaporkan di `peringatan_company_code`.
+- **Group** (TPA/SGA) boleh kosong atau tidak ada. Kolom ini hanya dicek sebagai **peringatan**: grup resmi estate berasal dari GeoJSON batas blok, jadi import ini tidak mengubahnya. Perbedaan dilaporkan di `peringatan_grup`.
 - **TipeBlok** (Inti/Plasma) ikut memperbarui tipe blok di master.
 - **Nilai referensi baru** (AreaCode, status tanam, jenis tanah, topografi, bibit, atau tipe blok yang belum terdaftar) dibuat otomatis. Periksa `nilai_referensi_baru` di hasil agar tidak ada salah ketik.
 - **Baris ganda** (blok dan bulan yang sama muncul lebih dari sekali): baris yang terakhir yang dipakai.
@@ -96,8 +97,8 @@ _JSON_DOC = "Nama kolom tiap baris sama dengan header Excel; validasi & upsert p
 
 _AREA_JSON_DOC = (
     _JSON_DOC + "\n\n"
-    "**Kolom areal statement (sama dengan 24 kolom Excel):** Year, Month, AreaCode, CompanyCode, Estate, UnitCode, "
-    "EstateShortName, DivisionCode, KodeBlok, TipeBlok, StatusTanam, TahunTanam, BulanTanam, LuasTanam, LuasTanah, "
+    "**Kolom areal statement (sama dengan 25 kolom Excel):** Year, Month, Group, AreaCode, CompanyCode, Estate, "
+    "UnitCode, EstateShortName, DivisionCode, KodeBlok, TipeBlok, StatusTanam, TahunTanam, BulanTanam, LuasTanam, LuasTanah, "
     "TotalPokok, SPH, JenisBibit, JenisTopografi, TanahDatar, Berbukit, Gelombang, Curam, JenisTanah. "
     "Contoh di bawah memuat seluruhnya.\n\n"
     "- **Wajib:** periode (Year + Month), AreaCode, StatusTanam, KodeBlok, DivisionCode, dan satu penanda estate "
@@ -109,6 +110,8 @@ _AREA_JSON_DOC = (
     "dengan jumlah maksimal 100.\n"
     "- **CompanyCode:** hanya dibandingkan dengan PT blok di master; bila berbeda, baris tetap diproses dan muncul "
     "sebagai `peringatan_company_code` di hasil.\n"
+    "- **Group:** opsional; hanya dibandingkan dengan grup estate di master (grup resmi mengikuti GeoJSON blok). "
+    "Bila berbeda, baris tetap diproses dan muncul sebagai `peringatan_grup` di hasil.\n"
     "- Nama kolom alternatif yang juga diterima antara lain Tahun/Bulan (pengganti Year/Month)."
 )
 
@@ -166,8 +169,8 @@ def analyze_area_statements(db: DbSession, user: CurrentUser, file: UploadedFile
 @areal_statement_router.post("/import-json", summary="Import Areal Statement dari JSON (upsert per blok & bulan)",
                              description=_AREA_JSON_DOC)
 def import_area_statements_json(db: DbSession, user: CurrentUser, payload: TrxJsonImport = Body(openapi_examples={
-    "lengkap": {"summary": "Seluruh 24 kolom", "value": {"sumber": "Engine", "data": [{
-        "Year": 2026, "Month": 1, "AreaCode": "KUTIM2", "CompanyCode": 1500, "Estate": "Long Mesangat Estate",
+    "lengkap": {"summary": "Seluruh 25 kolom", "value": {"sumber": "Engine", "data": [{
+        "Year": 2026, "Month": 1, "Group": "TPA", "AreaCode": "KUTIM2", "CompanyCode": 1500, "Estate": "Long Mesangat Estate",
         "UnitCode": "E013", "EstateShortName": "LME", "DivisionCode": "AFDI04", "KodeBlok": "H033",
         "TipeBlok": "Inti", "StatusTanam": "TM", "TahunTanam": 2007, "BulanTanam": "Sep", "LuasTanam": 41.38,
         "LuasTanah": 42.16, "TotalPokok": 5726, "SPH": 138.38, "JenisBibit": "Socfin", "JenisTopografi": "DATAR",

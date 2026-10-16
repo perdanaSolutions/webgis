@@ -88,8 +88,8 @@ def test_blocks_geojson(client, auth, sample_block):
     assert len(by_code["features"]) == 1
 
 
-def test_blocks_geojson_yield_matches_block_detail_period(client, auth, sample_block):
-    """Areal statement dan produksi GeoJSON memakai periode batas blok (bulan/tahun properti), rumus yield = detail blok."""
+def _production_period(sample_block):
+    """Periode terbaru sampel yang punya produksi dan areal statement sekaligus."""
     from sqlalchemy import text
 
     from app.db.session import engine
@@ -104,29 +104,29 @@ def test_blocks_geojson_yield_matches_block_detail_period(client, auth, sample_b
             LIMIT 1
         """), {"bid": sample_block["id"]}).first()
     assert row is not None, "Sampel tidak punya produksi dan areal statement di periode yang sama."
-    period = row[0]
-    params = {
-        "kode_est": sample_block["estate"],
-        "kode_blok": str(sample_block["id"]),
-        "bulan": period.month,
-        "tahun": period.year,
-    }
+    return row[0]
 
-    fc = client.get("/api/v1/spatial/geojson", headers=auth, params=params).json()
-    props = fc["features"][0]["properties"]
-    # periode transaksi = periode batas yang tampil di properti, bukan periode request
-    label = f'{props["bulan"]}-{props["tahun"]}'
-    assert props["periode_batas"] == label
-    if "produksi_tbs" not in props:
-        import pytest
-        pytest.skip("Periode batas blok sampel tidak punya transaksi.")
+
+def _block_props(client, auth, sample_block, **params):
+    response = client.get("/api/v1/spatial/geojson", headers=auth, params={
+        "kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"]), **params})
+    assert response.status_code == 200, response.text
+    return response.json()["features"][0]["properties"]
+
+
+def test_blocks_geojson_month_matches_block_detail(client, auth, sample_block):
+    """year_to_date=false + bulan: transaksi bulan itu saja; rumus yield/gap = detail blok."""
+    period = _production_period(sample_block)
+    props = _block_props(client, auth, sample_block, bulan=period.month, tahun=period.year)
+    label = f"{period.month}-{period.year}"
+    prod = props["produksi_tbs"]
     assert props["areal_statement"]["periode"] == label
-    assert props["produksi_tbs"]["periode"] == label
+    assert (prod["periode"], prod["periode_awal"], prod["periode_akhir"], prod["year_to_date"]) == (
+        label, label, label, False)
 
     detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
-        "blok_id": sample_block["id"], "bulan": props["bulan"], "tahun": props["tahun"],
+        "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year,
     }).json()["informasi_blok"]
-    prod = props["produksi_tbs"]
     assert props["areal_statement"]["luas_tanam"] == detail["luas_tanam"]
     assert prod["luas_tanam"] == detail["luas_tanam"]
     assert prod["tbs_aktual"] == detail["tbs"]["aktual"]
@@ -138,26 +138,73 @@ def test_blocks_geojson_yield_matches_block_detail_period(client, auth, sample_b
     assert (prod["kategori_budget"] or "") == detail["gap_act_bgt"]["kategori"]
     assert (prod["kategori_sensus"] or "") == detail["gap_act_sns"]["kategori"]
 
-    # Bulan+tahun request berapa pun: transaksi tetap mengikuti periode batas yang tampil.
-    for extra in ({"bulan": 1}, {"bulan": 12}, {"bulan": 6, "tahun": period.year}):
-        other = client.get("/api/v1/spatial/geojson", headers=auth, params={**params, **extra}).json()
-        for feature in other["features"]:
-            other_props = feature["properties"]
-            other_label = f'{other_props["bulan"]}-{other_props["tahun"]}'
-            for key in ("areal_statement", "produksi_tbs"):
-                if key in other_props:
-                    assert other_props[key]["periode"] == other_label
+
+def test_blocks_geojson_year_to_date_sums_january_to_month(client, auth, sample_block):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    period = _production_period(sample_block)
+    with engine.connect() as conn:
+        expected = conn.execute(text("""
+            SELECT round(SUM(ffb_actual_kg)::numeric, 2) FROM trx.block_productions
+            WHERE block_id = :b AND period BETWEEN make_date(:y, 1, 1) AND :p
+        """), {"b": sample_block["id"], "y": period.year, "p": period}).scalar()
+    prod = _block_props(client, auth, sample_block, bulan=period.month, tahun=period.year,
+                        year_to_date="true")["produksi_tbs"]
+    assert (prod["periode_awal"], prod["periode_akhir"], prod["year_to_date"]) == (
+        f"1-{period.year}", f"{period.month}-{period.year}", True)
+    assert prod["tbs_aktual"] == float(expected)
+
+
+def test_blocks_geojson_without_month(client, auth, sample_block):
+    """Tanpa bulan: false = bulan terakhir yang diupload di tahun itu; true = Januari s/d bulan berjalan."""
+    from datetime import date
+
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    period = _production_period(sample_block)
+    with engine.connect() as conn:
+        latest = conn.execute(text("""
+            SELECT max(period) FROM trx.block_productions WHERE block_id = :b AND extract(year FROM period) = :y
+        """), {"b": sample_block["id"], "y": period.year}).scalar()
+    prod = _block_props(client, auth, sample_block, tahun=period.year)["produksi_tbs"]
+    assert prod["periode_awal"] == prod["periode_akhir"] == f"{latest.month}-{latest.year}"
+
+    ytd = _block_props(client, auth, sample_block, tahun=period.year, year_to_date="true").get("produksi_tbs")
+    if ytd:
+        today = date.today()
+        end_month = today.month if period.year == today.year else 12
+        assert (ytd["periode_awal"], ytd["periode_akhir"]) == (f"1-{period.year}", f"{end_month}-{period.year}")
+
+
+def test_blocks_geojson_comparison(client, auth, sample_block):
+    period = _production_period(sample_block)
+    same = {"bulan": period.month, "tahun": period.year}
+    props = _block_props(client, auth, sample_block, **same,
+                         bulan_comparison=period.month, tahun_comparison=period.year)
+    # Pembanding = periode yang sama -> isinya identik dengan produksi_tbs.
+    assert props["produksi_tbs_comparison"] == props["produksi_tbs"]
+
+    without = _block_props(client, auth, sample_block, **same)
+    assert "produksi_tbs_comparison" not in without
+
+    response = client.get("/api/v1/spatial/geojson", headers=auth, params={**same, "bulan_comparison": 1})
+    assert response.status_code == 400
 
 
 def test_blocks_geojson_hides_unauthorized_transaction_keys(client, auth, sample_block, monkeypatch):
     from app.services import user_access
     monkeypatch.setattr(user_access, "hidden_feature_keys",
-                        lambda db, user: ("areal_statement", "produksi_tbs", "rotasi_terakhir"))
+                        lambda db, user: ("areal_statement", "produksi_tbs", "produksi_tbs_comparison", "rotasi_terakhir"))
     fc = client.get("/api/v1/spatial/geojson", headers=auth,
-                    params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"])}).json()
+                    params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"]),
+                            "bulan_comparison": 1, "tahun_comparison": 2026}).json()
     props = fc["features"][0]["properties"]
     assert props["blok_id"] == sample_block["id"]
-    assert not {"areal_statement", "produksi_tbs", "rotasi_terakhir"} & props.keys()
+    assert not {"areal_statement", "produksi_tbs", "produksi_tbs_comparison", "rotasi_terakhir"} & props.keys()
 
 
 def test_block_detail(client, auth, sample_block):
@@ -427,9 +474,6 @@ def test_tahun_tanam_zero_means_not_planted(client, auth):
     assert {b["kode_blok"] for b in data} == expected
     assert all(b["tahun_tanam"] is None for b in data)
 
-    fc = client.get("/api/v1/spatial/geojson", headers=auth, params={"kode_est": est, "tahun_tanam": 0}).json()
-    assert all(f["properties"]["tahun_tanam"] is None for f in fc["features"])
-
     years = client.get("/api/v1/spatial/history/tahun-tanam", headers=auth, params={"kode_est": est}).json()["data"]
     assert 0 in years
 
@@ -443,40 +487,49 @@ def test_tahun_tanam_zero_means_not_planted(client, auth):
     assert detail.json()["informasi_blok"]["tahun_tanam"] is None
 
 
-def test_geojson_tahun_only_transactions_follow_boundary_period(client, auth, sample_block):
-    """Hanya tahun / tanpa parameter: areal_statement & produksi_tbs memakai periode yang sama dengan bulan/tahun di properti."""
+def test_geojson_without_params_uses_latest_uploaded_month(client, auth, sample_block):
+    """Tanpa bulan/tahun: produksi = bulan terakhir yang sudah diupload (blok yang difilter)."""
     from sqlalchemy import text
 
     from app.db.session import engine
 
     with engine.connect() as conn:
-        periods = [r[0] for r in conn.execute(text(
-            "SELECT DISTINCT period FROM trx.area_statements WHERE block_id = :b ORDER BY period"), {"b": sample_block["id"]})]
-        boundaries = [r[0] for r in conn.execute(text(
-            "SELECT DISTINCT period FROM spatial.block_boundaries WHERE block_id = :b ORDER BY period"), {"b": sample_block["id"]})]
-    # tahun yang punya poligon DAN transaksi untuk blok sampel
-    years = sorted({b.year for b in boundaries} & {p.year for p in periods})
-    if not years:
-        import pytest
-        pytest.skip("Sampel tidak punya tahun dengan poligon dan transaksi sekaligus.")
-
-    for year in years:
-        fc = client.get("/api/v1/spatial/geojson", headers=auth,
-                        params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"]), "tahun": year}).json()
-        props = fc["features"][0]["properties"]
-        expected = f'{props["bulan"]}-{props["tahun"]}'
-        assert props["periode_batas"] == expected
-        for key in ("areal_statement", "produksi_tbs"):
-            if key in props:  # kosong bila periode batas itu tidak punya transaksi
-                assert props[key]["periode"] == expected, (year, key, props[key]["periode"], expected)
+        latest = conn.execute(text("SELECT max(period) FROM trx.block_productions WHERE block_id = :b"),
+                              {"b": sample_block["id"]}).scalar()
+    props = _block_props(client, auth, sample_block)
+    assert props["periode_batas"] == f'{props["bulan"]}-{props["tahun"]}'
+    if latest is None:
+        assert "produksi_tbs" not in props
+        return
+    assert props["produksi_tbs"]["periode"] == f"{latest.month}-{latest.year}"
 
 
-def test_geojson_without_params_transactions_follow_boundary_period(client, auth, sample_block):
-    fc = client.get("/api/v1/spatial/geojson", headers=auth,
-                    params={"kode_est": sample_block["estate"], "kode_blok": str(sample_block["id"])}).json()
-    props = fc["features"][0]["properties"]
-    expected = f'{props["bulan"]}-{props["tahun"]}'
-    assert props["periode_batas"] == expected
-    for key in ("areal_statement", "produksi_tbs"):
-        if key in props:
-            assert props[key]["periode"] == expected
+def test_latest_period_defaults_to_last_uploaded_production(client, auth, sample_block):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        latest = {
+            key: conn.execute(text(f"SELECT max(period) FROM {table} WHERE block_id IN "
+                                   "(SELECT bl.id FROM master.blocks bl JOIN master.divisions dv ON dv.id = bl.division_id "
+                                   "JOIN master.estates es ON es.id = dv.estate_id WHERE es.code = :e)"),
+                              {"e": sample_block["estate"]}).scalar()
+            for key, table in (("produksi_tbs", "trx.block_productions"), ("areal_statement", "trx.area_statements"),
+                               ("batas_blok", "spatial.block_boundaries"))
+        }
+    response = client.get("/api/v1/spatial/periode-terakhir", headers=auth, params={"kode_est": sample_block["estate"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected_source = next(key for key in ("produksi_tbs", "areal_statement", "batas_blok") if latest[key])
+    expected = latest[expected_source]
+    assert body["sumber"] == expected_source
+    assert (body["bulan"], body["tahun"], body["periode"]) == (expected.month, expected.year,
+                                                                f"{expected.month}-{expected.year}")
+    for key, period in latest.items():
+        assert body["per_data"][key] == ({"bulan": period.month, "tahun": period.year,
+                                          "periode": f"{period.month}-{period.year}"} if period else None)
+
+    empty = client.get("/api/v1/spatial/periode-terakhir", headers=auth, params={"kode_est": "TIDAK_ADA"}).json()
+    assert empty["bulan"] is None and empty["sumber"] is None
+    assert all(value is None for value in empty["per_data"].values())

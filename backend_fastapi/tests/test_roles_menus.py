@@ -163,3 +163,31 @@ def test_permissions_crud(client, auth):
     created = client.post("/api/v1/permissions/", headers=auth, json={"resource": f"res{suffix}", "aksi": "read"}).json()
     assert created["kode"] == f"res{suffix}:read"
     assert client.delete(f"/api/v1/permissions/{created['id']}", headers=auth).status_code == 200
+
+
+def test_duplicate_role_name_is_rejected_with_message(client, auth):
+    """Nama role sudah ada (tanpa membedakan huruf besar/kecil & spasi berlebih) -> 409 'Role sudah ada.'."""
+    suffix = uuid.uuid4().hex[:6]
+    name, other = f"Role Dup {suffix}", f"role lain {suffix}"
+    first = client.post("/api/v1/roles/", headers=auth, json={"nama": name})
+    second = client.post("/api/v1/roles/", headers=auth, json={"nama": other})
+    assert first.status_code == 201 and second.status_code == 201
+    try:
+        for duplicate in (name, name.lower(), name.upper(), f"  {name.replace(' ', '   ')} "):
+            response = client.post("/api/v1/roles/", headers=auth, json={"nama": duplicate})
+            assert response.status_code == 409, (duplicate, response.text)
+            assert response.json()["errors"] == [
+                {"type": "conflict", "field": "global", "msg": "Role sudah ada.", "input": None}]
+
+        renamed = client.put(f"/api/v1/roles/{second.json()['id']}", headers=auth, json={"nama": name.upper()})
+        assert renamed.status_code == 409 and renamed.json()["errors"][0]["msg"] == "Role sudah ada."
+
+        same = client.put(f"/api/v1/roles/{first.json()['id']}", headers=auth, json={"nama": f" {name} "})
+        assert same.status_code == 200, same.text  # menyimpan ulang nama sendiri bukan duplikat
+
+        blank = client.post("/api/v1/roles/", headers=auth, json={"nama": "   "})
+        assert blank.status_code == 400
+    finally:
+        with engine.begin() as conn:  # API belum punya DELETE /roles -> bersihkan lewat SQL
+            conn.execute(text("DELETE FROM auth.roles WHERE id IN (:a, :b)"),
+                         {"a": first.json()["id"], "b": second.json()["id"]})

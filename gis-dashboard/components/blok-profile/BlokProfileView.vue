@@ -172,7 +172,7 @@ const pdfFilterLine = computed(() => {
   const ownership = store.ownershipOptions.find((item) => item.value === store.ownership)?.label || "Semua";
   const month = store.bulan ? MONTHS[Number(store.bulan) - 1] ?? store.bulan : "Semua bulan";
   const year = store.tahun || String(new Date().getFullYear());
-  return `PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
+  return `Grup ${filter.grup} · PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
 });
 
 function sleep(ms: number) {
@@ -354,6 +354,7 @@ onBeforeUnmount(() => {
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
           :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
           :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadSelectedDetail"
+          :popup-period="store.popupPeriod"
           @select="onSelectBlock" @deselect="onDeselectBlock" />
 
         <div v-if="store.statusNotice"
@@ -457,19 +458,21 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div v-if="activeLeft" :id="`bp-panel-${activeLeft}`" class="bp-collapse-panel">
-          <FilterPanel :section="activeLeft" :area-options="store.areaOptions" :pt-options="store.ptOptions"
+          <FilterPanel :section="activeLeft" :group-options="store.groupOptions" :area-options="store.areaOptions" :pt-options="store.ptOptions"
             :estate-options="store.estateOptions" :afdeling-options="store.afdelingOptions"
             :blok-options="store.blokOptions" :ownership-options="store.ownershipOptions"
-            :area="store.area" :pt="store.pt" :estate="store.estate"
+            :grup="store.grup" :area="store.area" :pt="store.pt" :estate="store.estate"
             :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
-            :bulan="store.bulan" :tahun="store.tahun"
+            :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate"
+            :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :basemap="basemap" :opacity="opacity"
-            :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:area="store.setArea"
+            :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup" @update:area="store.setArea"
             @update:pt="store.setPt" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
             @update:blok="store.setBlok" @update:ownership="store.setOwnership"
-            @update:bulan="store.setBulan" @update:tahun="store.setTahun"
+            @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
+            @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
             @apply="store.applyFilters" @reset="onResetFilters"
             @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
             @toggle-yield-gap="showYieldGap = !showYieldGap" @update:basemap="basemap = $event"

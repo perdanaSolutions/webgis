@@ -17,7 +17,11 @@ BulanWajib = Annotated[int, Query(ge=1, le=12, description="Bulan periode (1-12)
 TahunWajib = Annotated[int, Query(ge=1900, le=2100, description="Tahun periode")]
 
 
+KodeGrup = Annotated[str | None, Query(description="Kode/ID grup (mis. TPA, SGA). Kosong = semua")]
+
+
 def block_filter(
+    kode_grup: KodeGrup = None,
     area_id: Annotated[str | None, Query(description="Kode/ID area (mis. BERAU)")] = None,
     kode_pt: Annotated[str | None, Query(description="Kode/ID PT")] = None,
     kode_est: Annotated[str | None, Query(description="Kode/ID estate")] = None,
@@ -27,7 +31,7 @@ def block_filter(
     tahun_tanam: TahunTanam = None,
 ) -> BlockFilter:
     return BlockFilter(
-        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
         ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
 

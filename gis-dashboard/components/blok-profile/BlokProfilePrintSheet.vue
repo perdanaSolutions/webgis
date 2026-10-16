@@ -21,7 +21,7 @@ defineProps<{
     luasKerangka: number;
     pokok: number;
     blokCount: number;
-    filter: { pt: string; estate: string; afdeling: string; blok: string };
+    filter: { grup: string; pt: string; estate: string; afdeling: string; blok: string };
     geojsonPeriod: { bulan: number | null; tahun: number } | null;
   };
   detail: Record<string, any> | null;

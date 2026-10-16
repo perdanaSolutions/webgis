@@ -42,6 +42,7 @@ BLOCK_COLUMNS = ("KodeBlok", "Kode Blok", "Blok", "kode_blok", "BlockCode")
 MONTH_COLUMNS = ("Month", "Bulan", "bulan")
 YEAR_COLUMNS = ("Year", "Tahun", "tahun", "Periode")
 COMPANY_COLUMNS = ("CompanyCode", "Company Code", "KodePT", "Kode PT", "company_code")
+GROUP_COLUMNS = ("Group", "Grup", "group")
 
 
 class RowError(ValueError):
@@ -98,6 +99,8 @@ class ImportResult:
     missing_blocks: dict[str, dict] = field(default_factory=dict)  # label estate/afdeling/blok -> penyebab & jumlah baris
     company_warnings: int = 0
     company_warning_samples: list[str] = field(default_factory=list)
+    group_warnings: int = 0
+    group_warning_samples: list[str] = field(default_factory=list)
     new_refs: dict[str, list[str]] = field(default_factory=dict)
     rejected: list[quarantine.Rejected] = field(default_factory=list)  # baris tidak lolos -> karantina
 
@@ -132,6 +135,17 @@ def check_company(row: dict, actual_code: str | None) -> str | None:
     if declared is None or norm_key(declared) == norm_key(actual_code):
         return None
     return f"CompanyCode {declared} berbeda dari PT blok di master ({actual_code or '-'})"
+
+
+def check_group(row: dict, actual_code: str | None) -> str | None:
+    """
+    Peringatan (bukan penolakan) bila Group di file berbeda dari grup estate di master.
+    Grup resmi berasal dari GeoJSON batas blok, jadi import transaksi tidak mengubahnya.
+    """
+    declared = clean_str(pick(row, *GROUP_COLUMNS))
+    if declared is None or actual_code is None or norm_key(declared) == norm_key(actual_code):
+        return None
+    return f"Group {declared} berbeda dari grup estate di master ({actual_code})"
 
 
 def _non_negative(value, label: str):
@@ -180,6 +194,10 @@ def _collect(db: Session, rows: list[dict], build: Callable[[dict], dict], dedup
                 result.company_warnings += 1
                 if len(result.company_warning_samples) < 5:
                     result.company_warning_samples.append(f"baris {number}: {warning}")
+            if strict_block and (warning := check_group(row, index.group_by_block.get(block_id))):
+                result.group_warnings += 1
+                if len(result.group_warning_samples) < 5:
+                    result.group_warning_samples.append(f"baris {number}: {warning}")
             period = _period(row)
             result.seen_pairs.add((block_id, period))
             if scope and period != scope.period:
@@ -286,6 +304,7 @@ def _run(db: Session, kind: TrxKind, *, rows: list[dict], source_type: str, sour
         "sample_invalid_rows": result.invalid_samples,
         "sample_konflik": result.conflict_samples,
         "peringatan_company_code": {"jumlah": result.company_warnings, "contoh": result.company_warning_samples},
+        "peringatan_grup": {"jumlah": result.group_warnings, "contoh": result.group_warning_samples},
         "karantina_count": quarantined,
         "nilai_referensi_baru": result.new_refs,
         "last_error_msg": None,

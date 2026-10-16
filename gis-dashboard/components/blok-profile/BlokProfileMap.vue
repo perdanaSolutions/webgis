@@ -10,8 +10,8 @@ import {
   blokPopupFromFeature,
   buildBlokPopupHtml,
   buildBlokPopupSkeletonHtml,
+  comparisonFromProperties,
   getBulanPopupLabel,
-  getCurrentPopupPeriod,
   periodAvailabilityNotice,
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
@@ -32,6 +32,8 @@ const props = defineProps<{
   budgetColors: Record<string, boolean>;
   insets: Insets;
   requestDetail: (blokId: string, bulan: string, tahun: string) => Promise<Record<string, any>>;
+  /** Periode awal popup untuk properti blok (bulan produksi yang mewarnai blok). */
+  popupPeriod: (properties?: Record<string, any>) => { bulan: string; tahun: string };
 }>();
 
 const emit = defineEmits<{
@@ -209,7 +211,8 @@ function showBlockPopup(
   errorMessage?: string,
   notice?: string,
 ) {
-  setPopupHtml(layer, buildBlokPopupHtml(data, { errorMessage, notice }));
+  const comparison = comparisonFromProperties((feature.properties ?? {}) as Record<string, any>);
+  setPopupHtml(layer, buildBlokPopupHtml(data, { errorMessage, notice, comparison }));
   attachPopupApply(layer, feature);
 }
 
@@ -258,7 +261,8 @@ async function loadBlockPopup(
 
 function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
   layer.bindPopup(
-    () => buildBlokPopupHtml(blokPopupFromFeature((feature.properties ?? {}) as Record<string, any>, getCurrentPopupPeriod())),
+    () => buildBlokPopupHtml(blokPopupFromFeature((feature.properties ?? {}) as Record<string, any>,
+      props.popupPeriod(feature.properties as Record<string, any>))),
     {
       maxWidth: 380,
       minWidth: 360,
@@ -273,7 +277,7 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
   );
   layer.on("popupopen", () => {
     protectPopup(layer);
-    const current = getCurrentPopupPeriod();
+    const current = props.popupPeriod(feature.properties as Record<string, any>);
     void loadBlockPopup(layer, feature, current.bulan, current.tahun, false);
   });
   layer.on("popupclose", () => {
