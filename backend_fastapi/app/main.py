@@ -16,6 +16,9 @@ from app.db.ensure_activity_ip import ensure_activity_ip_required
 from app.services.data_version import ensure_data_store_versions, read_store_versions
 from app.api.v1.api import api_router
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
+import logging
+
+logger = logging.getLogger("app.errors")
 
 
 @asynccontextmanager
@@ -86,6 +89,44 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 # MIDDLEWARE & ROUTER
 # =================================================================
 # Paling dalam: query kosong sudah dibuang, header CORS masih ditambahkan di luar.
+# =================================================================
+# CATCH-ALL ERROR 500 (paling DALAM) agar respons error tetap lewat
+# CORSMiddleware dan membawa header Access-Control-*. Tanpa ini Starlette
+# menangani exception di ServerErrorMiddleware (paling luar) sehingga
+# browser melihat 500 sebagai "CORS error".
+# Middleware ASGI murni (bukan BaseHTTPMiddleware) agar streaming aman.
+# =================================================================
+class CatchAllErrorsMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def send_wrapper(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            logger.exception("Unhandled error on %s %s", scope.get("method"), scope.get("path"))
+            if started:
+                raise
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "Internal Server Error"},
+            )
+            await response(scope, receive, send)
+
+
+# Ditambahkan PERTAMA = middleware paling dalam.
+app.add_middleware(CatchAllErrorsMiddleware)
 app.add_middleware(MapRedisCacheMiddleware)
 # Di luar cache: cache menyimpan JSON mentah, kompresi diterapkan juga pada respons HIT.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -108,4 +149,4 @@ def health():
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to GIS Plantation API"}
+    return {"message": "Welcome to GIS Plantation API"}
