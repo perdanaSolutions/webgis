@@ -13,7 +13,7 @@ const props = defineProps<{
     luasKerangka: number;
     pokok: number;
     blokCount: number;
-    filter: { pt: string; estate: string; afdeling: string; blok: string };
+    filter: { grup: string; pt: string; estate: string; afdeling: string; blok: string };
     geojsonPeriod: { bulan: number | null; tahun: number } | null;
   };
   detail: Record<string, any> | null;
@@ -42,6 +42,7 @@ const geojsonPeriodLabel = computed(() => {
 });
 
 const filterRows = computed(() => [
+  { label: "Grup", value: props.summary.filter.grup },
   { label: "PT", value: props.summary.filter.pt },
   { label: "Estate", value: props.summary.filter.estate },
   { label: "Afdeling", value: props.summary.filter.afdeling },

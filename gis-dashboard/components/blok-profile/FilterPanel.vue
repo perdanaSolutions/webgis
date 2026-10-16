@@ -6,15 +6,17 @@ import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
 import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey } from "~/utils/mapLayers";
 import { BULAN_POPUP_OPTIONS } from "~/utils/mapBlokPopup";
 
-type FieldKey = "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
+type FieldKey = "grup" | "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
 
 const props = defineProps<{
+  groupOptions: Option[];
   areaOptions: Option[];
   ptOptions: Option[];
   estateOptions: Option[];
   afdelingOptions: Option[];
   blokOptions: Option[];
   ownershipOptions: Option[];
+  grup: string;
   area: string;
   pt: string;
   estate: string;
@@ -40,7 +42,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:bulan" | "update:tahun", value: string): void;
+  (e: "update:grup" | "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:bulan" | "update:tahun", value: string): void;
   (e: "apply"): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
@@ -71,7 +73,8 @@ const yearOptions = computed(() => {
 const scopeInfo = computed(() => {
   const month = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
   const periode = [month, props.tahun].filter(Boolean).join(" ");
-  const extra = [props.ownership, periode].filter(Boolean);
+  const grupLabel = props.grup ? `Grup ${props.groupOptions.find((o) => o.value === props.grup)?.label ?? props.grup}` : "";
+  const extra = [grupLabel, props.ownership, periode].filter(Boolean);
   const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
   const base = props.scopeLevel === "blok"
     ? `Pilihan: Blok${suffix}`
@@ -100,6 +103,7 @@ const HIERARCHY: FieldKey[] = ["area", "pt", "estate", "afdeling", "blok"];
 const fields = computed(() => {
   const all = props.allowAll;
   return [
+    { key: "grup" as const, label: "Grup", value: props.grup, options: props.groupOptions, placeholder: "Semua grup", disabled: false },
     { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: all ? "Semua area" : "Pilih area", disabled: false },
     { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: all ? "Semua perusahaan" : "Pilih perusahaan", disabled: !props.area },
     { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: all ? "Semua estate" : "Pilih estate", disabled: !props.pt },

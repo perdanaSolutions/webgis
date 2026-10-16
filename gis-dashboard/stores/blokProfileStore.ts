@@ -10,8 +10,10 @@ import { readBudgetCategory } from "~/utils/mapLayers";
 /**
  * State halaman Blok Profile (peta layar penuh).
  *
- * Hierarki filter: Area -> Perusahaan (PT) -> Estate -> Afdeling -> Blok
+ * Hierarki filter: Grup -> Area -> Perusahaan (PT) -> Estate -> Afdeling -> Blok
  * -> Ownership -> Periode (bulan + tahun).
+ * - Grup (TPA/SGA) opsional untuk semua user ("Semua grup"). Mengganti grup memuat
+ *   ulang daftar area sesuai grup; `kode_grup` ikut ke semua opsi, GeoJSON, layer, dan histori.
  * - Mengubah field hanya mengisi opsi berjenjang (draft). Peta dan transaksi
  *   baru dimuat saat tombol Apply ditekan.
  * - Apply menyalin draft ke filter terapan, lalu memuat GeoJSON peta (wilayah)
@@ -141,12 +143,14 @@ function readFeaturePeriod(props: Record<string, any> | undefined) {
 export const useBlokProfileStore = defineStore("blokProfile", () => {
   const authStore = useAuthStore();
 
+  const groupOptions = ref<Option[]>([]);
   const areaOptions = ref<Option[]>([]);
   const ptOptions = ref<Option[]>([]);
   const estateOptions = ref<Option[]>([]);
   const afdelingOptions = ref<Option[]>([]);
   const estatesByCode = ref(new Map<string, EstateItem>());
 
+  const grup = ref("");
   const area = ref("");
   const pt = ref("");
   const estate = ref("");
@@ -159,6 +163,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   /** Filter yang sedang aktif di peta/kartu (hasil Apply terakhir). */
   type AppliedFilter = {
+    grup: string;
     area: string;
     pt: string;
     estate: string;
@@ -169,7 +174,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     tahun: string;
   };
   const applied = ref<AppliedFilter>({
-    area: "", pt: "", estate: "", afdeling: "", blokId: "", ownership: "", bulan: "", tahun: currentYear(),
+    grup: "", area: "", pt: "", estate: "", afdeling: "", blokId: "", ownership: "", bulan: "", tahun: currentYear(),
   });
   const applying = ref(false);
 
@@ -222,6 +227,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   const LAST_SEARCH_KEY = "blok-profile-last-search";
   type SavedSearch = {
+    grup?: string;
     area: string;
     pt: string;
     estate: string;
@@ -253,6 +259,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   /** Hasil Filter Kebun terakhir: isian filter + data kartu kanan. */
   function captureSearch() {
     persistSearch({
+      grup: grup.value,
       area: area.value,
       pt: pt.value,
       estate: estate.value,
@@ -453,11 +460,19 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return epoch === filterEpoch;
   }
 
+  /** Opsi grup tidak ikut dikosongkan clearMap (daftar tetap sama selama sesi). */
+  async function loadGroups() {
+    const res = await get<{ data: Array<{ kode_grup: string; nama_grup: string }> }>("/spatial/grup", { limit: 100 });
+    groupOptions.value = (res?.data ?? []).map((item) => ({ label: item.nama_grup || item.kode_grup, value: item.kode_grup }));
+  }
+
   async function loadAreas() {
     const epoch = filterEpoch;
     loadingOptions.value = true;
     try {
-      const res = await get<{ data: Array<{ area_id: string; nama: string }> }>("/spatial/area", { limit: 100 });
+      const res = await get<{ data: Array<{ area_id: string; nama: string }> }>("/spatial/area", {
+        kode_grup: grup.value || undefined, limit: 100,
+      });
       if (!filterAlive(epoch)) return;
       const allowed = areaAllowance();
       areaOptions.value = (res?.data ?? [])
@@ -472,7 +487,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     const epoch = filterEpoch;
     ptOptions.value = [];
     if (!area.value) return;
-    const res = await get<{ data: CompanyItem[] }>("/spatial/pt", { area_id: area.value, limit: 100 });
+    const res = await get<{ data: CompanyItem[] }>("/spatial/pt", {
+      kode_grup: grup.value || undefined, area_id: area.value, limit: 100,
+    });
     if (!filterAlive(epoch)) return;
     ptOptions.value = (res?.data ?? [])
       .filter(isCompanyAllowed)
@@ -485,7 +502,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     estatesByCode.value = new Map();
     if (!area.value) return;
     const res = await get<{ data: EstateItem[] }>("/spatial/estate", {
-      area_id: area.value, kode_pt: pt.value || undefined, limit: 100,
+      kode_grup: grup.value || undefined, area_id: area.value, kode_pt: pt.value || undefined, limit: 100,
     });
     if (!filterAlive(epoch)) return;
     const items = (res?.data ?? []).filter(isEstateAllowed);
@@ -498,7 +515,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     afdelingOptions.value = [];
     if (!estate.value) return;
     const res = await get<{ data: Array<{ kode_afd: string }> }>("/spatial/afdeling", {
-      kode_est: estate.value, kode_pt: pt.value || undefined, limit: 100,
+      kode_grup: grup.value || undefined, kode_est: estate.value, kode_pt: pt.value || undefined, limit: 100,
     });
     if (!filterAlive(epoch)) return;
     afdelingOptions.value = (res?.data ?? [])
@@ -518,6 +535,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   function syncAppliedFromDraft() {
     applied.value = {
+      grup: grup.value,
       area: area.value,
       pt: pt.value,
       estate: estate.value,
@@ -531,6 +549,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   /** Query GeoJSON/layer dari filter terapan (hasil Apply). Tahun selalu dikirim; bulan dan ownership hanya bila dipilih. */
   const scopeParams = computed(() => ({
+    kode_grup: applied.value.grup || undefined,
     area_id: applied.value.area || undefined,
     kode_pt: applied.value.pt || undefined,
     kode_est: applied.value.estate || undefined,
@@ -557,6 +576,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blokOptions.value = [];
     if (!afdeling.value) return;
     const res = await get<{ data: Array<{ id?: number | string; blok_id?: string; kode_blok?: string; nama_blok?: string }> }>("/spatial/blok", {
+      kode_grup: grup.value || undefined,
       kode_afd: afdeling.value,
       kode_est: estate.value || undefined,
       kode_pt: pt.value || undefined,
@@ -651,6 +671,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   function historyParams() {
     const kodeBlok = String(selectedFeature.value?.properties?.kode_blok ?? "").trim();
     return {
+      kode_grup: applied.value.grup || undefined,
       area_id: applied.value.area || undefined,
       kode_pt: applied.value.pt || undefined,
       kode_est: applied.value.estate || undefined,
@@ -798,6 +819,18 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     await activateArea(next);
   }
 
+  /** Grup opsional: area saat ini dipertahankan bila masih ada di grup baru, kalau tidak area pertama. */
+  async function setGrup(value: string) {
+    const epoch = filterEpoch;
+    const next = value || "";
+    if (next === grup.value) return;
+    grup.value = next;
+    await loadAreas();
+    if (!filterAlive(epoch)) return;
+    const keep = areaOptions.value.some((option) => option.value === area.value);
+    await activateArea(keep ? area.value : firstOf(areaOptions.value));
+  }
+
   async function setPt(value: string) {
     const epoch = filterEpoch;
     const next = resolveChoice(pt.value, value || "", ptOptions.value);
@@ -903,6 +936,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingAreaStatement.value = false;
     loadingRotation.value = false;
     if (!saved) return;
+    grup.value = saved.grup ?? "";
     area.value = saved.area;
     pt.value = saved.pt;
     estate.value = saved.estate;
@@ -934,6 +968,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   function clearMap() {
     filterEpoch += 1;
     filterGeneration.value = filterEpoch;
+    grup.value = "";
     area.value = "";
     pt.value = "";
     estate.value = "";
@@ -943,7 +978,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     bulan.value = "";
     tahun.value = currentYear();
     applied.value = {
-      area: "", pt: "", estate: "", afdeling: "", blokId: "", ownership: "", bulan: "", tahun: currentYear(),
+      grup: "", area: "", pt: "", estate: "", afdeling: "", blokId: "", ownership: "", bulan: "", tahun: currentYear(),
     };
     ptOptions.value = [];
     estateOptions.value = [];
@@ -978,7 +1013,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function init() {
     clearMap();
     const epoch = filterEpoch;
-    await loadAreas();
+    await Promise.all([loadAreas(), loadGroups().catch(() => { groupOptions.value = []; })]);
     if (!filterAlive(epoch) || !areaOptions.value.length) return;
     const explicitArea = scopeRows().some((row) => norm(row.kode_area));
     if (allowAllScope.value || explicitArea) {
@@ -1009,6 +1044,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const scopeLabel = computed(() => {
     const current = applied.value;
     const parts = [
+      groupOptions.value.find((o) => o.value === current.grup)?.label,
       areaOptions.value.find((o) => o.value === current.area)?.label,
       ptOptions.value.find((o) => o.value === current.pt)?.label,
       estateOptions.value.find((o) => o.value === current.estate)?.label,
@@ -1113,8 +1149,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return options.find((option) => option.value === value)?.label || value;
   }
 
-  /** Label PT, estate, afdeling, dan blok persis mengikuti pilihan Filter Kebun. */
+  /** Label grup, PT, estate, afdeling, dan blok persis mengikuti pilihan Filter Kebun. */
   const filterSummary = computed(() => ({
+    grup: filterLabel(grup.value, groupOptions.value),
     pt: filterLabel(pt.value, ptOptions.value),
     estate: filterLabel(estate.value, estateOptions.value),
     afdeling: filterLabel(afdeling.value, afdelingOptions.value),
@@ -1184,9 +1221,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   });
 
   return {
-    areaOptions, ptOptions, estateOptions, afdelingOptions, blokOptions,
+    groupOptions, areaOptions, ptOptions, estateOptions, afdelingOptions, blokOptions,
     ownershipOptions,
-    area, pt, estate, afdeling, blokId, ownership, bulan, tahun,
+    grup, area, pt, estate, afdeling, blokId, ownership, bulan, tahun,
     visibleBlocks,
     blocks, blockFeatures, selectedFeature, detail, production, areaStatement, rotation,
     areaStatementView, rotationView,
@@ -1195,7 +1232,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     scopeLevel, scopeLabel, scopeParams, productionYears, productionGapBudget, productionGapSensus, slopeShares, summary,
     canViewProduction, canViewAreaStatement, canViewRotation, allowAllScope,
     filterGeneration,
-    init, reset, resetFilters: clearMap, setArea, setPt, setEstate, setAfdeling, setBlok, setOwnership, setBulan, setTahun,
+    init, reset, resetFilters: clearMap, setGrup, setArea, setPt, setEstate, setAfdeling, setBlok, setOwnership, setBulan, setTahun,
     applyFilters, selectBlock, loadSelectedDetail, clearBlockSelection, restoreLastSearch, refreshScope,
   };
 });
