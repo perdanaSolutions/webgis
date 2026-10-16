@@ -276,7 +276,9 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
                         params={"blok_id": sample_block["id"], "bulan": BULAN, "tahun": TAHUN}).json()
     info = detail["informasi_blok"]
     assert detail["mode"] == "PERIODE_BULAN_TAHUN"
-    assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}"}
+    assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}",
+                                 "year_to_date": False, "produksi_awal": f"{BULAN}-{TAHUN}",
+                                 "produksi_akhir": f"{BULAN}-{TAHUN}"}
     assert info["luas_tanam"] == 25.5
     assert info["luas_tanah"] == 26.0
     assert info["pokok"] == 3500

@@ -226,7 +226,8 @@ def test_block_detail(client, auth, sample_block):
     empty = client.get("/api/v1/spatial/blok/detail", headers=auth,
                        params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 2099}).json()
     assert empty["mode"] == "PERIODE_BULAN_TAHUN"
-    assert empty["periode"] == {"bulan": 1, "tahun": 2099, "label_periode": "Tahun 2099"}
+    assert empty["periode"] == {"bulan": 1, "tahun": 2099, "label_periode": "Tahun 2099",
+                                "year_to_date": False, "produksi_awal": "1-2099", "produksi_akhir": "1-2099"}
     assert empty["informasi_blok"]["tbs"]["aktual"] == 0
     assert empty["informasi_blok"]["yield"]["aktual"] == 0
     assert empty["informasi_blok"]["gap_act_bgt"] == {"value": 0.0, "kategori": ""}
@@ -589,3 +590,21 @@ def test_group_estate_count_follows_access(client, auth, sample_block, monkeypat
                         lambda db, user, level: ("es.id = :only_estate", {"only_estate": estate_id}))
     groups = client.get("/api/v1/spatial/grup", headers=auth).json()["data"]
     assert len(groups) == 1 and groups[0]["jumlah_estate"] == 1
+
+
+def test_block_detail_year_to_date_matches_geojson(client, auth, sample_block):
+    """Detail blok dengan year_to_date = angka produksi_tbs GeoJSON dengan year_to_date (Januari s/d bulan)."""
+    period = _production_period(sample_block)
+    params = {"bulan": period.month, "tahun": period.year, "year_to_date": "true"}
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"], **params}).json()
+    prod = _block_props(client, auth, sample_block, **params)["produksi_tbs"]
+    info, periode = detail["informasi_blok"], detail["periode"]
+    assert (periode["year_to_date"], periode["produksi_awal"], periode["produksi_akhir"]) == (
+        True, f"1-{period.year}", f"{period.month}-{period.year}")
+    assert info["tbs"]["aktual"] == prod["tbs_aktual"]
+    assert info["yield"]["aktual"] == prod["y_aktual"]
+    assert (info["gap_act_bgt"]["kategori"] or None) == prod["kategori_budget"]
+
+    month = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year}).json()
+    assert month["periode"]["produksi_awal"] == month["periode"]["produksi_akhir"] == f"{period.month}-{period.year}"

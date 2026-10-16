@@ -252,3 +252,103 @@ def test_area_statement_import_fills_empty_estate_area_only(client, auth, groupe
                          {"a": b["area_id"], "e": b["estate_id"]})
             conn.execute(text("DELETE FROM trx.area_statements WHERE block_id = :b AND extract(year FROM period) = 2099"),
                          {"b": b["id"]})
+
+
+def test_manual_master_correction_of_company_group_and_estate_area(client, auth, grouped_block):
+    b = grouped_block
+    try:
+        changed = client.put(f"/api/v1/spatial/pt/{b['company']}/grup", headers=auth, json={"kode_grup": b["other"].lower()})
+        assert changed.status_code == 200, changed.text
+        assert changed.json() | {"nama_pt": None} == {"kode_pt": b["company"], "nama_pt": None, "kode_grup": b["other"],
+                                                       "grup_sebelum": b["grup"], "diubah": True}
+        moved = client.put(f"/api/v1/spatial/estate/{b['estate']}/area", headers=auth, json={"kode_area": b["other_area"]})
+        assert moved.status_code == 200 and moved.json()["area_sebelum"] == b["area"]
+        assert {e["kode_est"] for e in _get(client, auth, "/estate", area_id=b["other_area"])} >= {b["estate"]}
+
+        same = client.put(f"/api/v1/spatial/estate/{b['estate']}/area", headers=auth, json={"kode_area": b["other_area"]})
+        assert same.json()["diubah"] is False
+        assert client.put(f"/api/v1/spatial/pt/{b['company']}/grup", headers=auth,
+                          json={"kode_grup": "TIDAK-ADA"}).status_code == 400
+        assert client.put("/api/v1/spatial/estate/TIDAK-ADA/area", headers=auth,
+                          json={"kode_area": b["area"]}).status_code == 404
+        with engine.connect() as conn:
+            logged = conn.execute(text("""
+                SELECT count(*) FROM audit.user_activities
+                WHERE action IN ('UPDATE_COMPANY_GROUP', 'UPDATE_ESTATE_AREA') AND record_id IN (:c, :e)
+            """), {"c": str(b["company_id"]), "e": str(b["estate_id"])}).scalar()
+        assert logged >= 2
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE master.companies SET group_id = :g WHERE id = :c"),
+                         {"g": b["group_id"], "c": b["company_id"]})
+            conn.execute(text("UPDATE master.estates SET area_id = :a WHERE id = :e"),
+                         {"a": b["area_id"], "e": b["estate_id"]})
+
+
+def test_role_group_scope_covers_group_companies_only(client, auth, grouped_block):
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from app.db.session import SessionLocal
+    from app.services import user_access
+
+    b = grouped_block
+    role = client.post("/api/v1/roles/", headers=auth, json={"nama": f"Grup uji {b['grup']} {b['id']}", "deskripsi": "test"})
+    assert role.status_code == 201, role.text
+    role = role.json()
+    try:
+        missing = client.post(f"/api/v1/akses-data/data/role/{role['id']}/grup", headers=auth, json={"kode_grup": ["TIDAK-ADA"]})
+        assert missing.status_code == 400
+        added = client.post(f"/api/v1/akses-data/data/role/{role['id']}/grup", headers=auth,
+                            json={"kode_grup": [b["grup"].lower()]})
+        assert added.status_code == 201 and added.json()["inserted"] == 1
+        again = client.post(f"/api/v1/akses-data/data/role/{role['id']}/grup", headers=auth, json={"kode_grup": [b["grup"]]})
+        assert again.json()["inserted"] == 0  # idempoten
+
+        with engine.connect() as conn:
+            members = set(conn.execute(text("SELECT id FROM master.companies WHERE group_id = :g"),
+                                       {"g": b["group_id"]}).scalars())
+        db = SessionLocal()
+        try:
+            user = SimpleNamespace(roles=[SimpleNamespace(id=UUID(role["id"]), nama=role["nama"])])
+            scope = user_access.resolve_scope(db, user)
+            assert set(scope.companies) == members and b["company_id"] in members
+            assert b["area"] in scope.visible_areas and not scope.area_codes
+            codes = user_access.merged_access(db, user)["akses_data"]
+            assert b["company"] in {c["kode_pt"] for c in codes}
+            assert {c["kode_grup"] for c in codes} == {b["grup"]}
+        finally:
+            db.close()
+
+        detail = client.get(f"/api/v1/roles/{role['id']}", headers=auth).json()
+        assert [(s["level"], s["kode_grup"]) for s in detail["akses_data"]] == [("group", b["grup"])]
+        tree = client.get(f"/api/v1/akses-data/data/role/{role['id']}/grup", headers=auth).json()
+        assert tree == detail["akses_wilayah_grup"]
+        assert len(tree) == 1 and tree[0]["kode_grup"] == b["grup"] and tree[0]["penuh"] is True
+        assert tree[0]["perusahaan"] == []  # seluruh grup: PT tidak dirinci
+
+        scope_id = detail["akses_data"][0]["id"]
+        assert client.delete(f"/api/v1/akses-data/data/{scope_id}", headers=auth).status_code == 200
+        assert client.get(f"/api/v1/roles/{role['id']}", headers=auth).json()["akses_data"] == []
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM auth.roles WHERE id = :id"), {"id": role["id"]})
+
+
+def test_group_tree_nests_narrow_scopes_under_group_company_area(client, auth, grouped_block):
+    b = grouped_block
+    role = client.post("/api/v1/roles/", headers=auth, json={"nama": f"Estate uji {b['id']}", "deskripsi": "test"}).json()
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO auth.role_data_scopes (role_id, estate_id) VALUES (:r, :e)"),
+                         {"r": role["id"], "e": b["estate_id"]})
+        tree = client.get(f"/api/v1/akses-data/data/role/{role['id']}/grup", headers=auth).json()
+        assert tree[0]["kode_grup"] == b["grup"] and tree[0]["penuh"] is False
+        company = tree[0]["perusahaan"][0]
+        assert company["id_perusahaan"] == str(b["company_id"]) and company["penuh"] is False
+        area = company["area"][0]
+        assert area["kode_area"] == b["area"] and area["penuh"] is False
+        assert area["estate"][0]["kode_est"] == b["estate"] and area["estate"][0]["penuh"] is True
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM auth.roles WHERE id = :id"), {"id": role["id"]})

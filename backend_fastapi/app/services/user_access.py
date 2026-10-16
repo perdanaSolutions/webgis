@@ -50,7 +50,7 @@ _GRANT_ALIASES = {
 _SCOPE_SQL = """
 SELECT DISTINCT
     a.code AS kode_area,
-    COALESCE(c_direct.code, c_via_estate.code, c_via_div.code) AS kode_pt,
+    COALESCE(c_direct.code, c_via_estate.code, c_via_div.code, c_group.code) AS kode_pt,
     COALESCE(e_direct.code, e_via_div.code) AS kode_est,
     d.code AS kode_afd
 FROM {table} AS s
@@ -61,6 +61,7 @@ LEFT JOIN master.companies AS c_via_estate ON c_via_estate.id = e_direct.company
 LEFT JOIN master.divisions AS d ON d.id = s.division_id
 LEFT JOIN master.estates AS e_via_div ON e_via_div.id = d.estate_id
 LEFT JOIN master.companies AS c_via_div ON c_via_div.id = e_via_div.company_id
+LEFT JOIN master.companies AS c_group ON c_group.group_id = s.group_id
 WHERE s.role_id::text IN :role_ids
 """
 
@@ -165,6 +166,7 @@ def merged_access(db: Session, user) -> dict:
 
     def add_scope(row) -> None:
         item = {
+            "kode_grup": row.get("kode_grup"),
             "kode_pt": row.get("kode_pt"),
             "kode_est": row.get("kode_est"),
             "kode_area": row.get("kode_area"),
@@ -488,7 +490,7 @@ def resolve_scope(db: Session, user) -> DataScope:
         level = row.get("level")
         if level == "area" and row.get("area_code"):
             areas.append(row["area_code"])
-        elif level == "company" and row.get("company_id") is not None:
+        elif level in ("company", "group") and row.get("company_id") is not None:  # grup = semua PT anggotanya
             companies.append(row["company_id"])
         elif level == "estate" and row.get("estate_id") is not None:
             estates.append(row["estate_id"])

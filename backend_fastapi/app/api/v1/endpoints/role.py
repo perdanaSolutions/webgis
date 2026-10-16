@@ -68,6 +68,7 @@ def _scope_rows(db: Session, roles: list[Role]) -> list[dict]:
                          WHEN division_id IS NOT NULL THEN 'division'
                          WHEN estate_id IS NOT NULL THEN 'estate'
                          WHEN company_id IS NOT NULL THEN 'company'
+                         WHEN group_id IS NOT NULL THEN 'group'
                          ELSE 'area'
                        END AS level,
                        NULL::text AS area_code,
@@ -89,6 +90,7 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
     scopes_by_role: dict[str, list[dict]] = {}
     for row in scopes:
         scopes_by_role.setdefault(str(row["role_id"]), []).append(row)
+    group_trees = access_service.group_trees(db, [role.id for role in roles])
 
     return [
         {
@@ -101,6 +103,7 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
             "akses_wilayah": access_service.scopes_as_tree(scopes_by_role.get(str(role.id), []))
             if scopes_by_role.get(str(role.id)) and "company_id" in scopes_by_role[str(role.id)][0]
             else [],
+            "akses_wilayah_grup": group_trees.get(str(role.id), []),
             "akses_transaksi": access_service.role_transaction_rows(db, role.id),
         }
         for role in roles

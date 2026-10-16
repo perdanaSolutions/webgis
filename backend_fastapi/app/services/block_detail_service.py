@@ -3,7 +3,8 @@ Detail popup saat blok diklik di peta.
 
 Periode `bulan` + `tahun` dipakai persis (tidak diganti ke transaksi terakhir).
 Luas, pokok, dan SPH diambil dari satu baris areal statement periode itu.
-TBS, janjang, dan BJR diambil dari produksi periode yang sama.
+TBS, janjang, dan BJR diambil dari produksi periode yang sama; dengan year_to_date dari produksi
+Januari s/d bulan periode (TBS & janjang dijumlah, BJR dirata-rata), sama dengan GeoJSON blok.
 Yield (ton/ha) = tbs / 1000 / luas_tanam.
 Gap = IFERROR((yield_aktual - yield_pembanding) / yield_pembanding%; 0),
 yaitu ((aktual - pembanding) / pembanding) * 100, atau 0 bila pembanding 0.
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, not_found
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, num, whole
-from app.utils.period import as_of_period, to_period
+from app.utils.period import as_of_period, period_label, to_period
 
 
 def resolve_block_id(db: Session, blok_ref: str) -> int:
@@ -104,6 +105,7 @@ def get_block_detail(
     ownership: str | None = None,
     bulan: int | None = None,
     tahun: int | None = None,
+    year_to_date: bool = False,
 ) -> dict:
     block_id = resolve_block_id(db, blok_ref)
     period, from_params = _resolve_detail_period(db, block_id, bulan, tahun)
@@ -129,6 +131,7 @@ def get_block_detail(
         WHERE bl.id = :bid
     """), master_params).mappings().one()
 
+    production_start = date(period.year, 1, 1) if period is not None and year_to_date else period
     prod = db.execute(text("""
         SELECT COALESCE(SUM(ffb_actual_kg), 0) AS tbs_aktual,
                COALESCE(SUM(ffb_budget_kg), 0) AS tbs_budget,
@@ -140,8 +143,8 @@ def get_block_detail(
                COALESCE(AVG(bjr_budget), 0) AS bjr_budget,
                COALESCE(AVG(bjr_census), 0) AS bjr_sensus
         FROM trx.block_productions
-        WHERE block_id = :bid AND period = :as_of
-    """), {"bid": block_id, "as_of": period}).mappings().one() if period is not None else {}
+        WHERE block_id = :bid AND period BETWEEN :start AND :as_of
+    """), {"bid": block_id, "as_of": period, "start": production_start}).mappings().one() if period is not None else {}
 
     luas = round(num(master["planted_area_ha"]), 2) if master["planted_area_ha"] is not None else 0.0
     tbs = _triplet(prod.get("tbs_aktual"), prod.get("tbs_budget"), prod.get("tbs_sensus"))
@@ -163,6 +166,10 @@ def get_block_detail(
             "bulan": shown_month,
             "tahun": shown_year,
             "label_periode": f"Tahun {shown_year}" if shown_year else "Belum ada data",
+            # Rentang produksi (TBS/janjang/BJR): bulan itu saja, atau Januari s/d bulan itu bila year_to_date.
+            "year_to_date": year_to_date,
+            "produksi_awal": period_label(production_start),
+            "produksi_akhir": period_label(period),
         },
         "informasi_blok": {
             "blok_id": master["id"],

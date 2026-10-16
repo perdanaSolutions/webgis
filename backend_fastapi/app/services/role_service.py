@@ -38,6 +38,7 @@ def role_responses(db: Session, roles: list[Role]) -> list[dict]:
         scopes_by_role.setdefault(str(row["role_id"]), []).append(row)
     menus_by_role = access_service.role_menu_rows_by_role(db, role_ids)
     transactions_by_role = access_service.role_transaction_rows_by_role(db, role_ids)
+    group_trees = access_service.group_trees(db, role_ids)
 
     return [
         {
@@ -51,6 +52,7 @@ def role_responses(db: Session, roles: list[Role]) -> list[dict]:
             "akses_menu": menus_by_role.get(str(role.id), []),
             "akses_data": access_service.scopes_as_log_rows(scopes_by_role.get(str(role.id), [])),
             "akses_wilayah": access_service.scopes_as_tree(scopes_by_role.get(str(role.id), [])),
+            "akses_wilayah_grup": group_trees.get(str(role.id), []),
             "akses_transaksi": transactions_by_role.get(str(role.id), []),
         }
         for role in roles

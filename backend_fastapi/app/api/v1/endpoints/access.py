@@ -9,6 +9,8 @@ from fastapi import APIRouter, status
 from app.api.deps import CurrentUser, DbSession
 from app.schemas.access import (
     AksesDataResponse,
+    GroupScopeInput,
+    GroupTreeSchema,
     AksesMenuCreate,
     AksesMenuResponse,
     AksesMenuUpdate,
@@ -116,6 +118,25 @@ def replace_data_access(role_id: UUID, payload: list[AreaTreeSchema], db: DbSess
     )
     db.commit()
     return access_service.scopes_as_tree(access_service.expanded_scopes(db, [role_id]))
+
+
+@router.get("/data/role/{role_id}/grup", response_model=list[GroupTreeSchema],
+            summary="Hak akses wilayah berjenjang Grup -> PT -> Area -> Estate -> Afdeling (struktur v2)")
+def get_data_access_group_tree(role_id: UUID, db: DbSession, _: CurrentUser):
+    return access_service.group_trees(db, [role_id]).get(str(role_id), [])
+
+
+@router.post("/data/role/{role_id}/grup", status_code=status.HTTP_201_CREATED,
+             summary="Tambah hak akses seluruh grup (semua PT di grup itu, termasuk PT yang kelak masuk grup)")
+def add_group_access(role_id: UUID, payload: GroupScopeInput, db: DbSession, current_user: CurrentUser):
+    _require_role(db, role_id)
+    inserted = access_service.add_group_scopes(db, role_id, payload.kode_grup)
+    record_user_activity(
+        db, current_user, "GRANT_DATA", "roles", record_id=str(role_id),
+        detail={"kode_grup": payload.kode_grup, "inserted": inserted},
+    )
+    db.commit()
+    return {"message": f"{inserted} akses grup ditambahkan", "inserted": inserted}
 
 
 @router.delete("/data/{scope_id}", response_model=MessageResponse)
