@@ -1,4 +1,8 @@
-"""Hierarki kebun: company -> estate -> division (afdeling) -> block. Area terhubung lewat trx.area_statements."""
+"""
+Hierarki kebun (struktur v2):
+    organisasi : group -> company (PT) -> estate -> division (afdeling) -> block
+    wilayah    : area -> estate (area saat ini); riwayat area per bulan ada di trx.area_statements.
+"""
 from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,8 +20,9 @@ class Area(Base):
     name: Mapped[str] = mapped_column(String(150))
 
 
-class Company(Base):
-    __tablename__ = "companies"
+class Group(Base):
+    """Grup perusahaan (TPA, SGA). Membawahi PT."""
+    __tablename__ = "groups"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -25,12 +30,12 @@ class Company(Base):
     name: Mapped[str | None] = mapped_column(String(150))
 
 
-class Group(Base):
-    """Grup perusahaan (TPA, SGA). Melekat ke estate, bukan ke PT."""
-    __tablename__ = "groups"
+class Company(Base):
+    __tablename__ = "companies"
     __table_args__ = {"schema": SCHEMA}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    group_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master.groups.id"))
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str | None] = mapped_column(String(150))
 
@@ -41,7 +46,7 @@ class Estate(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     company_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("master.companies.id"))
-    group_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master.groups.id"))
+    area_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master.areas.id"))  # area saat ini
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str] = mapped_column(String(100))
     short_name: Mapped[str | None] = mapped_column(String(20))

@@ -37,6 +37,7 @@ def get_group_list(
 def get_area_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode area"),
     kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+    kode_pt: Optional[str] = Query(None, description="Kode/ID PT: hanya area estate PT ini"),
 
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
@@ -49,6 +50,7 @@ def get_area_list(
     del bulan, tahun
     return hierarchy_service.list_areas(
         db, search, page, limit, extra_clause=user_access.hierarchy_clause(db, current_user, "area"), grup=kode_grup,
+        kode_pt=kode_pt,
     )
 
 

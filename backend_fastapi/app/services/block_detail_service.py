@@ -118,7 +118,8 @@ def get_block_detail(
         SELECT bl.id, bl.code, bt.name AS block_type,
                dv.code AS division_code, es.code AS estate_code, es.name AS estate_name,
                co.code AS company_code, COALESCE(NULLIF(co.name, ''), co.code) AS company_name,
-               sar.code AS area_code, sar.name AS area_name,
+               est_area.code AS area_code, est_area.name AS area_name, co_group.code AS group_code,
+               sar.code AS period_area_code, sar.name AS period_area_name,
                st.planting_year, st.planting_month, st.planted_area_ha, st.land_area_ha,
                st.tree_count, st.sph,
                ps.code AS planting_status, so.name AS soil_type, tp.name AS topography,
@@ -184,8 +185,12 @@ def get_block_detail(
             "yield": yield_row,
             "gap_act_bgt": _gap_pair(yield_row["aktual"], yield_row["budget"]),
             "gap_act_sns": _gap_pair(yield_row["aktual"], yield_row["sensus"]),
+            # Area utama = area saat ini estate (sama dengan filter peta); area_periode = area di areal statement
+            # periode ini (riwayat). Keduanya bisa berbeda untuk estate yang pernah pindah area.
             "hierarki": {
+                "kode_grup": master["group_code"],
                 "kode_area": master["area_code"], "nama_area": master["area_name"],
+                "kode_area_periode": master["period_area_code"], "nama_area_periode": master["period_area_name"],
                 "kode_pt": master["company_code"], "nama_pt": master["company_name"],
                 "kode_est": master["estate_code"], "nama_estate": master["estate_name"],
                 "kode_afd": master["division_code"], "nama_afd": master["division_code"],

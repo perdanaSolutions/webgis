@@ -4,9 +4,9 @@ dan tabel transaksi (auth.permissions dengan resource = '<schema>.<tabel>', acti
 
 Scope data di v3 menunjuk tepat SATU node hierarki (area / company / estate /
 division) lewat id. FE lama bekerja dengan kode (kode_area, kode_pt, kode_est,
-kode_afd). Area sebuah company/estate/division diambil dari area statement
-terbaru blok di scope itu saja, supaya login dan /auth/me tidak memindai
-semua blok lewat master.v_block_hierarchy.
+kode_afd). Area sebuah company/estate/division = area saat ini estate-nya
+(master.estates.area_id, struktur v2), dibaca langsung dari estate/afdeling
+tanpa memindai blok.
 """
 import json
 from collections import OrderedDict
@@ -26,33 +26,17 @@ _SCOPE_EXPANSION_SQL = """
 WITH s AS (
     SELECT * FROM auth.role_data_scopes WHERE role_id = ANY(CAST(:role_ids AS uuid[]))
 ),
-scoped_blocks AS MATERIALIZED (
-    SELECT bl.id AS block_id,
-           dv.id AS division_id,
-           es.id AS estate_id,
-           co.id AS company_id
-    FROM master.blocks bl
-    JOIN master.divisions dv ON dv.id = bl.division_id
-    JOIN master.estates es ON es.id = dv.estate_id
-    JOIN master.companies co ON co.id = es.company_id
+h AS (  -- area saat ini estate (struktur v2); estate tanpa afdeling tetap ikut lewat LEFT JOIN
+    SELECT DISTINCT es.area_id, es.company_id, es.id AS estate_id, dv.id AS division_id
+    FROM master.estates es
+    LEFT JOIN master.divisions dv ON dv.estate_id = es.id
     WHERE EXISTS (
         SELECT 1
         FROM s
-        WHERE s.company_id = co.id
+        WHERE s.company_id = es.company_id
            OR s.estate_id = es.id
            OR s.division_id = dv.id
     )
-),
-h AS (
-    SELECT DISTINCT la.area_id, sb.company_id, sb.estate_id, sb.division_id
-    FROM scoped_blocks sb
-    LEFT JOIN LATERAL (
-        SELECT a.area_id
-        FROM trx.area_statements a
-        WHERE a.block_id = sb.block_id
-        ORDER BY a.period DESC
-        LIMIT 1
-    ) la ON true
 )
 SELECT s.id, s.role_id, s.created_at, 'area' AS level,
        ar.code AS area_code, ar.name AS area_name,
