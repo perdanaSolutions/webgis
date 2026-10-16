@@ -19,9 +19,24 @@ from app.utils.period import as_of_period
 router = APIRouter()
 
 
+@router.get("/grup", response_model=PaginatedResponse, summary="Daftar grup (TPA, SGA) untuk filter peta")
+def get_group_list(
+    search: Optional[str] = Query(None, description="Cari kode atau nama grup"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    return hierarchy_service.list_groups(
+        db, search, page, limit, extra_clause=user_access.hierarchy_clause(db, current_user, "estate"),
+    )
+
+
 @router.get("/area", response_model=PaginatedResponse)
 def get_area_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode area"),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+
     bulan: Optional[int] = Query(None, ge=1, le=12),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
     page: int = Query(1, ge=1),
@@ -32,13 +47,14 @@ def get_area_list(
     # Master area di v3 tidak berperiode; bulan/tahun diterima agar query lama tetap valid.
     del bulan, tahun
     return hierarchy_service.list_areas(
-        db, search, page, limit, extra_clause=user_access.hierarchy_clause(db, current_user, "area"),
+        db, search, page, limit, extra_clause=user_access.hierarchy_clause(db, current_user, "area"), grup=kode_grup,
     )
 
 
 @router.get("/pt", response_model=PaginatedResponse)
 def get_pt_list(
     search: Optional[str] = Query(None, description="Cari nama atau kode PT"),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     kode_pt: Optional[str] = Query(None),
     area_id: Optional[str] = Query(None, description="Kode atau ID area"),
     bulan: Optional[int] = Query(None, ge=1, le=12),
@@ -51,13 +67,14 @@ def get_pt_list(
     del bulan, tahun
     return hierarchy_service.list_companies(
         db, search, kode_pt, area_id, page, limit,
-        extra_clause=user_access.hierarchy_clause(db, current_user, "company"),
+        extra_clause=user_access.hierarchy_clause(db, current_user, "company"), grup=kode_grup,
     )
 
 
 @router.get("/estate", response_model=PaginatedResponse)
 def get_estate_list(
     search: Optional[str] = Query(None),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
     area_id: Optional[str] = Query(None, description="Kode atau ID area"),
@@ -71,13 +88,14 @@ def get_estate_list(
     del bulan, tahun
     return hierarchy_service.list_estates(
         db, search, kode_pt, kode_est, area_id, page, limit,
-        extra_clause=user_access.hierarchy_clause(db, current_user, "estate"),
+        extra_clause=user_access.hierarchy_clause(db, current_user, "estate"), grup=kode_grup,
     )
 
 
 @router.get("/afdeling", response_model=PaginatedResponse)
 def get_afdeling_list(
     search: Optional[str] = Query(None),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
@@ -91,13 +109,14 @@ def get_afdeling_list(
     del bulan, tahun
     return hierarchy_service.list_divisions(
         db, search, kode_pt, kode_est, kode_afd, page, limit,
-        extra_clause=user_access.hierarchy_clause(db, current_user, "division"),
+        extra_clause=user_access.hierarchy_clause(db, current_user, "division"), grup=kode_grup,
     )
 
 
 @router.get("/blok", response_model=PaginatedResponse)
 def get_blok_list(
     search: Optional[str] = Query(None),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
     kode_afd: Optional[str] = Query(None),
@@ -110,13 +129,14 @@ def get_blok_list(
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
-    flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
+    flt = BlockFilter(grup=kode_grup, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok)
     user_access.apply_data_scope(db, current_user, flt)
     return hierarchy_service.list_blocks(db, search, flt, as_of_period(bulan, tahun), page, limit, tahun_tanam)
 
 
 @router.get("/geojson")
 def get_blocks_geojson(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
@@ -130,8 +150,8 @@ def get_blocks_geojson(
     current_user=Depends(deps.get_current_user),
 ):
     flt = BlockFilter(
-        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok, ownership=ownership,
-        tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
     user_access.apply_data_scope(db, current_user, flt)
     hide_keys = user_access.hidden_feature_keys(db, current_user)
@@ -167,6 +187,7 @@ def get_history_tables(db=Depends(deps.get_db), current_user=Depends(deps.get_cu
 
 @router.get("/history/tahun-tanam", summary="Daftar tahun filter histori dari semua tabel schema trx")
 def get_history_planting_years(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
@@ -179,7 +200,7 @@ def get_history_planting_years(
 ):
     user_access.require_transaction(db, current_user, "trx_areal_statement", "trx.area_statements")
     flt = BlockFilter(
-        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
         blok=blok_id or kode_blok, ownership=ownership,
     )
     user_access.apply_data_scope(db, current_user, flt)
@@ -195,6 +216,7 @@ def get_history_data(
         None, ge=0, le=2100,
         description="Filter tahun transaksi. Tabel trx yang punya planting_year disaring kolom itu; selain itu tahun kolom period.",
     ),
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
@@ -210,7 +232,7 @@ def get_history_data(
     legacy_key, physical = history_service.resolve_history_table(table)
     user_access.require_transaction(db, current_user, legacy_key, physical)
     flt = BlockFilter(
-        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
         blok=blok_id or kode_blok, ownership=ownership,
     )
     user_access.apply_data_scope(db, current_user, flt)
@@ -223,6 +245,7 @@ def get_history_data(
 
 @router.get("/tph/geojson", summary="Titik TPH sebagai GeoJSON")
 def get_tph_geojson(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
     area_id: Optional[str] = Query(None),
     kode_pt: Optional[str] = Query(None),
     kode_est: Optional[str] = Query(None),
@@ -238,7 +261,7 @@ def get_tph_geojson(
 ):
     user_access.require_layer(db, current_user, "tph")
     flt = BlockFilter(
-        area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
         ownership=ownership, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam),
     )
     user_access.apply_data_scope(db, current_user, flt)

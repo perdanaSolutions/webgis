@@ -7,6 +7,7 @@ from fastapi import Response
 from shapely import wkb
 from shapely.errors import ShapelyError
 from shapely.geometry import MultiLineString, MultiPoint, MultiPolygon, shape
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from app.core.exceptions import bad_request
@@ -77,6 +78,16 @@ def prepare_geometry(geometry: dict | None, target_type: str):
     except (ShapelyError, ValueError, TypeError, AttributeError, KeyError) as exc:
         logger.debug("Geometry tidak valid, dilewati: %s", exc)
         return None
+
+
+def merge_polygons(geoms: list) -> MultiPolygon:
+    """Satukan beberapa (Multi)Polygon jadi satu MultiPolygon; bagian yang tumpang tindih dilebur."""
+    merged = geoms[0] if len(geoms) == 1 else unary_union(geoms)
+    if merged.geom_type == "Polygon":
+        return MultiPolygon([merged])
+    if merged.geom_type == "GeometryCollection":  # sisa garis/titik dari peleburan dibuang
+        return MultiPolygon([p for g in merged.geoms for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon"])
+    return merged
 
 
 def to_ewkb(geom) -> str:

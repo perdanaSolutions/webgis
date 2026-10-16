@@ -188,6 +188,7 @@ def blocks_geojson(
             "afd_id": r["division_id"], "kode_afd": r["division_code"],
             "kode_est": r["estate_code"], "nama_estate": r["estate_name"],
             "kode_pt": r["company_code"], "nama_pt": r["company_name"], "kode_area": r["area_code"],
+            "kode_grup": r["group_code"],
             "tipe_blok": r["block_type"], "tahun_tanam": r["planting_year"], "jenis_bibit": r["seed_varieties"],
             "status_tanam": r["planting_status"],
             # Periode batas (poligon); areal_statement & produksi_tbs memakai periode yang sama.

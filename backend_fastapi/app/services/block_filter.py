@@ -4,6 +4,7 @@ Potongan SQL bersama untuk query berbasis blok.
 Semua query memakai alias tetap:
     bl = master.blocks, dv = master.divisions, es = master.estates,
     co = master.companies, bt = ref.block_types, la/ar = area terbaru blok.
+Grup (TPA/SGA) melekat ke estate: es.group_id -> master.groups.
 
 Filter menerima id numerik v3 ATAU kode (dan untuk blok: id string lama v2
 seperti 'PT_TELEN_E006_AFDI02_G018' lewat audit.legacy_id_maps), sehingga
@@ -71,6 +72,10 @@ BLOCK_REF_MATCH = """(
 )"""
 
 
+# Grup dicocokkan lewat kode atau id. Dipakai juga oleh daftar dropdown (alias `es` wajib ada).
+GROUP_MATCH = "es.group_id IN (SELECT gr.id FROM master.groups gr WHERE upper(gr.code) = upper(:{p}) OR gr.id::text = :{p})"
+
+
 def _clean(value: str | None) -> str | None:
     value = (value or "").strip()
     return value or None
@@ -88,6 +93,7 @@ _LATEST_PLANTING_YEAR = """EXISTS (
 
 @dataclass
 class BlockFilter:
+    grup: str | None = None
     area: str | None = None
     kode_pt: str | None = None
     kode_est: str | None = None
@@ -101,7 +107,7 @@ class BlockFilter:
     force_area_join: bool = False
 
     def __post_init__(self):
-        for name in ("area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership", "tahun_tanam"):
+        for name in ("grup", "area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership", "tahun_tanam"):
             setattr(self, name, _clean(getattr(self, name)))
         if self.tahun_tanam is not None and not self.tahun_tanam.isdigit():
             self.tahun_tanam = None
@@ -112,6 +118,9 @@ class BlockFilter:
 
     def where(self) -> tuple[list[str], dict]:
         clauses, params = list(self.extra_where), dict(self.extra_params)
+        if self.grup:
+            clauses.append(GROUP_MATCH.format(p="f_grup"))
+            params["f_grup"] = self.grup
         if self.area:
             clauses.append("(ar.code = :f_area OR ar.id::text = :f_area OR upper(ar.name) = upper(:f_area))")
             params["f_area"] = self.area.removeprefix("AR_")  # id area lama v2: 'AR_BERAU'

@@ -1,5 +1,8 @@
 """
-Daftar master wilayah untuk dropdown/filter FE: area, PT, estate, afdeling, blok.
+Daftar master wilayah untuk dropdown/filter FE: grup, area, PT, estate, afdeling, blok.
+
+Grup (TPA/SGA) melekat ke estate, sehingga filter `grup` di level area/PT berarti
+"punya estate di grup itu".
 
 Master di v3 tidak berperiode lagi (tidak ada bulan/tahun di tabel master).
 Parameter bulan/tahun tetap diterima: di /blok dipakai sebagai "kondisi per
@@ -10,7 +13,9 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.services.block_filter import LATEST_AREA_JOIN, SEED_VARIETIES_OF_STATEMENT, BlockFilter, statement_as_of_join
+from app.services.block_filter import (
+    GROUP_MATCH, LATEST_AREA_JOIN, SEED_VARIETIES_OF_STATEMENT, BlockFilter, statement_as_of_join,
+)
 from app.utils.pagination import paginate_sql
 from app.utils.period import period_parts
 
@@ -25,9 +30,39 @@ def _where(clauses: list[str]) -> str:
     return ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
-def list_areas(db: Session, search: str | None, page: int, limit: int,
-               extra_clause: tuple[str, dict] | None = None) -> dict:
+def list_groups(db: Session, search: str | None, page: int, limit: int,
+                extra_clause: tuple[str, dict] | None = None) -> dict:
+    """Grup yang punya estate. `extra_clause` = klausa akses level estate (alias es/co)."""
     clauses, params = [], {}
+    if extra_clause:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM master.estates es JOIN master.companies co ON co.id = es.company_id "
+            f"WHERE es.group_id = gr.id AND {extra_clause[0]})")
+        params.update(extra_clause[1])
+    _search_clause(["gr.code", "gr.name"], search, clauses, params)
+    sql = f"""
+        SELECT gr.id, gr.code, COALESCE(NULLIF(gr.name, ''), gr.code) AS name,
+               (SELECT count(*) FROM master.estates es WHERE es.group_id = gr.id) AS estate_count
+        FROM master.groups gr {_where(clauses)}
+    """
+    return paginate_sql(db, sql, params, "q.code", page, limit, lambda r: {
+        "id": r["id"], "kode_grup": r["code"], "nama_grup": r["name"], "jumlah_estate": r["estate_count"],
+    })
+
+
+def list_areas(db: Session, search: str | None, page: int, limit: int,
+               extra_clause: tuple[str, dict] | None = None, grup: str | None = None) -> dict:
+    clauses, params = [], {}
+    if grup and grup.strip():
+        # Area melekat ke area statement terbaru blok (lihat LATEST_AREA_JOIN).
+        clauses.append(f"""EXISTS (
+            SELECT 1 FROM (SELECT DISTINCT ON (block_id) block_id, area_id FROM trx.area_statements
+                           ORDER BY block_id, period DESC) la
+            JOIN master.blocks bl ON bl.id = la.block_id
+            JOIN master.divisions dv ON dv.id = bl.division_id
+            JOIN master.estates es ON es.id = dv.estate_id
+            WHERE la.area_id = ar.id AND {GROUP_MATCH.format(p='f_grup')})""")
+        params["f_grup"] = grup.strip()
     if extra_clause:
         clauses.append(extra_clause[0])
         params.update(extra_clause[1])
@@ -40,12 +75,16 @@ def list_areas(db: Session, search: str | None, page: int, limit: int,
 
 
 def list_companies(db: Session, search: str | None, kode_pt: str | None, area: str | None, page: int, limit: int,
-                   extra_clause: tuple[str, dict] | None = None) -> dict:
-    flt = BlockFilter(area=area)
+                   extra_clause: tuple[str, dict] | None = None, grup: str | None = None) -> dict:
+    # Area utama PT dihitung dari estate di grup yang difilter saja.
+    flt = BlockFilter(area=area, grup=grup)
     area_clauses, params = flt.where()
     area_where = ("AND " + " AND ".join(area_clauses)) if area_clauses else ""
 
     clauses = [] if not area else ["pa.area_code IS NOT NULL"]
+    if flt.grup:  # params["f_grup"] sudah diisi flt.where()
+        clauses.append("EXISTS (SELECT 1 FROM master.estates es WHERE es.company_id = co.id "
+                       f"AND {GROUP_MATCH.format(p='f_grup')})")
     if extra_clause:
         clauses.append(extra_clause[0])
         params.update(extra_clause[1])
@@ -77,8 +116,8 @@ def list_companies(db: Session, search: str | None, kode_pt: str | None, area: s
 
 
 def list_estates(db: Session, search: str | None, kode_pt: str | None, kode_est: str | None, area: str | None,
-                 page: int, limit: int, extra_clause: tuple[str, dict] | None = None) -> dict:
-    flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est)
+                 page: int, limit: int, extra_clause: tuple[str, dict] | None = None, grup: str | None = None) -> dict:
+    flt = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, grup=grup)
     clauses, params = flt.where()
     if area and area.strip():
         area_clauses, area_params = BlockFilter(area=area).where()
@@ -94,20 +133,22 @@ def list_estates(db: Session, search: str | None, kode_pt: str | None, kode_est:
     _search_clause(["es.name", "es.code", "es.short_name"], search, clauses, params)
 
     sql = f"""
-        SELECT es.id, es.code, es.name, es.short_name, co.id AS company_id, co.code AS company_code
+        SELECT es.id, es.code, es.name, es.short_name, co.id AS company_id, co.code AS company_code,
+               gr.code AS group_code
         FROM master.estates es JOIN master.companies co ON co.id = es.company_id
+        LEFT JOIN master.groups gr ON gr.id = es.group_id
         {_where(clauses)}
     """
     return paginate_sql(db, sql, params, "q.name", page, limit, lambda r: {
-        "id": r["id"], "pt_id": r["company_id"], "kode_pt": r["company_code"],
+        "id": r["id"], "pt_id": r["company_id"], "kode_pt": r["company_code"], "kode_grup": r["group_code"],
         "kode_est": r["code"], "nama_estate": r["name"], "short_name": r["short_name"],
         "bulan": None, "tahun": None,
     })
 
 
 def list_divisions(db: Session, search: str | None, kode_pt: str | None, kode_est: str | None, kode_afd: str | None,
-                   page: int, limit: int, extra_clause: tuple[str, dict] | None = None) -> dict:
-    clauses, params = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd).where()
+                   page: int, limit: int, extra_clause: tuple[str, dict] | None = None, grup: str | None = None) -> dict:
+    clauses, params = BlockFilter(kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, grup=grup).where()
     if extra_clause:
         clauses.append(extra_clause[0])
         params.update(extra_clause[1])
@@ -129,6 +170,7 @@ BLOCK_ATTRIBUTE_COLUMNS = f"""
     bl.id, bl.code, bt.name AS block_type,
     dv.id AS division_id, dv.code AS division_code,
     es.id AS estate_id, es.code AS estate_code, es.name AS estate_name,
+    (SELECT gr.code FROM master.groups gr WHERE gr.id = es.group_id) AS group_code,
     co.id AS company_id, co.code AS company_code, COALESCE(NULLIF(co.name, ''), co.code) AS company_name,
     st.period AS statement_period, st.planting_year, st.planting_month,
     ps.code AS planting_status, so.name AS soil_type, tp.name AS topography,
@@ -143,7 +185,7 @@ def block_item(r: dict) -> dict:
         "id": r["id"], "blok_id": r["id"], "kode_blok": r["code"], "nama_blok": f"Blok {r['code']}",
         "afd_id": r["division_id"], "kode_afd": r["division_code"],
         "est_id": r["estate_id"], "kode_est": r["estate_code"],
-        "pt_id": r["company_id"], "kode_pt": r["company_code"],
+        "pt_id": r["company_id"], "kode_pt": r["company_code"], "kode_grup": r["group_code"],
         "kode_area": r["area_code"],
         "tipe_blok": r["block_type"], "status_tanam": r["planting_status"],
         "tahun_tanam": r["planting_year"], "bulan_tanam": r["planting_month"],
