@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Naikkan bila bentuk JSON API peta berubah, supaya deploy tidak mengembalikan payload lama.
 # Samakan dengan MAP_CACHE_SCHEMA di gis-dashboard/utils/mapCacheSchema.ts.
-MAP_CACHE_SCHEMA = "2"
+MAP_CACHE_SCHEMA = "3"
 _VERSION_KEY = "gis:map:version"
 _RAW = b"\x00"
 _GZIP = b"\x01"

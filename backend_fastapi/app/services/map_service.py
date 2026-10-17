@@ -12,7 +12,9 @@ batas TERBARU dengan period <= periode yang diminta (tanpa parameter = terbaru).
 Tanpa tahun: acuannya bulan produksi terakhir yang ada. `areal_statement` (dan luas untuk yield)
 = statement terbaru di tahun yang sama s/d akhir rentang. `produksi_tbs_comparison` memakai aturan
 yang sama untuk bulan/tahun pembanding. Blok tanpa statement maupun produksi di rentang itu tidak
-punya key-nya. Yield dan kategori gap memakai rumus yang sama dengan detail blok.
+punya key-nya. Bila belum ada produksi sama sekali, `areal_statement` tetap diisi dari statement terbaru
+s/d periode yang diminta, dan `rotasi_terakhir` dibatasi periode itu. Yield dan kategori gap memakai
+rumus yang sama dengan detail blok.
 """
 from dataclasses import dataclass
 from datetime import date
@@ -147,7 +149,9 @@ def _trx_summaries(
     block_ids: list[int],
     window: TrxWindow | None,
     comparison: TrxWindow | None = None,
+    as_of: date | None = None,
 ) -> dict[int, dict]:
+    """`as_of` = batas periode yang diminta; dipakai bila tidak ada produksi (window kosong)."""
     if not block_ids:
         return {}
     summary: dict[int, dict] = {bid: {} for bid in block_ids}
@@ -158,13 +162,18 @@ def _trx_summaries(
             statement_period = statement["statement_period"] if statement else window.end
             summary[block_id]["areal_statement"] = _statement_payload(statement_period, statement)
             summary[block_id]["produksi_tbs"] = _produksi_payload(window.end, luas, production, window)
+    elif as_of:
+        # Belum ada produksi di tahun itu: areal statement tetap tampil (terbaru di tahun itu s/d as_of).
+        for block_id, (statement, _) in _window_summaries(db, block_ids, TrxWindow.of(as_of, False)).items():
+            if statement:
+                summary[block_id]["areal_statement"] = _statement_payload(statement["statement_period"], statement)
     if comparison:
         for block_id, (statement, production) in _window_summaries(db, block_ids, comparison).items():
             luas = _optional_money(statement["planted_area_ha"]) if statement else 0.0
             summary[block_id]["produksi_tbs_comparison"] = _produksi_payload(
                 comparison.end, luas, production, comparison)
 
-    as_of = window.end if window else None
+    as_of = window.end if window else as_of
     period_filter = "AND h.period <= :as_of" if as_of else ""
     for r in db.execute(text(f"""
         SELECT DISTINCT ON (h.block_id) h.block_id, h.period, h.rotation_no, h.interval_days, rs.name AS status
@@ -193,18 +202,23 @@ def _period_info(period: date | None) -> dict | None:
     return {"bulan": period.month, "tahun": period.year, "periode": period_label(period)} if period else None
 
 
-def latest_periods(db: Session, flt: BlockFilter) -> dict:
-    """Periode terakhir yang sudah diupload untuk blok dalam filter: default filter Periode di FE."""
+def latest_periods(db: Session, flt: BlockFilter, allowed_tables: set[str] | None = None) -> dict:
+    """
+    Periode terakhir yang sudah diupload untuk blok dalam filter: default filter Periode di FE.
+    `allowed_tables` = tabel transaksi yang boleh dilihat user (None = semua); jenis data lain tidak dilaporkan.
+    """
+    sources = [(key, table) for key, table in _LATEST_SOURCES
+               if allowed_tables is None or not table.startswith("trx.") or table in allowed_tables]
     blocks_sql, params = flt.block_ids_subquery()
     selects = ", ".join(f"(SELECT max(period) FROM {table} WHERE block_id IN (SELECT id FROM b)) AS {key}"
-                        for key, table in _LATEST_SOURCES)
+                        for key, table in sources)
     row = db.execute(text(f"WITH b AS ({blocks_sql}) SELECT {selects}"), params).mappings().one()
-    source = next((key for key in _DEFAULT_PRIORITY if row[key]), None)
+    source = next((key for key in _DEFAULT_PRIORITY if row.get(key)), None)
     default = row[source] if source else None
     return {
         **(_period_info(default) or {"bulan": None, "tahun": None, "periode": None}),
         "sumber": source,
-        "per_data": {key: _period_info(row[key]) for key, _ in _LATEST_SOURCES},
+        "per_data": {key: _period_info(row[key]) for key, _ in sources},
     }
 
 
@@ -240,7 +254,7 @@ def blocks_geojson(
     block_ids = [r["id"] for r in rows]
     window = resolve_trx_window(db, block_ids, bulan, tahun, year_to_date) if block_ids else None
     comparison_window = TrxWindow.of(to_period(*comparison), year_to_date) if comparison else None
-    summaries = _trx_summaries(db, block_ids, window, comparison_window)
+    summaries = _trx_summaries(db, block_ids, window, comparison_window, as_of)
     features = []
     for r in rows:
         boundary_bulan, boundary_tahun = period_parts(r["boundary_period"])

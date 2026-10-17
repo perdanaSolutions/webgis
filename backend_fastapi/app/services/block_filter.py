@@ -3,8 +3,10 @@ Potongan SQL bersama untuk query berbasis blok.
 
 Semua query memakai alias tetap:
     bl = master.blocks, dv = master.divisions, es = master.estates,
-    co = master.companies, bt = ref.block_types, la/ar = area terbaru blok.
-Grup (TPA/SGA) melekat ke estate: es.group_id -> master.groups.
+    co = master.companies, bt = ref.block_types,
+    est_area = area saat ini estate, co_group = grup PT.
+Struktur v2: grup melekat ke PT (co.group_id), area saat ini melekat ke estate (es.area_id).
+Riwayat area per bulan tetap ada di trx.area_statements (dipakai detail & histori per periode).
 
 Filter menerima id numerik v3 ATAU kode (dan untuk blok: id string lama v2
 seperti 'PT_TELEN_E006_AFDI02_G018' lewat audit.legacy_id_maps), sehingga
@@ -17,20 +19,10 @@ BLOCK_JOINS = """
     JOIN master.estates es ON es.id = dv.estate_id
     JOIN master.companies co ON co.id = es.company_id
     LEFT JOIN ref.block_types bt ON bt.id = bl.block_type_id
+    LEFT JOIN master.areas est_area ON est_area.id = es.area_id
+    LEFT JOIN master.groups co_group ON co_group.id = co.group_id
 """
 
-# Area tidak ada di hierarki master: diambil dari area statement terbaru blok.
-# Satu pemindaian indeks (block_id, period), bukan LATERAL per baris. LATERAL
-# yang dikorelasikan ke tabel besar (mis. titik sawit) membuat Postgres
-# mengulang pencarian area untuk setiap titik.
-LATEST_AREA_JOIN = """
-    LEFT JOIN (
-        SELECT DISTINCT ON (block_id) block_id, area_id
-        FROM trx.area_statements
-        ORDER BY block_id, period DESC
-    ) la ON la.block_id = bl.id
-    LEFT JOIN master.areas ar ON ar.id = la.area_id
-"""
 
 
 def statement_as_of_join(as_of_param: str | None, extra_condition: str = "", *, exact: bool = False) -> str:
@@ -72,8 +64,11 @@ BLOCK_REF_MATCH = """(
 )"""
 
 
-# Grup dicocokkan lewat kode atau id. Dipakai juga oleh daftar dropdown (alias `es` wajib ada).
-GROUP_MATCH = "es.group_id IN (SELECT gr.id FROM master.groups gr WHERE upper(gr.code) = upper(:{p}) OR gr.id::text = :{p})"
+# Grup (lewat PT, alias `co`) dan area (lewat estate, alias `es`) dicocokkan dengan kode, id, atau nama.
+# Dipakai juga oleh daftar dropdown. Area menerima id lama v2 berawalan 'AR_' (dibuang sebelum dipakai).
+GROUP_MATCH = "co.group_id IN (SELECT gr.id FROM master.groups gr WHERE upper(gr.code) = upper(:{p}) OR gr.id::text = :{p})"
+AREA_MATCH = ("es.area_id IN (SELECT ar.id FROM master.areas ar "
+              "WHERE ar.code = :{p} OR ar.id::text = :{p} OR upper(ar.name) = upper(:{p}))")
 
 
 def _clean(value: str | None) -> str | None:
@@ -103,8 +98,6 @@ class BlockFilter:
     tahun_tanam: str | None = None
     extra_where: list[str] = field(default_factory=list)
     extra_params: dict = field(default_factory=dict)
-    # Scope wilayah memakai alias `ar` (area terbaru blok). Join dipaksa bila klausa itu dipakai.
-    force_area_join: bool = False
 
     def __post_init__(self):
         for name in ("grup", "area", "kode_pt", "kode_est", "kode_afd", "blok", "ownership", "tahun_tanam"):
@@ -112,17 +105,13 @@ class BlockFilter:
         if self.tahun_tanam is not None and not self.tahun_tanam.isdigit():
             self.tahun_tanam = None
 
-    @property
-    def needs_area_join(self) -> bool:
-        return self.area is not None or self.force_area_join
-
     def where(self) -> tuple[list[str], dict]:
         clauses, params = list(self.extra_where), dict(self.extra_params)
         if self.grup:
             clauses.append(GROUP_MATCH.format(p="f_grup"))
             params["f_grup"] = self.grup
         if self.area:
-            clauses.append("(ar.code = :f_area OR ar.id::text = :f_area OR upper(ar.name) = upper(:f_area))")
+            clauses.append(AREA_MATCH.format(p="f_area"))
             params["f_area"] = self.area.removeprefix("AR_")  # id area lama v2: 'AR_BERAU'
         if self.kode_pt:
             clauses.append("(co.code = :f_pt OR co.id::text = :f_pt OR upper(co.name) = upper(:f_pt))")
@@ -144,9 +133,9 @@ class BlockFilter:
             params["f_tt"] = int(self.tahun_tanam)
         return clauses, params
 
-    def sql(self, with_area: bool = False) -> tuple[str, str, dict]:
+    def sql(self) -> tuple[str, str, dict]:
         """(joins, where_sql, params) untuk ditempel setelah `FROM master.blocks bl`."""
-        joins = BLOCK_JOINS + (LATEST_AREA_JOIN if (with_area or self.needs_area_join) else "")
+        joins = BLOCK_JOINS
         clauses, params = self.where()
         where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         return joins, where_sql, params

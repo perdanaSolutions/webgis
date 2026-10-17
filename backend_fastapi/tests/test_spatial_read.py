@@ -226,7 +226,8 @@ def test_block_detail(client, auth, sample_block):
     empty = client.get("/api/v1/spatial/blok/detail", headers=auth,
                        params={"blok_id": sample_block["id"], "bulan": 1, "tahun": 2099}).json()
     assert empty["mode"] == "PERIODE_BULAN_TAHUN"
-    assert empty["periode"] == {"bulan": 1, "tahun": 2099, "label_periode": "Tahun 2099"}
+    assert empty["periode"] == {"bulan": 1, "tahun": 2099, "label_periode": "Tahun 2099",
+                                "year_to_date": False, "produksi_awal": "1-2099", "produksi_akhir": "1-2099"}
     assert empty["informasi_blok"]["tbs"]["aktual"] == 0
     assert empty["informasi_blok"]["yield"]["aktual"] == 0
     assert empty["informasi_blok"]["gap_act_bgt"] == {"value": 0.0, "kategori": ""}
@@ -533,3 +534,77 @@ def test_latest_period_defaults_to_last_uploaded_production(client, auth, sample
     empty = client.get("/api/v1/spatial/periode-terakhir", headers=auth, params={"kode_est": "TIDAK_ADA"}).json()
     assert empty["bulan"] is None and empty["sumber"] is None
     assert all(value is None for value in empty["per_data"].values())
+
+
+def test_geojson_without_production_keeps_areal_statement_and_rotation_bound(client, auth, sample_block):
+    """Tahun tanpa produksi: areal_statement tetap dari statement tahun itu; rotasi tidak melewati tahun itu."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        year = conn.execute(text("""
+            SELECT extract(year FROM a.period)::int FROM trx.area_statements a
+            WHERE a.block_id = :b AND NOT EXISTS (
+                SELECT 1 FROM trx.block_productions p JOIN master.blocks bl ON bl.id = p.block_id
+                JOIN master.divisions dv ON dv.id = bl.division_id
+                JOIN master.estates es ON es.id = dv.estate_id
+                WHERE es.code = :e AND extract(year FROM p.period) = extract(year FROM a.period))
+              AND EXISTS (SELECT 1 FROM spatial.block_boundaries bb WHERE bb.block_id = :b
+                          AND bb.period <= make_date(extract(year FROM a.period)::int, 12, 1))
+            ORDER BY a.period DESC LIMIT 1
+        """), {"b": sample_block["id"], "e": sample_block["estate"]}).scalar()
+        if year is None:
+            import pytest
+            pytest.skip("Sampel tidak punya tahun dengan areal statement tanpa produksi.")
+        latest = conn.execute(text("""
+            SELECT max(period) FROM trx.area_statements WHERE block_id = :b AND extract(year FROM period) = :y
+        """), {"b": sample_block["id"], "y": year}).scalar()
+    props = _block_props(client, auth, sample_block, tahun=year)
+    assert "produksi_tbs" not in props
+    assert props["areal_statement"]["periode"] == f"{latest.month}-{latest.year}"
+    if "rotasi_terakhir" in props:
+        assert props["rotasi_terakhir"]["tanggal"] <= f"{year}-12-01"
+
+
+def test_latest_period_hides_transaction_tables_without_access(client, auth, sample_block, monkeypatch):
+    from app.services import user_access
+
+    monkeypatch.setattr(user_access, "transaction_keys", lambda db, user: {"trx.area_statements"})
+    body = client.get("/api/v1/spatial/periode-terakhir", headers=auth,
+                      params={"kode_est": sample_block["estate"]}).json()
+    assert set(body["per_data"]) == {"areal_statement", "batas_blok"}
+    assert body["sumber"] in (None, "areal_statement", "batas_blok")
+
+
+def test_group_estate_count_follows_access(client, auth, sample_block, monkeypatch):
+    from sqlalchemy import text
+
+    from app.db.session import engine
+    from app.services import user_access
+
+    with engine.connect() as conn:
+        estate_id = conn.execute(text("SELECT id FROM master.estates WHERE code = :e"),
+                                 {"e": sample_block["estate"]}).scalar()
+    monkeypatch.setattr(user_access, "hierarchy_clause",
+                        lambda db, user, level: ("es.id = :only_estate", {"only_estate": estate_id}))
+    groups = client.get("/api/v1/spatial/grup", headers=auth).json()["data"]
+    assert len(groups) == 1 and groups[0]["jumlah_estate"] == 1
+
+
+def test_block_detail_year_to_date_matches_geojson(client, auth, sample_block):
+    """Detail blok dengan year_to_date = angka produksi_tbs GeoJSON dengan year_to_date (Januari s/d bulan)."""
+    period = _production_period(sample_block)
+    params = {"bulan": period.month, "tahun": period.year, "year_to_date": "true"}
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={"blok_id": sample_block["id"], **params}).json()
+    prod = _block_props(client, auth, sample_block, **params)["produksi_tbs"]
+    info, periode = detail["informasi_blok"], detail["periode"]
+    assert (periode["year_to_date"], periode["produksi_awal"], periode["produksi_akhir"]) == (
+        True, f"1-{period.year}", f"{period.month}-{period.year}")
+    assert info["tbs"]["aktual"] == prod["tbs_aktual"]
+    assert info["yield"]["aktual"] == prod["y_aktual"]
+    assert (info["gap_act_bgt"]["kategori"] or None) == prod["kategori_budget"]
+
+    month = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year}).json()
+    assert month["periode"]["produksi_awal"] == month["periode"]["produksi_akhir"] == f"{period.month}-{period.year}"

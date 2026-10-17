@@ -10,6 +10,7 @@ from app.schemas.access import (
     AksesMenuResponse,
     AksesTransaksiResponse,
     AreaTreeSchema,
+    GroupTreeSchema,
 )
 
 AksesDataItem = Union[AreaTreeSchema, AksesDataInput]
@@ -76,6 +77,7 @@ class RoleResponse(RoleBase):
     akses_menu: List[AksesMenuResponse] = []
     akses_data: List[AksesDataResponse] = []
     akses_wilayah: List[AreaTreeSchema] = []
+    akses_wilayah_grup: List[GroupTreeSchema] = []  # urutan struktur v2: Grup -> PT -> Area -> Estate -> Afdeling
     akses_transaksi: List[AksesTransaksiResponse] = []
 
     class Config:
