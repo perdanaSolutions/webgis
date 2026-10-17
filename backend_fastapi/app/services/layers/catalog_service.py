@@ -27,6 +27,7 @@ from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
+from app.services.upload.progress import SILENT, Progress
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import BlockIndex, BlockMatchReport, block_label, geojson_block_keys, match_blocks
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
@@ -405,7 +406,8 @@ def _cast(value, data_type: str):
     return json.dumps(value) if isinstance(value, (dict, list)) else clean_str(value)
 
 
-def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True) -> dict:
+def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True, progress: Progress = SILENT) -> dict:
+    progress.stage("membaca_file")
     features = parse_features(content)
     columns = _attribute_columns(db, layer)
     has_block = layer["relasi_blok"]
@@ -414,8 +416,10 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True) ->
     invalid_samples: list[str] = []
     report = UploadReport(total=len(features), features=features)
 
+    progress.stage("validasi", total=len(features))
     candidates: list[tuple[int, tuple | None, dict]] = []
     for i, feature in enumerate(features):
+        progress.step(i + 1)
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props) if has_block else None
         if has_block and keys is None:
@@ -442,7 +446,7 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True) ->
 
     match = BlockMatchReport()
     if has_block:
-        block_ids, match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
+        block_ids, match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
         for (_, _, row), block_id in zip(candidates, block_ids):
             row["block_id"] = block_id
 
@@ -481,9 +485,11 @@ def _replace_condition(layer: dict, prepared: dict) -> tuple[str, dict]:
     return (f" AND ({' OR '.join(clauses)})" if clauses else ""), params
 
 
-def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun: int) -> dict:
+def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun: int,
+                    progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
-    prepared = _prepare(db, layer, content, with_wkb=False)
+    prepared = _prepare(db, layer, content, with_wkb=False, progress=progress)
+    progress.stage("menyusun_laporan")
     s = prepared["stats"]
     will_replace = 0
     if prepared["rows"]:
@@ -526,16 +532,18 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
 
 
 def execute_generic(db: Session, layer: dict, content: bytes, filename: str | None, bulan: int, tahun: int,
-                    user_id: UUID | None) -> dict:
+                    user_id: UUID | None, progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
     q_table = quote_table(layer["table_name"])
     batch_id = start_batch(db, source_type="GEOJSON_UPLOAD", target_table=layer["table_name"], source_name=filename,
                            user_id=user_id, period=period, metadata={"layer": layer["kode"]})
+    progress.batch(batch_id)
     try:
-        prepared = _prepare(db, layer, content)
+        prepared = _prepare(db, layer, content, progress=progress)
         rows, stats = prepared["rows"], prepared["stats"]
         replaced = 0
         if rows:
+            progress.stage("menyimpan")
             condition, params = _replace_condition(layer, prepared)
             replaced = db.execute(text(f"DELETE FROM {q_table} WHERE period = :p{condition}"),
                                   {**params, "p": period}).rowcount
@@ -545,7 +553,9 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
                 [*([r["block_id"]] if layer["relasi_blok"] else []), period, *(r.get(c) for c in attr), r["geom"], batch_id]
                 for r in rows
             ))
+        progress.stage("karantina")
         quarantined = quarantine.save(db, batch_id, layer["table_name"], quarantine.from_report(prepared["report"]))
+        progress.stage("menyelesaikan")
         stored_version = bump(db, GEOJSON) if rows else None
         db.commit()
     except Exception as exc:

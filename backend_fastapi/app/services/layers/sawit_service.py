@@ -22,6 +22,7 @@ from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
+from app.services.upload.progress import SILENT, Progress
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
@@ -47,14 +48,18 @@ class PreparedSawit:
     report: UploadReport = field(default_factory=UploadReport)
 
 
-def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedSawit:
+def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = True,
+             progress: Progress = SILENT) -> PreparedSawit:
+    progress.stage("membaca_file")
     features = parse_features(content)
     categories = RefResolver(db, "tree_categories", create_missing=create_refs)
     result = PreparedSawit(total=len(features), report=UploadReport(total=len(features), features=features))
     report = result.report
 
+    progress.stage("validasi", total=len(features))
     candidates: list[tuple[int, tuple, dict]] = []
     for i, feature in enumerate(features):
+        progress.step(i + 1)
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props)
         objectid = to_int(props.get("OBJECTID"))
@@ -89,7 +94,7 @@ def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = Tr
             "diameter": diameter, "spacing": spacing, "geom": geom,
         }))
 
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
+    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
     indexes: dict[int, int] = {}  # objectid -> fitur_index yang dipakai
     for (i, keys, row), block_id in zip(candidates, block_ids):
         if block_id is None:
@@ -107,9 +112,10 @@ def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = Tr
     return result
 
 
-def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
+def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
-    prepared = _prepare(db, content, create_refs=False, with_wkb=False)
+    prepared = _prepare(db, content, create_refs=False, with_wkb=False, progress=progress)
+    progress.stage("menyusun_laporan")
     blocks = sorted({r["block_id"] for r in prepared.rows.values()})
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {TABLE} WHERE period = :p AND block_id = ANY(:b)"), {"p": period, "b": blocks}
@@ -143,14 +149,17 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     }
 
 
-def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun: int, user_id: UUID | None) -> dict:
+def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun: int, user_id: UUID | None,
+            progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
     batch_id = start_batch(db, source_type="GEOJSON_UPLOAD", target_table=TABLE, source_name=filename,
                            user_id=user_id, period=period, metadata={"layer": "sawit"})
+    progress.batch(batch_id)
     try:
-        prepared = _prepare(db, content, create_refs=True)
+        prepared = _prepare(db, content, create_refs=True, progress=progress)
         replaced = 0
         if prepared.rows:
+            progress.stage("menyimpan")
             db.execute(text("""
                 CREATE TEMP TABLE _sawit_stage (
                     objectid bigint PRIMARY KEY, block_id bigint, category_id smallint,
@@ -177,7 +186,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
                 SELECT pt.id, :p, s.block_id, s.category_id, s.diameter, s.spacing, :batch
                 FROM _sawit_stage s JOIN spatial.palm_trees pt USING (objectid)
             """), {"p": period, "batch": str(batch_id)})
+        progress.stage("karantina")
         quarantined = quarantine.save(db, batch_id, TABLE, quarantine.from_report(prepared.report))
+        progress.stage("menyelesaikan")
         stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:

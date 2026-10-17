@@ -111,24 +111,23 @@ function subtitleOf(layer: OverlayLayer) {
   return layer.period ? `${count} · ${layer.period}` : count;
 }
 
-const HIERARCHY: FieldKey[] = ["area", "pt", "estate", "afdeling", "blok"];
+const LOCKED: FieldKey[] = ["pt", "area"];
 
 const fields = computed(() => {
   const all = props.allowAll;
   return [
-    { key: "grup" as const, label: "Grup", value: props.grup, options: props.groupOptions, placeholder: "Semua grup", disabled: false },
-    { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: all ? "Semua area" : "Pilih area", disabled: false },
-    { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: all ? "Semua perusahaan" : "Pilih perusahaan", disabled: !props.area },
-    { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: all ? "Semua estate" : "Pilih estate", disabled: !props.pt },
-    { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: all ? "Semua afdeling" : "Pilih afdeling", disabled: !props.estate },
-    { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: all ? "Semua blok" : "Pilih blok", disabled: !props.afdeling },
     { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
+    { key: "grup" as const, label: "Grup", value: props.grup, options: props.groupOptions, placeholder: "Semua grup", disabled: false },
+    { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: all ? "Semua perusahaan" : "Pilih perusahaan", disabled: false },
+    { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: all ? "Semua area" : "Pilih area", disabled: !props.pt },
+    { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: !props.area },
+    { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: "Semua afdeling", disabled: !props.area },
+    { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Semua blok", disabled: !props.area },
   ];
 });
 
 function itemsOf(field: { key: FieldKey; options: Option[]; placeholder: string }) {
-  const hierarchy = HIERARCHY.includes(field.key);
-  if (hierarchy && !props.allowAll) return field.options;
+  if (LOCKED.includes(field.key) && !props.allowAll) return field.options;
   return [{ label: field.placeholder, value: "" }, ...field.options];
 }
 
@@ -166,53 +165,51 @@ function onField(key: FieldKey, value: unknown) {
             :menu-props="{ contentClass: 'bp-filter-menu' }" @update:model-value="onField(field.key, $event)" />
         </label>
 
-        <div v-if="field.key === 'ownership'" class="mb-3">
-          <span class="bp-label">Periode</span>
-          <div class="grid grid-cols-2 gap-2">
-            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
-              item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
-              density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
-              menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-              :menu-props="{ contentClass: 'bp-filter-menu' }"
-              @update:model-value="emit('update:bulan', $event == null ? '' : String($event))" />
-            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahun || null" :items="yearOptions"
-              item-title="label" item-value="value" placeholder="Tahun" :disabled="loading" variant="solo" flat
-              density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
-              menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-              :menu-props="{ contentClass: 'bp-filter-menu' }"
-              @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
-          </div>
-
-          <div class="mt-3 flex items-center justify-between gap-3">
-            <span class="min-w-0">
-              <span class="block text-13 font-semibold text-[#1f2a18]">Year to date</span>
-              <span class="block text-12 text-[#6e7866]">Produksi Januari s/d bulan Periode</span>
-            </span>
-            <button type="button" role="switch" :aria-checked="yearToDate" aria-label="Year to date" class="bp-switch"
-              :class="yearToDate && 'is-on'" :disabled="loading"
-              @click="emit('update:yearToDate', !yearToDate)"><span /></button>
-          </div>
-
-          <span class="bp-label mt-3">Periode pembanding</span>
-          <div class="grid grid-cols-2 gap-2">
-            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulanComparison || null"
-              :items="comparisonMonthOptions" item-title="label" item-value="value" placeholder="Bulan"
-              :disabled="loading" variant="solo" flat density="comfortable" hide-details single-line color="#638840"
-              base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-              :menu-props="{ contentClass: 'bp-filter-menu' }"
-              @update:model-value="emit('update:bulanComparison', $event == null ? '' : String($event))" />
-            <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahunComparison || null"
-              :items="[{ label: 'Tahun', value: '' }, ...yearOptions]" item-title="label" item-value="value"
-              placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details
-              single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
-              no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu' }"
-              @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
-          </div>
-          <p v-if="comparisonIncomplete" class="mt-1 text-12 text-[#b45309]">
-            Isi bulan dan tahun pembanding agar kategori pembanding ikut dimuat.
-          </p>
-        </div>
       </template>
+
+      <div class="mb-3">
+        <div class="mb-1.5 flex items-center justify-between gap-3">
+          <span class="bp-label" style="margin-bottom: 0">Periode</span>
+          <label class="flex shrink-0 items-center gap-2 text-13 font-semibold text-[#1f2a18]">
+            <input type="checkbox" class="h-4 w-4 accent-[#638840]" :checked="yearToDate" :disabled="loading"
+              @change="emit('update:yearToDate', ($event.target as HTMLInputElement).checked)">
+            Year to Date
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
+            item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
+            density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
+            menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            @update:model-value="emit('update:bulan', $event == null ? '' : String($event))" />
+          <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahun || null" :items="yearOptions"
+            item-title="label" item-value="value" placeholder="Tahun" :disabled="loading" variant="solo" flat
+            density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
+            menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
+        </div>
+
+        <span class="bp-label mt-3">Periode pembanding</span>
+        <div class="grid grid-cols-2 gap-2">
+          <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulanComparison || null"
+            :items="comparisonMonthOptions" item-title="label" item-value="value" placeholder="Bulan"
+            :disabled="loading" variant="solo" flat density="comfortable" hide-details single-line color="#638840"
+            base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            @update:model-value="emit('update:bulanComparison', $event == null ? '' : String($event))" />
+          <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahunComparison || null"
+            :items="[{ label: 'Tahun', value: '' }, ...yearOptions]" item-title="label" item-value="value"
+            placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details
+            single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
+            no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu' }"
+            @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
+        </div>
+        <p v-if="comparisonIncomplete" class="mt-1 text-12 text-[#b45309]">
+          Isi bulan dan tahun pembanding agar kategori pembanding ikut dimuat.
+        </p>
+      </div>
 
       <div class="mt-4 flex items-start gap-2 rounded-xl bg-[#eef3e7] px-3.5 py-3 text-13 text-[#55604c]">
         <svg viewBox="0 0 24 24" class="mt-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
@@ -230,7 +227,7 @@ function onField(key: FieldKey, value: unknown) {
           <circle cx="12" cy="12" r="9" class="opacity-25" />
           <path d="M21 12a9 9 0 0 1-9 9" />
         </svg>
-        <span class="text-white">{{ loading ? "Menerapkan…" : "Apply Filter" }}</span>
+        <span class="!text-white">{{ loading ? "Menerapkan…" : "Apply Filter" }}</span>
       </button>
     </section>
 

@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.upload.progress import SILENT, Progress
 from app.utils.geojson import to_ewkb
 from app.utils.parsing import clean_str, norm_key
 
@@ -172,7 +173,8 @@ def block_label(keys: tuple) -> str:
     return f"{estate}/{division}/{block}"
 
 
-def match_blocks(db: Session, index: BlockIndex, candidates: list[tuple[tuple, str]]) -> tuple[list[int | None], BlockMatchReport]:
+def match_blocks(db: Session, index: BlockIndex, candidates: list[tuple[tuple, str]],
+                 progress: Progress = SILENT) -> tuple[list[int | None], BlockMatchReport]:
     """
     Tentukan block_id untuk setiap (keys GeoJSON, hex EWKB):
     1) cocokkan label Estate/Afdeling/Blok ke master;
@@ -183,6 +185,7 @@ def match_blocks(db: Session, index: BlockIndex, candidates: list[tuple[tuple, s
     block_ids = [index.resolve(*keys) for keys, _ in candidates]
     pending = [i for i, b in enumerate(block_ids) if b is None]
     if pending:
+        progress.stage("mencocokkan_geometri", n=len(pending))
         located = locate_blocks_by_geometry(db, [(candidates[i][1], index.estate_id(*candidates[i][0][0])) for i in pending])
         found_ids = {b for b in located if b is not None}
         labels = dict(db.execute(text("""

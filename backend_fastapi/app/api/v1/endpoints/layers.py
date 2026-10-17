@@ -15,6 +15,8 @@ from app.api.params import BlockFilterDep, Bulan, BulanWajib, Tahun, TahunTanam,
 from app.services import user_access
 from app.services.layers import layer_service, sawit_service
 from app.services.layers.specs import LAYER_SPECS, SAWIT_LABEL, LayerSpec
+from app.services.upload import runner
+from app.services.upload.runner import UploadInput
 
 BlokParam = Annotated[str | None, Query(description="Filter opsional per blok (ID/kode)")]
 
@@ -23,13 +25,11 @@ def _layer_router(spec: LayerSpec, include_geojson: bool = True) -> APIRouter:
     router = APIRouter(prefix=f"/{spec.code}", tags=[f"Layer {spec.label}"])
 
     def analyze(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib, file: UploadedFile):
-        result = layer_service.analyze(db, spec, read_upload(file), bulan, tahun)
-        return {"status": "success", "message": f"Analisis file GeoJSON {spec.code} berhasil.", "data": result}
+        return runner.builtin(db, runner.ANALYZE, spec, UploadInput(read_upload(file), file.filename, bulan, tahun))
 
     def execute(db: DbSession, user: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib, file: UploadedFile):
-        stats = layer_service.execute(db, spec, read_upload(file), file.filename, bulan, tahun, user.id)
-        return {"status": "success", "message": f"Proses upload spasial {spec.code} periode {bulan}-{tahun} selesai.",
-                "detail": stats}
+        return runner.builtin(db, runner.EXECUTE, spec,
+                              UploadInput(read_upload(file), file.filename, bulan, tahun, user.id))
 
     def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
         user_access.require_layer(db, user, spec.code)
@@ -58,13 +58,10 @@ def _sawit_router() -> APIRouter:
     router = APIRouter(prefix="/sawit", tags=[f"Layer {SAWIT_LABEL}"])
 
     def analyze(db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib, file: UploadedFile):
-        result = sawit_service.analyze(db, read_upload(file), bulan, tahun)
-        return {"status": "success", "message": "Analisis file GeoJSON sawit berhasil.", "data": result}
+        return runner.sawit(db, runner.ANALYZE, UploadInput(read_upload(file), file.filename, bulan, tahun))
 
     def execute(db: DbSession, user: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib, file: UploadedFile):
-        stats = sawit_service.execute(db, read_upload(file), file.filename, bulan, tahun, user.id)
-        return {"status": "success", "message": f"Proses bulk upload spasial sawit periode {bulan}-{tahun} selesai.",
-                "detail": stats}
+        return runner.sawit(db, runner.EXECUTE, UploadInput(read_upload(file), file.filename, bulan, tahun, user.id))
 
     def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None,
                   tahun_tanam: TahunTanam = None):

@@ -85,6 +85,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
   const masterDataItems = ref<MasterDataAccessItem[]>([]);
   const transactionItems = ref<TransactionAccessItem[]>([]);
   const allDataMenu = ref<any[]>([]);
+  const allDataGroup = ref<any[]>([]);
   const allDataArea = ref<any[]>([]);
   const allDataPerusahaan = ref<any[]>([]);
   const allDataEstate = ref<any[]>([]);
@@ -165,6 +166,49 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       ) as any;
 
       return allDataMenu.value;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataGroup() {
+    try {
+      allDataGroup.value = await fetchAllSpatialPages("/v1/spatial/grup");
+      return allDataGroup.value;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataPerusahaanByGroup(kodeGrup: string) {
+    try {
+      if (!kodeGrup) return [];
+      return await fetchAllSpatialPages(
+        `/v1/spatial/pt?kode_grup=${encodeURIComponent(kodeGrup)}`,
+      );
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataAreaByPerusahaan(kodeGrup: string, kodePt: string) {
+    try {
+      const params = new URLSearchParams();
+      if (kodeGrup) params.set("kode_grup", kodeGrup);
+      if (kodePt) params.set("kode_pt", kodePt);
+      return await fetchAllSpatialPages(`/v1/spatial/area?${params.toString()}`);
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  async function initDataEstateByScope(kodeGrup: string, kodePt: string, areaId: string) {
+    try {
+      const params = new URLSearchParams();
+      if (kodeGrup) params.set("kode_grup", kodeGrup);
+      if (kodePt) params.set("kode_pt", kodePt);
+      if (areaId) params.set("area_id", areaId);
+      return await fetchAllSpatialPages(`/v1/spatial/estate?${params.toString()}`);
     } catch (error: any) {
       throw error;
     }
@@ -476,15 +520,16 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     const tree = Array.isArray(payload?.akses_data) ? payload.akses_data : [];
     const wantsWilayah =
       uniqueStringArray([
-        ...(payload?.area_ids ?? []),
+        ...(payload?.group_ids ?? []),
         ...(payload?.perusahaan_ids ?? []),
+        ...(payload?.area_ids ?? []),
         ...(payload?.estate_ids ?? []),
         ...(payload?.afdeling_ids ?? []),
       ]).length > 0;
 
     if (wantsWilayah && tree.length === 0) {
       throw new Error(
-        "Data wilayah belum siap disimpan. Tunggu pilihan area selesai dimuat, lalu simpan lagi.",
+        "Data wilayah belum siap disimpan. Tunggu pilihan wilayah selesai dimuat, lalu simpan lagi.",
       );
     }
     if (layerRequested.length !== layerTables.length) {
@@ -539,6 +584,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     return {
       menu: Array.isArray(role?.akses_menu) ? role.akses_menu : [],
       data: Array.isArray(role?.akses_wilayah) ? role.akses_wilayah : [],
+      grup: Array.isArray(role?.akses_wilayah_grup) ? role.akses_wilayah_grup : [],
       transaksi: Array.isArray(role?.akses_transaksi) ? role.akses_transaksi : [],
     };
   }
@@ -586,6 +632,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     errorMessage,
     hasRoles,
     allDataMenu,
+    allDataGroup,
     allDataArea,
     allDataPerusahaan,
     allDataEstate,
@@ -599,6 +646,10 @@ export const useManageRoleStore = defineStore("manageRole", () => {
     splitSavedGrants,
     clearError,
     initDataMenu,
+    initDataGroup,
+    initDataPerusahaanByGroup,
+    initDataAreaByPerusahaan,
+    initDataEstateByScope,
     initDataArea,
     initDataPerusahaan,
     initDataPerusahaanByArea,

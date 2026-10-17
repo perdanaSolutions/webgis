@@ -92,8 +92,8 @@ def list_companies(db: Session, search: str | None, kode_pt: str | None, area: s
 
     # Area "utama" PT = area dengan estate terbanyak milik PT itu (atau area yang difilter).
     sql = f"""
-        SELECT co.id, co.code, COALESCE(NULLIF(co.name, ''), co.code) AS name, pa.area_code, pa.area_name,
-               gr.code AS group_code
+        SELECT co.id, co.code, COALESCE(NULLIF(co.name, ''), co.code) AS name, co.code AS short_name_pt,
+               pa.area_code, pa.area_name, gr.code AS group_code
         FROM master.companies co
         LEFT JOIN master.groups gr ON gr.id = co.group_id
         LEFT JOIN LATERAL (
@@ -106,7 +106,8 @@ def list_companies(db: Session, search: str | None, kode_pt: str | None, area: s
         {_where(clauses)}
     """
     return paginate_sql(db, sql, params, "q.name", page, limit, lambda r: {
-        "id": r["id"], "kode_pt": r["code"], "nama_pt": r["name"], "kode_grup": r["group_code"],
+        "id": r["id"], "kode_pt": r["code"], "nama_pt": r["name"], "short_name_pt": r["short_name_pt"],
+        "kode_grup": r["group_code"],
         "area_id": r["area_code"], "kode_area": r["area_code"], "nama_area": r["area_name"],
         "bulan": None, "tahun": None,
     })

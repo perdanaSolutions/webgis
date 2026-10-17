@@ -19,6 +19,8 @@ from app.services import (
 )
 from app.services.block_filter import BlockFilter
 from app.services.layers.catalog_service import generic_tables
+from app.services.upload import runner
+from app.services.upload.runner import UploadInput
 from app.utils.period import as_of_period
 
 router = APIRouter()
@@ -360,7 +362,7 @@ def upload_geometry_analyze(
     current_user=Depends(deps.get_current_user),
 ):
     del current_user
-    return block_upload_service.analyze(db, read_upload(file), bulan, tahun)
+    return runner.blok(db, runner.ANALYZE, UploadInput(read_upload(file), file.filename, bulan, tahun))
 
 
 @router.post("/blok-geometry/upload-execute", summary="Simpan GeoJSON batas blok")
@@ -371,8 +373,7 @@ def upload_blok_geometry(
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
-    result = block_upload_service.execute(db, read_upload(file), file.filename, bulan, tahun, current_user.id)
-    return {"status": "success", "data": result}
+    return runner.blok(db, runner.EXECUTE, UploadInput(read_upload(file), file.filename, bulan, tahun, current_user.id))
 
 
 @router.delete("/cleanup-period", summary="Hapus data spasial satu periode")

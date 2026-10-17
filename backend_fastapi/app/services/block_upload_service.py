@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.services.data_version import GEOJSON, bump
 from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
+from app.services.upload.progress import SILENT, Progress
 from app.services.upload.resolvers import BlockIndex, RefResolver
 from app.utils.geojson import merge_polygons, parse_features, prepare_geometry, to_ewkb
 from app.utils.parsing import clean_str, norm_key
@@ -205,7 +206,7 @@ def _block_label(item: BlockFeature) -> str:
     return f"{item.estate_code}/{item.division}/{item.block}"
 
 
-def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
+def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progress = SILENT) -> dict:
     """
     Analisis (tanpa menyimpan) file batas blok. Selain angka ringkas, dilaporkan juga
     rinciannya supaya pengunggah tahu fitur mana yang bermasalah dan apa akibatnya.
@@ -213,6 +214,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     """
     period = to_period(bulan, tahun)
     label = period_label(period)
+    progress.stage("membaca_file")
     features = parse_features(content)
     index = BlockIndex.load(db)
     existing_boundaries = set(db.execute(
@@ -223,7 +225,9 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
     areas, companies = set(), set()
     # Satu blok bisa muncul di beberapa fitur; dikelompokkan per kunci estate/afdeling/blok.
     by_block: dict[tuple, dict] = {}
+    progress.stage("validasi", total=len(features))
     for i, feature in enumerate(features):
+        progress.step(i + 1)
         props = feature.get("properties") or {}
         item = _read_feature(props, feature.get("geometry"))
         if item is None:
@@ -246,6 +250,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int) -> dict:
         by_block[key]["fitur"].append(i)
         by_block[key].setdefault("items", []).append(item)
 
+    progress.stage("menyusun_laporan")
     twin_blocks = [b for b in by_block.values() if b["status"] == "BLOK_KEMBAR"]
     blocks = [b for b in by_block.values() if b["status"] != "BLOK_KEMBAR"]
     plans, refs = _org_plans(db, (item for b in blocks for item in b["items"]))
@@ -511,10 +516,13 @@ def _apply_org(db: Session, cache: _MasterCache, plans: dict[str, list[dict]], r
     }
 
 
-def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun: int, user_id: UUID | None) -> dict:
+def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun: int, user_id: UUID | None,
+            progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
     batch_id = start_batch(db, source_type="GEOJSON_UPLOAD", target_table=TARGET_TABLE, source_name=filename,
                            user_id=user_id, period=period, metadata={"layer": "blok"})
+    progress.batch(batch_id)
+    progress.stage("membaca_file")
     features = parse_features(content)
     index, cache = BlockIndex.load(db), _MasterCache.load(db)
     block_types = RefResolver(db, "block_types")
@@ -524,7 +532,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
     rejected: list[quarantine.Rejected] = []
     # Fitur dikelompokkan per blok dulu supaya potongan poligon blok yang sama digabung, bukan saling menimpa.
     blocks: dict[tuple, dict] = {}
+    progress.stage("validasi", total=len(features))
     for no, feature in enumerate(features, start=1):
+        progress.step(no)
         props = feature.get("properties") or {}
         item = _read_feature(props, feature.get("geometry"))
         if item is None or item.geom is None:
@@ -541,7 +551,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
 
     success = 0  # jumlah fitur yang tersimpan (potongan blok terpecah dihitung masing-masing)
     twin_skipped = 0
-    for entry in blocks.values():
+    progress.stage("menyimpan", total=len(blocks))
+    for done, entry in enumerate(blocks.values(), start=1):
+        progress.step(done)  # di luar savepoint: UploadCancelled tidak boleh tertangkap sebagai gagal per blok
         item = entry["item"]
         if index.resolve((item.estate_code,), item.division, item.block) is None and (
                 twins := index.duplicate_divisions((item.estate_code,), item.block)):
@@ -575,7 +587,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
             index, cache = BlockIndex.load(db), _MasterCache.load(db)
             cache.created = created
     org = _apply_org(db, cache, *_org_plans(db, (i for e in blocks.values() for i in e["items"])))
+    progress.stage("karantina")
     quarantined = quarantine.save(db, batch_id, TARGET_TABLE, rejected)
+    progress.stage("menyelesaikan")
     org_changed = any(org[k] for k in ("grup_pt_diisi", "grup_pt_diganti", "area_estate_diisi", "area_estate_diganti"))
     stored_version = bump(db, GEOJSON) if success or org_changed else None
     db.commit()

@@ -50,6 +50,42 @@ export type CreateThemePayload = {
   kolom: ThemeColumn[];
 };
 
+export type UploadJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export type UploadJob = {
+  job_id: string;
+  status: UploadJobStatus;
+  kind: "analyze" | "execute";
+  layer: string;
+  bulan: number;
+  tahun: number;
+  filename: string | null;
+  stage: string | null;
+  message: string | null;
+  current: number | null;
+  total: number | null;
+  elapsed_seconds: number;
+  queue_ahead: number | null;
+  cancel_requested: boolean;
+  error_message: string | null;
+  batch_id: string | null;
+  result?: Record<string, any> | null;
+};
+
+const JOB_STORAGE_KEY = "document-upload-job-id";
+const JOB_POLL_MS = 1500;
+const JOB_POLL_MAX_ERRORS = 5;
+const FINISHED_STATUSES: UploadJobStatus[] = ["succeeded", "failed", "cancelled"];
+
+// Di luar state Pinia: timer tetap jalan saat pengguna pindah halaman di dalam SPA.
+let jobPollTimer: ReturnType<typeof setTimeout> | null = null;
+
+function rememberJob(jobId: string | null) {
+  if (!import.meta.client) return;
+  if (jobId) sessionStorage.setItem(JOB_STORAGE_KEY, jobId);
+  else sessionStorage.removeItem(JOB_STORAGE_KEY);
+}
+
 function mapCatalogToCategory(item: GeoCatalogItem): UploadCategory {
   return {
     value: item.kode,
@@ -112,6 +148,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     isParsing: false,
     isUploading: false,
     uploadProgress: 0,
+    activeJob: null as UploadJob | null,
+    isCancellingJob: false,
+    jobPollErrors: 0,
   }),
 
   getters: {
@@ -312,35 +351,163 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       }
 
       this.isUploading = true;
-      this.uploadProgress = 15;
 
       try {
-        const apiBaseUrl = getApiBaseUrl();
         const formData = new FormData();
         formData.append("file", this.selectedFile);
-        this.uploadProgress = 45;
+        formData.append("kind", isAnalyze ? "analyze" : "execute");
+        formData.append("layer", dataFindOneCategory.value);
+        formData.append("bulan", String(Number(this.month)));
+        formData.append("tahun", String(Number(this.year)));
 
-        const response = await $api<Record<string, any>>(
-          `${apiBaseUrl}/v1/spatial${action}?bulan=${this.month}&tahun=${this.year}`,
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
-
-        this.uploadProgress = 100;
-        if (isAnalyze) {
-          this.summaryAnalyze = response ?? {};
-        } else {
-          this.executeResponse = response ?? {};
-        }
+        // Server membalas 202 begitu file tersimpan di antrian; prosesnya dipantau lewat polling.
+        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs`, {
+          method: "POST",
+          body: formData,
+        });
+        this.trackJob(job);
       } catch (error) {
         const fallback = isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.";
         const message = readUploadError(error, fallback);
         if (isAnalyze) this.errorMessage = message;
         else this.executeError = message;
-      } finally {
         this.isUploading = false;
+      }
+    },
+
+    trackJob(job: UploadJob) {
+      this.activeJob = job;
+      this.isUploading = true;
+      this.jobPollErrors = 0;
+      rememberJob(job.job_id);
+      if (FINISHED_STATUSES.includes(job.status)) {
+        this.finishJob(job);
+        return;
+      }
+      this.scheduleJobPoll();
+    },
+
+    scheduleJobPoll() {
+      if (jobPollTimer) clearTimeout(jobPollTimer);
+      jobPollTimer = setTimeout(() => this.pollJob(), JOB_POLL_MS);
+    },
+
+    stopJobPolling() {
+      if (jobPollTimer) clearTimeout(jobPollTimer);
+      jobPollTimer = null;
+    },
+
+    async pollJob() {
+      const jobId = this.activeJob?.job_id;
+      if (!jobId) return;
+      const { $api } = useNuxtApp();
+      try {
+        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${jobId}`);
+        this.jobPollErrors = 0;
+        this.activeJob = job;
+        if (FINISHED_STATUSES.includes(job.status)) {
+          this.finishJob(job);
+          return;
+        }
+      } catch (error) {
+        const status = (error as { response?: { status?: number } } | null)?.response?.status;
+        this.jobPollErrors += 1;
+        if (status === 404 || this.jobPollErrors >= JOB_POLL_MAX_ERRORS) {
+          const message = readUploadError(
+            error,
+            "Status proses tidak bisa dibaca. Cek Riwayat Upload untuk melihat hasilnya.",
+          );
+          this.abandonJob(message);
+          return;
+        }
+      }
+      this.scheduleJobPoll();
+    },
+
+    finishJob(job: UploadJob) {
+      this.stopJobPolling();
+      rememberJob(null);
+      this.activeJob = null;
+      this.isUploading = false;
+      this.isCancellingJob = false;
+
+      const isAnalyze = job.kind === "analyze";
+      if (job.status === "succeeded") {
+        if (isAnalyze) this.summaryAnalyze = job.result ?? {};
+        else this.executeResponse = job.result ?? {};
+        if (isAnalyze && !this.selectedFile) {
+          this.errorMessage =
+            "Halaman sempat dimuat ulang, jadi file perlu dipilih ulang sebelum data bisa disimpan.";
+        }
+        return;
+      }
+      if (job.status === "cancelled") {
+        this.errorMessage = isAnalyze
+          ? "Analisis dibatalkan."
+          : "Penyimpanan dibatalkan. Tidak ada data yang disimpan.";
+        return;
+      }
+      const message = job.error_message || (isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.");
+      if (isAnalyze) this.errorMessage = message;
+      else this.executeError = message;
+    },
+
+    abandonJob(message: string) {
+      const isAnalyze = this.activeJob?.kind !== "execute";
+      this.stopJobPolling();
+      rememberJob(null);
+      this.activeJob = null;
+      this.isUploading = false;
+      this.isCancellingJob = false;
+      if (isAnalyze) this.errorMessage = message;
+      else this.executeError = message;
+    },
+
+    async cancelJob() {
+      const jobId = this.activeJob?.job_id;
+      if (!jobId || this.isCancellingJob) return;
+      const { $api } = useNuxtApp();
+      this.isCancellingJob = true;
+      try {
+        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${jobId}/cancel`, {
+          method: "POST",
+        });
+        this.activeJob = job;
+        if (FINISHED_STATUSES.includes(job.status)) this.finishJob(job);
+      } catch {
+        // 409 = proses sudah selesai lebih dulu; hasil akhirnya tetap diambil oleh polling.
+        this.isCancellingJob = false;
+      }
+    },
+
+    /** Lanjutkan memantau job setelah halaman dibuka lagi (pindah halaman atau dimuat ulang). */
+    async resumeActiveJob() {
+      if (this.activeJob) {
+        if (!jobPollTimer) this.scheduleJobPoll();
+        return;
+      }
+      const { $api } = useNuxtApp();
+      const baseUrl = getApiBaseUrl();
+      const savedId = import.meta.client ? sessionStorage.getItem(JOB_STORAGE_KEY) : null;
+      try {
+        let job: UploadJob | null = null;
+        if (savedId) {
+          job = await $api<UploadJob>(`${baseUrl}/v1/upload-jobs/${savedId}`).catch(() => null);
+        }
+        if (!job) {
+          const active = await $api<UploadJob[]>(`${baseUrl}/v1/upload-jobs/active`);
+          job = active.at(-1) ?? null;
+        }
+        if (!job) {
+          rememberJob(null);
+          return;
+        }
+        if (!this.selectedCategory) this.selectedCategory = job.layer;
+        if (!this.month) this.month = String(job.bulan).padStart(2, "0");
+        if (!this.year) this.year = String(job.tahun);
+        this.trackJob(job);
+      } catch {
+        // Pengguna tanpa izin upload atau server tidak terjangkau: halaman tetap bisa dipakai.
       }
     },
   },

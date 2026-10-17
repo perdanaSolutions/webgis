@@ -23,9 +23,18 @@ const deleteError = ref("");
 const formMode = ref<"create" | "edit">("create");
 const selectedUserId = ref<string>("");
 const showPassword = ref(false);
-// Hanya saat edit: akun terkunci karena salah password; admin memilih "Buka kunci" untuk membukanya.
+// Nilai awal saat modal edit dibuka. Backend hanya menerima is_locked=false untuk membuka kunci.
 const wasLocked = ref(false);
-const unlockAccount = ref(false);
+const isLocked = ref(false);
+
+const lockOptions = computed(() => [
+  { label: "Tidak terkunci", value: false },
+  {
+    label: "Terkunci",
+    value: true,
+    props: { disabled: !wasLocked.value },
+  },
+]);
 
 const form = reactive<CreateUserPayload>({
   username: "",
@@ -57,8 +66,9 @@ function resetForm() {
   form.is_active = true;
   form.password = "";
   wasLocked.value = false;
-  unlockAccount.value = false;
+  isLocked.value = false;
   showPassword.value = false;
+  formError.value = "";
 }
 
 function togglePasswordVisibility() {
@@ -76,9 +86,10 @@ function fillFormFromUser(user: UserItem) {
   form.role_ids = (user.roles ?? []).map((r) => r.id);
   form.is_active = Boolean(user.is_active);
   wasLocked.value = Boolean(user.is_locked);
-  unlockAccount.value = false;
+  isLocked.value = Boolean(user.is_locked);
   form.password = "";
   showPassword.value = false;
+  formError.value = "";
 }
 
 async function loadUsers(nextPage?: number) {
@@ -143,27 +154,32 @@ async function submitForm() {
   }
   formError.value = "";
 
-  if (formMode.value === "create") {
-    await manageUserStore.createUser({
-      username: form.username,
-      email: form.email,
-      nama_lengkap: form.nama_lengkap,
-      role_ids: form.role_ids,
-      is_active: form.is_active,
-      password: form.password,
-    });
-  } else {
-    const payload: UpdateUserPayload = {
-      username: form.username,
-      email: form.email,
-      nama_lengkap: form.nama_lengkap,
-      role_ids: form.role_ids,
-      is_active: form.is_active,
-      password: form.password,
-      ...(wasLocked.value && unlockAccount.value ? { is_locked: false } : {}),
-    };
+  try {
+    if (formMode.value === "create") {
+      await manageUserStore.createUser({
+        username: form.username,
+        email: form.email,
+        nama_lengkap: form.nama_lengkap,
+        role_ids: form.role_ids,
+        is_active: form.is_active,
+        password: form.password,
+      });
+    } else {
+      const payload: UpdateUserPayload = {
+        username: form.username,
+        email: form.email,
+        nama_lengkap: form.nama_lengkap,
+        role_ids: form.role_ids,
+        is_active: form.is_active,
+        password: form.password,
+        ...(wasLocked.value && !isLocked.value ? { is_locked: false } : {}),
+      };
 
-    await manageUserStore.updateUser(selectedUserId.value, payload);
+      await manageUserStore.updateUser(selectedUserId.value, payload);
+    }
+  } catch {
+    formError.value = manageUserStore.errorMessage || "Gagal menyimpan user.";
+    return;
   }
 
   showFormModal.value = false;
@@ -305,12 +321,13 @@ function filterRoleOption(
                 <th class="px-4 py-3 font-bold">Nama Lengkap</th>
                 <th class="px-4 py-3 font-bold">Role</th>
                 <th class="px-4 py-3 font-bold">Status</th>
+                <th class="px-4 py-3 font-bold">Kunci Akun</th>
                 <th class="px-4 py-3 font-bold">Aksi</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="manageUserStore.loadingList" class="border-t border-row">
-                <td colspan="6" class="px-4 py-8 text-center text-muted">
+                <td colspan="7" class="px-4 py-8 text-center text-muted">
                   Memuat data user...
                 </td>
               </tr>
@@ -321,13 +338,19 @@ function filterRoleOption(
                 <td class="px-4 py-3">{{ item.nama_lengkap }}</td>
                 <td class="px-4 py-3">{{(item.roles ?? []).map((r) => r.nama).join(', ')}}</td>
                 <td class="px-4 py-3">
-                  <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_locked
-                    ? 'bg-error-light text-error'
-                    : item.is_active
-                      ? 'bg-success-lighter text-success'
-                      : 'bg-slate-muted text-slate-muted'
+                  <span class="whitespace-nowrap rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_active
+                    ? 'bg-success-lighter text-success'
+                    : 'bg-slate-muted text-slate-muted'
                     ">
-                    {{ item.is_locked ? "Terkunci" : item.is_active ? "Aktif" : "Nonaktif" }}
+                    {{ item.is_active ? "Aktif" : "Nonaktif" }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="whitespace-nowrap rounded-full px-3 py-1 text-size-xs font-semibold" :class="item.is_locked
+                    ? 'bg-error-light text-error'
+                    : 'bg-success-lighter text-success'
+                    ">
+                    {{ item.is_locked ? "Terkunci" : "Tidak terkunci" }}
                   </span>
                 </td>
                 <td class="px-4 py-3">
@@ -349,7 +372,7 @@ function filterRoleOption(
               </tr>
 
               <tr v-if="!manageUserStore.loadingList && !manageUserStore.hasUsers" class="border-t border-row">
-                <td colspan="6" class="px-4 py-8 text-center text-muted">
+                <td colspan="7" class="px-4 py-8 text-center text-muted">
                   Belum ada data user.
                 </td>
               </tr>
@@ -436,13 +459,14 @@ function filterRoleOption(
               class="w-full custom-underlined-input" @update:model-value="form.is_active = $event"></v-select>
           </div>
 
-          <div v-if="formMode === 'edit' && wasLocked">
+          <div v-if="formMode === 'edit'" class="md:col-span-2">
             <label class="mb-1 block text-label">Kunci Akun</label>
-            <v-select v-model="unlockAccount" :items="[
-              { label: 'Terkunci (salah password 5 kali)', value: false },
-              { label: 'Buka kunci', value: true }
-            ]" item-title="label" item-value="value" variant="outlined" density="comfortable"
-              class="w-full custom-underlined-input"></v-select>
+            <v-select :model-value="isLocked" :items="lockOptions" item-title="label" item-value="value"
+              variant="outlined" density="comfortable" class="w-full custom-underlined-input"
+              @update:model-value="isLocked = $event"></v-select>
+            <p class="mt-1 text-12 text-muted">
+              Akun terkunci otomatis setelah gagal login 5 kali. Pilih Tidak terkunci lalu simpan untuk membuka kunci.
+            </p>
           </div>
 
           <div class="md:col-span-2">

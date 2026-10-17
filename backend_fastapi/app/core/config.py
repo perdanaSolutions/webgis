@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     UPLOAD_MAX_MB: int = 50
 
+    # Worker antrian upload GeoJSON (python -m app.workers.upload_jobs).
+    UPLOAD_JOB_POLL_SECONDS: float = 2.0       # jeda cek antrian saat kosong
+    UPLOAD_JOB_HEARTBEAT_SECONDS: float = 10.0
+    UPLOAD_JOB_STALE_SECONDS: int = 120        # job 'running' tanpa detak selama ini dianggap worker mati
+    UPLOAD_JOB_KEEP_DAYS: int = 7              # job selesai lebih tua dari ini dihapus
+
     # Token akun layanan (sistem lain): masa berlaku bawaan & batas maksimum, dalam hari.
     SERVICE_TOKEN_DEFAULT_DAYS: int = 365
     SERVICE_TOKEN_MAX_DAYS: int = 1825

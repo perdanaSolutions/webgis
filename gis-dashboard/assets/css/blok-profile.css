@@ -250,13 +250,22 @@
 .bp-btn:hover {
   background: #eef3e7;
 }
-.bp-btn-primary {
+.bp-btn.bp-btn-primary,
+.bp-btn.bp-btn-primary span {
   border-color: transparent;
   background: #638840;
-  color: #fff;
+  color: #fff !important;
 }
-.bp-btn-primary:hover {
+.bp-btn.bp-btn-primary span {
+  background: transparent;
+}
+.bp-btn.bp-btn-primary:hover,
+.bp-btn.bp-btn-primary:hover span {
   background: #527036;
+  color: #fff !important;
+}
+.bp-btn.bp-btn-primary:hover span {
+  background: transparent;
 }
 
 .bp-map .leaflet-bottom.leaflet-left {

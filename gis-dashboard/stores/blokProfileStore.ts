@@ -10,10 +10,13 @@ import { readBudgetCategory } from "~/utils/mapLayers";
 /**
  * State halaman Blok Profile (peta layar penuh).
  *
- * Hierarki filter: Grup -> Area -> Perusahaan (PT) -> Estate -> Afdeling -> Blok
- * -> Ownership -> Periode (bulan + tahun).
+ * Hierarki filter: Ownership -> Grup -> Perusahaan (PT) -> Area -> Estate -> Afdeling -> Blok
+ * -> Periode (bulan + tahun, plus Year to Date) -> Periode pembanding.
+ * Level master mengikuti API: GET /spatial/pt?kode_grup, /area?kode_grup&kode_pt,
+ * /estate?kode_grup&kode_pt&area_id, /afdeling?kode_grup&kode_pt&kode_est, /blok.
+ * Ownership tidak menyaring daftar master; ikut saat Apply (GeoJSON, detail, histori).
  * - Grup (TPA/SGA) opsional untuk semua user ("Semua grup"). Mengganti grup memuat
- *   ulang daftar area sesuai grup; `kode_grup` ikut ke semua opsi, GeoJSON, layer, dan histori.
+ *   ulang perusahaan pada grup itu; `kode_grup` ikut ke semua opsi, GeoJSON, layer, dan histori.
  * - Mengubah field hanya mengisi opsi berjenjang (draft). Peta dan transaksi
  *   baru dimuat saat tombol Apply ditekan.
  * - Apply menyalin draft ke filter terapan, lalu memuat GeoJSON peta (wilayah)
@@ -27,9 +30,8 @@ import { readBudgetCategory } from "~/utils/mapLayers";
  * - Blok hanya MEMILIH satu blok di dalam scope (peta tidak difilter ulang ke
  *   satu poligon), sehingga tetangga tetap terlihat.
  * Pilihan dibatasi `akses_data` user (superadmin bebas).
- * User biasa tidak punya opsi "semua" pada Area s.d. Blok: tiap level
- * otomatis memilih satu-satunya data, atau data pertama bila lebih dari satu.
- * Opsi semua data hanya untuk superadmin@plantation.com.
+ * Muatan awal: satu perusahaan terpilih, lalu area pertama perusahaan itu.
+ * Estate, afdeling, dan blok memuat seluruh data pada area itu (tanpa memilih satu).
  */
 
 export type Option = { label: string; value: string };
@@ -39,7 +41,7 @@ export type StatusNotice = {
   message: string;
 };
 
-type CompanyItem = { id: number; kode_pt: string; nama_pt: string };
+type CompanyItem = { id: number; kode_pt: string; nama_pt: string; short_name_pt?: string | null };
 type EstateItem = { id: number; kode_est: string; nama_estate: string; kode_pt: string };
 type AksesData = { kode_area?: string | null; kode_pt?: string | null; kode_est?: string | null; kode_afd?: string | null };
 
@@ -384,10 +386,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   function isCompanyAllowed(item: CompanyItem): boolean {
     if (isSuperAdmin.value) return true;
     return scopeRows().some((row) => {
-      if (norm(row.kode_area) && norm(row.kode_area) !== norm(area.value)) return false;
       if (norm(row.kode_pt)) return norm(row.kode_pt) === norm(item.kode_pt);
-      if (norm(row.kode_est) || norm(row.kode_afd)) return true;
-      return Boolean(norm(row.kode_area));
+      return Boolean(norm(row.kode_area) || norm(row.kode_est) || norm(row.kode_afd));
     });
   }
 
@@ -403,14 +403,17 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     });
   }
 
-  function isAfdelingAllowed(kodeAfd: string): boolean {
+  function isAfdelingAllowed(item: { kode_afd: string; kode_est?: string }): boolean {
     if (isSuperAdmin.value) return true;
-    const estatePt = estatesByCode.value.get(estate.value)?.kode_pt;
+    const estatePt = estatesByCode.value.get(estate.value)?.kode_pt ?? pt.value;
     return scopeRows().some((row) => {
-      if (norm(row.kode_area) && norm(row.kode_area) !== norm(area.value)) return false;
-      if (norm(row.kode_est) && norm(row.kode_est) !== norm(estate.value)) return false;
+      if (norm(row.kode_area) && area.value && norm(row.kode_area) !== norm(area.value)) return false;
+      if (norm(row.kode_est)) {
+        const target = estate.value || item.kode_est || "";
+        if (target && norm(row.kode_est) !== norm(target)) return false;
+      }
       if (!norm(row.kode_est) && norm(row.kode_pt) && norm(row.kode_pt) !== norm(estatePt)) return false;
-      if (norm(row.kode_afd)) return norm(row.kode_afd) === norm(kodeAfd);
+      if (norm(row.kode_afd)) return norm(row.kode_afd) === norm(item.kode_afd);
       return Boolean(norm(row.kode_area) || norm(row.kode_pt) || norm(row.kode_est));
     });
   }
@@ -510,7 +513,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingOptions.value = true;
     try {
       const res = await get<{ data: Array<{ area_id: string; nama: string }> }>("/spatial/area", {
-        kode_grup: grup.value || undefined, limit: 100,
+        kode_grup: grup.value || undefined, kode_pt: pt.value || undefined, limit: 100,
       });
       if (!filterAlive(epoch)) return;
       const allowed = areaAllowance();
@@ -525,26 +528,39 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function loadCompanies() {
     const epoch = filterEpoch;
     ptOptions.value = [];
-    if (!area.value) return;
     const res = await get<{ data: CompanyItem[] }>("/spatial/pt", {
-      kode_grup: grup.value || undefined, area_id: area.value, limit: 100,
+      kode_grup: grup.value || undefined, limit: 100,
     });
     if (!filterAlive(epoch)) return;
     ptOptions.value = (res?.data ?? [])
       .filter(isCompanyAllowed)
-      .map((item) => ({ label: item.nama_pt || item.kode_pt, value: item.kode_pt }));
+      .map((item) => ({ label: item.short_name_pt || item.kode_pt, value: item.kode_pt }));
+  }
+
+  async function loadPage<T>(path: string, params: Record<string, string | number | undefined>, epoch: number) {
+    const pageSize = 100;
+    const first = await get<{ data: T[]; total_data?: number }>(path, { ...params, page: 1, limit: pageSize });
+    if (!filterAlive(epoch)) return [] as T[];
+    const rows = [...(first?.data ?? [])];
+    const total = Number(first?.total_data ?? rows.length);
+    const pages = Math.min(Math.ceil(total / pageSize), 30);
+    for (let page = 2; page <= pages; page += 1) {
+      const next = await get<{ data: T[] }>(path, { ...params, page, limit: pageSize });
+      if (!filterAlive(epoch)) return [] as T[];
+      rows.push(...(next?.data ?? []));
+    }
+    return rows;
   }
 
   async function loadEstates() {
     const epoch = filterEpoch;
     estateOptions.value = [];
     estatesByCode.value = new Map();
-    if (!area.value) return;
-    const res = await get<{ data: EstateItem[] }>("/spatial/estate", {
-      kode_grup: grup.value || undefined, area_id: area.value, kode_pt: pt.value || undefined, limit: 100,
-    });
+    if (!grup.value && !pt.value && !area.value) return;
+    const items = (await loadPage<EstateItem>("/spatial/estate", {
+      kode_grup: grup.value || undefined, area_id: area.value || undefined, kode_pt: pt.value || undefined,
+    }, epoch)).filter(isEstateAllowed);
     if (!filterAlive(epoch)) return;
-    const items = (res?.data ?? []).filter(isEstateAllowed);
     estatesByCode.value = new Map(items.map((item) => [item.kode_est, item]));
     estateOptions.value = items.map((item) => ({ label: item.nama_estate, value: item.kode_est }));
   }
@@ -552,13 +568,15 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function loadAfdelings() {
     const epoch = filterEpoch;
     afdelingOptions.value = [];
-    if (!estate.value) return;
-    const res = await get<{ data: Array<{ kode_afd: string }> }>("/spatial/afdeling", {
-      kode_grup: grup.value || undefined, kode_est: estate.value, kode_pt: pt.value || undefined, limit: 100,
-    });
+    if (!pt.value && !estate.value && !area.value) return;
+    const estateCodes = new Set(estateOptions.value.map((option) => norm(option.value)));
+    const items = await loadPage<{ kode_afd: string; kode_est?: string }>("/spatial/afdeling", {
+      kode_grup: grup.value || undefined, kode_est: estate.value || undefined, kode_pt: pt.value || undefined,
+    }, epoch);
     if (!filterAlive(epoch)) return;
-    afdelingOptions.value = (res?.data ?? [])
-      .filter((item) => isAfdelingAllowed(item.kode_afd))
+    afdelingOptions.value = items
+      .filter((item) => isAfdelingAllowed(item))
+      .filter((item) => Boolean(estate.value) || !area.value || !estateCodes.size || estateCodes.has(norm(item.kode_est)))
       .map((item) => ({ label: item.kode_afd, value: item.kode_afd }));
   }
 
@@ -641,23 +659,24 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function loadBloks() {
     const epoch = filterEpoch;
     blokOptions.value = [];
-    if (!afdeling.value) return;
-    const res = await get<{ data: Array<{ id?: number | string; blok_id?: string; kode_blok?: string; nama_blok?: string }> }>("/spatial/blok", {
+    if (!pt.value && !estate.value && !afdeling.value && !area.value) return;
+    const estateCodes = new Set(estateOptions.value.map((option) => norm(option.value)));
+    const items = await loadPage<{ id?: number | string; blok_id?: string; kode_blok?: string; nama_blok?: string; kode_est?: string }>("/spatial/blok", {
       kode_grup: grup.value || undefined,
-      kode_afd: afdeling.value,
+      kode_afd: afdeling.value || undefined,
       kode_est: estate.value || undefined,
       kode_pt: pt.value || undefined,
-      limit: 100,
-    });
+    }, epoch);
     if (!filterAlive(epoch)) return;
-    blokOptions.value = (res?.data ?? [])
+    blokOptions.value = items
+      .filter((item) => Boolean(estate.value) || Boolean(afdeling.value) || !area.value || !estateCodes.size || estateCodes.has(norm(item.kode_est)))
       .map((item) => {
         const value = String(item.blok_id ?? item.id ?? "").trim();
         const label = String(item.kode_blok ?? item.nama_blok ?? value).trim();
         return { label, value };
       })
       .filter((option) => option.value)
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) => a.label.localeCompare(b.label, "id"));
   }
 
   const selectedFeature = computed<BlockFeature | null>(() =>
@@ -797,23 +816,16 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return options[0]?.value ?? "";
   }
 
-  /** User biasa tidak boleh kosong: tetap di pilihan sekarang, atau data pertama. */
-  function resolveChoice(current: string, incoming: string, options: Option[]) {
-    if (allowAllScope.value) return incoming || "";
+  /** Perusahaan dan area wajib satu nilai. Level di bawahnya boleh kosong (= semua data). */
+  function resolveChoice(current: string, incoming: string, options: Option[], allowEmpty = false) {
+    if (allowAllScope.value || allowEmpty) return incoming || "";
     return incoming || current || firstOf(options);
-  }
-
-  async function ensureChildBlok() {
-    if (allowAllScope.value || !afdeling.value) return;
-    if (blokId.value && blokOptions.value.some((option) => option.value === blokId.value)) return;
-    blokId.value = firstOf(blokOptions.value);
   }
 
   /** Apply: terapkan semua field form ke peta (GeoJSON) dan kartu transaksi. */
   async function applyFilters() {
     const epoch = filterEpoch;
     mapDrillActive = false;
-    await ensureChildBlok();
     if (!filterAlive(epoch)) return;
     syncAppliedFromDraft();
     applying.value = true;
@@ -850,56 +862,54 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     }
   }
 
-  async function activateArea(value: string) {
-    const epoch = filterEpoch;
-    area.value = value;
-    pt.value = "";
+  /** Estate yang dipilih menyaring afdeling dan blok. Kosong = semua data pada area. */
+  async function refillFromEstate(epoch: number) {
+    afdeling.value = "";
+    blokId.value = "";
+    await loadAfdelings();
+    if (!filterAlive(epoch)) return;
+    await loadBloks();
+  }
+
+  /** Area terpilih: muat seluruh estate, afdeling, dan blok area itu tanpa memilih satu. */
+  async function refillFromArea(epoch: number) {
     estate.value = "";
+    estateOptions.value = [];
+    estatesByCode.value = new Map();
     afdeling.value = "";
     blokId.value = "";
     afdelingOptions.value = [];
     blokOptions.value = [];
-    clearAttributeFilters();
-    await loadCompanies();
+    if (grup.value || pt.value || area.value) await loadEstates();
     if (!filterAlive(epoch)) return;
-    await loadEstates();
+    await loadAfdelings();
     if (!filterAlive(epoch)) return;
-    if (!allowAllScope.value) {
-      const ptsWithEstate = new Set([...estatesByCode.value.values()].map((item) => norm(item.kode_pt)));
-      pt.value = ptOptions.value.find((option) => ptsWithEstate.has(norm(option.value)))?.value
-        ?? firstOf(ptOptions.value);
-      if (pt.value) await loadEstates();
-      if (!filterAlive(epoch)) return;
-      estate.value = firstOf(estateOptions.value);
-      if (estate.value) await loadAfdelings();
-      else afdelingOptions.value = [];
-      if (!filterAlive(epoch)) return;
-      afdeling.value = firstOf(afdelingOptions.value);
-      if (afdeling.value) await loadBloks();
-      await ensureChildBlok();
-    }
+    await loadBloks();
   }
 
   async function setArea(value: string) {
+    const epoch = filterEpoch;
     const next = resolveChoice(area.value, value || "", areaOptions.value);
     if (next === area.value) return;
-    await activateArea(next);
+    area.value = next;
+    await refillFromArea(epoch);
   }
 
-  /**
-   * Grup opsional: area saat ini dipertahankan bila masih ada di grup baru (termasuk "Semua area"
-   * bagi akun yang boleh memilih semua), kalau tidak area pertama.
-   */
+  /** Grup opsional. Perusahaan yang hilang diganti perusahaan pertama, lalu area pertama perusahaan itu. */
   async function setGrup(value: string) {
     const epoch = filterEpoch;
     const next = value || "";
     if (next === grup.value) return;
     grup.value = next;
+    await loadCompanies();
+    if (!filterAlive(epoch)) return;
+    if (!(pt.value && ptOptions.value.some((option) => option.value === pt.value))) {
+      pt.value = firstOf(ptOptions.value);
+    }
     await loadAreas();
     if (!filterAlive(epoch)) return;
-    const keep = (allowAllScope.value && !area.value)
-      || areaOptions.value.some((option) => option.value === area.value);
-    await activateArea(keep ? area.value : firstOf(areaOptions.value));
+    area.value = firstOf(areaOptions.value);
+    await refillFromArea(epoch);
   }
 
   async function setPt(value: string) {
@@ -907,58 +917,31 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     const next = resolveChoice(pt.value, value || "", ptOptions.value);
     if (next === pt.value) return;
     pt.value = next;
-    estate.value = "";
-    afdeling.value = "";
-    blokId.value = "";
-    afdelingOptions.value = [];
-    blokOptions.value = [];
-    clearAttributeFilters();
-    await loadEstates();
+    await loadAreas();
     if (!filterAlive(epoch)) return;
-    if (!allowAllScope.value) estate.value = firstOf(estateOptions.value);
-    if (estate.value) await loadAfdelings();
-    else afdelingOptions.value = [];
-    if (!filterAlive(epoch)) return;
-    if (!allowAllScope.value) {
-      afdeling.value = firstOf(afdelingOptions.value);
-      if (afdeling.value) await loadBloks();
-      await ensureChildBlok();
-    }
+    area.value = firstOf(areaOptions.value);
+    await refillFromArea(epoch);
   }
 
   async function setEstate(value: string) {
     const epoch = filterEpoch;
-    const next = resolveChoice(estate.value, value || "", estateOptions.value);
+    const next = resolveChoice(estate.value, value || "", estateOptions.value, true);
     if (next === estate.value) return;
     estate.value = next;
-    afdeling.value = "";
-    blokId.value = "";
-    blokOptions.value = [];
-    clearAttributeFilters();
-    if (estate.value) await loadAfdelings();
-    else afdelingOptions.value = [];
-    if (!filterAlive(epoch)) return;
-    if (!allowAllScope.value) {
-      afdeling.value = firstOf(afdelingOptions.value);
-      if (afdeling.value) await loadBloks();
-      await ensureChildBlok();
-    }
+    await refillFromEstate(epoch);
   }
 
   async function setAfdeling(value: string) {
     const epoch = filterEpoch;
-    const next = resolveChoice(afdeling.value, value || "", afdelingOptions.value);
+    const next = resolveChoice(afdeling.value, value || "", afdelingOptions.value, true);
     if (next === afdeling.value) return;
     afdeling.value = next;
     blokId.value = "";
-    clearAttributeFilters();
     await loadBloks();
-    if (!filterAlive(epoch)) return;
-    await ensureChildBlok();
   }
 
   function setBlok(value: string) {
-    const next = resolveChoice(blokId.value, value || "", blokOptions.value);
+    const next = resolveChoice(blokId.value, value || "", blokOptions.value, true);
     if (next === blokId.value) return;
     blokId.value = next;
   }
@@ -1067,6 +1050,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     bulanComparison.value = "";
     tahunComparison.value = "";
     applied.value = emptyApplied();
+    areaOptions.value = [];
     ptOptions.value = [];
     estateOptions.value = [];
     afdelingOptions.value = [];
@@ -1096,33 +1080,27 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     await init();
   }
 
-  /** Setiap masuk halaman mulai dari field kosong, lalu isi level sesuai hak akses dan Apply. */
+  /** Satu perusahaan, area pertama perusahaan itu, lalu seluruh estate/afdeling/blok area tersebut. */
   async function init() {
     clearMap();
     const epoch = filterEpoch;
-    await Promise.all([loadAreas(), loadGroups().catch(() => { groupOptions.value = []; }), loadDefaultPeriod()]);
-    if (!filterAlive(epoch) || !areaOptions.value.length) return;
-    const explicitArea = scopeRows().some((row) => norm(row.kode_area));
-    if (allowAllScope.value || explicitArea) {
-      await setArea(firstOf(areaOptions.value));
+    await Promise.all([
+      loadGroups().catch(() => { groupOptions.value = []; }),
+      loadCompanies().catch(() => { ptOptions.value = []; }),
+      loadDefaultPeriod(),
+    ]);
+    if (!filterAlive(epoch)) return;
+    for (const company of ptOptions.value) {
+      if (!filterAlive(epoch)) return;
+      pt.value = company.value;
+      await loadAreas();
+      if (!filterAlive(epoch)) return;
+      if (!areaOptions.value.length) continue;
+      area.value = firstOf(areaOptions.value);
+      await refillFromArea(epoch);
       if (!filterAlive(epoch)) return;
       await applyFilters();
       return;
-    }
-    for (const option of areaOptions.value) {
-      if (!filterAlive(epoch)) return;
-      area.value = option.value;
-      await loadCompanies();
-      if (!filterAlive(epoch)) return;
-      await loadEstates();
-      if (!filterAlive(epoch)) return;
-      if (ptOptions.value.length || estateOptions.value.length) {
-        area.value = "";
-        await setArea(option.value);
-        if (!filterAlive(epoch)) return;
-        await applyFilters();
-        return;
-      }
     }
     if (filterAlive(epoch)) clearMap();
   }

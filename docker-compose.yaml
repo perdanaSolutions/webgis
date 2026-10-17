@@ -12,6 +12,23 @@ services:
     command:
       ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
 
+  # Mengerjakan antrian upload GeoJSON (audit.upload_jobs). Tanpa service ini job tetap 'queued'.
+  upload_worker:
+    build:
+      context: ./backend_fastapi
+      dockerfile: Dockerfile
+    container_name: gis-upload-worker
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: ./backend_fastapi/.env
+        required: false
+    command: ["python", "-m", "app.workers.upload_jobs"]
+    # Saat redeploy, job yang sedang berjalan diberi waktu selesai sebelum container dimatikan.
+    stop_grace_period: 10m
+    depends_on:
+      - backend_fastapi
+
   gis-dashboard:
     build:
       context: ./gis-dashboard

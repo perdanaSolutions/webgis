@@ -68,7 +68,52 @@ const filteredPreviewRows = computed(() => {
 
 onMounted(async () => {
   await documentUploadStore.initDataKategori();
+  await documentUploadStore.resumeActiveJob();
 });
+
+const QUEUE_WARNING_SECONDS = 60;
+const activeJob = computed(() => documentUploadStore.activeJob);
+
+const jobTitle = computed(() =>
+  activeJob.value?.kind === "execute" ? "Menyimpan data ke database" : "Menganalisa file GeoJSON",
+);
+
+const jobStatusText = computed(() => {
+  const job = activeJob.value;
+  if (!job) return "";
+  if (job.cancel_requested) return "Membatalkan proses...";
+  if (job.status === "queued") {
+    return job.queue_ahead
+      ? `Menunggu giliran (${job.queue_ahead} proses di depan)`
+      : "Menunggu giliran diproses";
+  }
+  const message = job.message ?? "Memproses";
+  if (job.total) {
+    const current = (job.current ?? 0).toLocaleString("id-ID");
+    return `${message} ${current} / ${job.total.toLocaleString("id-ID")}`;
+  }
+  return message;
+});
+
+const jobPercent = computed(() => {
+  const job = activeJob.value;
+  if (!job?.total) return null;
+  return Math.min(100, Math.round(((job.current ?? 0) / job.total) * 100));
+});
+
+const jobElapsed = computed(() => {
+  const seconds = activeJob.value?.elapsed_seconds ?? 0;
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes} menit ${seconds % 60} detik` : `${seconds} detik`;
+});
+
+const jobQueuedTooLong = computed(
+  () => activeJob.value?.status === "queued" && (activeJob.value.elapsed_seconds ?? 0) > QUEUE_WARNING_SECONDS,
+);
+
+function onCancelJob() {
+  documentUploadStore.cancelJob();
+}
 
 const totalPreviewRows = computed(() => filteredPreviewRows.value.length);
 
@@ -401,16 +446,45 @@ const executeFinished = computed(
           </p>
         </div>
 
-        <div v-if="isBusy" class="mt-5 rounded-xl border border-default bg-surface p-4">
+        <div v-if="documentUploadStore.isParsing" class="mt-5 rounded-xl border border-default bg-surface p-4">
           <div class="mb-2 flex items-center justify-between text-size-sm">
-            <span class="font-semibold text-brand">
-              {{ documentUploadStore.isUploading ? "Proses upload..." : "Memvalidasi file..." }}
-            </span>
+            <span class="font-semibold text-brand">Memvalidasi file...</span>
             <span class="text-muted">{{ documentUploadStore.uploadProgress }}%</span>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
             <div class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
               :style="{ width: `${documentUploadStore.uploadProgress}%` }" />
+          </div>
+        </div>
+
+        <div v-else-if="documentUploadStore.isUploading" class="mt-5 rounded-xl border border-default bg-surface p-4">
+          <div class="mb-1 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <span class="font-semibold text-brand">{{ activeJob ? jobTitle : "Mengirim file ke server..." }}</span>
+            <span v-if="activeJob" class="text-size-sm text-muted">Berjalan {{ jobElapsed }}</span>
+          </div>
+          <p class="mb-2 text-size-sm text-label">
+            {{ activeJob ? jobStatusText : "Mengunggah file" }}
+            <span v-if="jobPercent !== null" class="text-muted"> ({{ jobPercent }}%)</span>
+          </p>
+          <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
+            <div v-if="jobPercent !== null"
+              class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
+              :style="{ width: `${jobPercent}%` }" />
+            <div v-else class="h-full w-full animate-pulse rounded-full bg-gradient-to-r gradient-brand-alt" />
+          </div>
+          <p class="mt-3 text-size-sm text-muted">
+            Data berjumlah ribuan bisa memakan waktu beberapa menit. Halaman ini boleh ditinggal: proses tetap
+            berjalan di server dan hasilnya muncul lagi saat Anda kembali ke halaman ini.
+          </p>
+          <p v-if="jobQueuedTooLong" class="mt-2 rounded-lg bg-warning-light px-3 py-2 text-size-sm text-warning">
+            Proses belum diambil server. Bila tetap menunggu, hubungi admin: worker upload mungkin belum berjalan.
+          </p>
+          <div v-if="activeJob" class="mt-3 flex justify-end">
+            <button type="button"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand disabled:opacity-50"
+              :disabled="activeJob.cancel_requested || documentUploadStore.isCancellingJob" @click="onCancelJob">
+              {{ activeJob.cancel_requested || documentUploadStore.isCancellingJob ? "Membatalkan..." : "Batalkan" }}
+            </button>
           </div>
         </div>
 

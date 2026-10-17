@@ -16,6 +16,8 @@ from app.api.params import (
 from app.services import user_access
 from app.services.block_filter import BlockFilter
 from app.services.layers import catalog_service
+from app.services.upload import runner
+from app.services.upload.runner import UploadInput
 
 router = APIRouter(prefix="/geo")
 
@@ -104,15 +106,15 @@ def seed_legacy(db: DbSession, _: CanUploadGeojson):
 def generic_analyze(kode: str, db: DbSession, _: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib,
                     file: UploadedFile):
     layer = catalog_service.get_generic_layer(db, kode)
-    return catalog_service.analyze_generic(db, layer, read_upload(file), bulan, tahun)
+    return runner.generic(db, runner.ANALYZE, layer, UploadInput(read_upload(file), file.filename, bulan, tahun))
 
 
 @router.post("/{kode}/upload-execute", summary="[GENERIC] TAHAP 2: simpan data")
 def generic_execute(kode: str, db: DbSession, user: CanUploadGeojson, bulan: BulanWajib, tahun: TahunWajib,
                     file: UploadedFile):
     layer = catalog_service.get_generic_layer(db, kode)
-    result = catalog_service.execute_generic(db, layer, read_upload(file), file.filename, bulan, tahun, user.id)
-    return {"status": "success", "data": result}
+    return runner.generic(db, runner.EXECUTE, layer,
+                          UploadInput(read_upload(file), file.filename, bulan, tahun, user.id))
 
 
 def _scoped_filter(db, user, layer: dict, flt: BlockFilter, blok_id: str | None) -> BlockFilter:

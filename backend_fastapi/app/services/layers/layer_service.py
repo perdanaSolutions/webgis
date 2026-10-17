@@ -26,6 +26,7 @@ from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
+from app.services.upload.progress import SILENT, Progress
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
@@ -85,7 +86,9 @@ def _cast(column: Column, value, refs: dict[str, RefResolver]):
     return text_value[:100] if text_value else None
 
 
-def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: bool, with_wkb: bool = True) -> PreparedUpload:
+def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: bool, with_wkb: bool = True,
+                     progress: Progress = SILENT) -> PreparedUpload:
+    progress.stage("membaca_file")
     features = parse_features(content)
     refs = {c.kind[4:]: RefResolver(db, c.kind[4:], create_missing=create_refs)
             for c in spec.columns if c.kind.startswith("ref:")}
@@ -93,8 +96,10 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
     report = result.report
 
     # 1) validasi properti & geometri
+    progress.stage("validasi", total=len(features))
     candidates: list[tuple[int, tuple, dict]] = []
     for i, feature in enumerate(features):
+        progress.step(i + 1)
         props = feature.get("properties") or {}
         keys = geojson_block_keys(props)
         if keys is None:
@@ -121,7 +126,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
         candidates.append((i, keys, row))
 
     # 2) tentukan blok (label -> master, cadangan: posisi geometri)
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates])
+    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
 
     # 3) buang yang tanpa blok, dedup objectid (baris terakhir menang)
     by_objectid: dict[int, tuple[int, dict]] = {}
@@ -155,9 +160,10 @@ def _existing_filter(spec: LayerSpec, prepared: PreparedUpload) -> tuple[str, di
     return "(" + " OR ".join(clauses) + ")", params
 
 
-def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int) -> dict:
+def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int, progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
-    prepared = prepare_features(db, spec, content, create_refs=False, with_wkb=False)
+    prepared = prepare_features(db, spec, content, create_refs=False, with_wkb=False, progress=progress)
+    progress.stage("menyusun_laporan")
     condition, params = _existing_filter(spec, prepared)
     will_replace = db.execute(
         text(f"SELECT count(*) FROM {quote_table(spec.table)} WHERE period = :p AND {condition}"),
@@ -195,14 +201,16 @@ def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int
 
 
 def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, bulan: int, tahun: int,
-            user_id: UUID | None) -> dict:
+            user_id: UUID | None, progress: Progress = SILENT) -> dict:
     period = to_period(bulan, tahun)
     batch_id = start_batch(db, source_type="GEOJSON_UPLOAD", target_table=spec.table, source_name=filename,
                            user_id=user_id, period=period, metadata={"layer": spec.code})
+    progress.batch(batch_id)
     try:
-        prepared = prepare_features(db, spec, content, create_refs=True)
+        prepared = prepare_features(db, spec, content, create_refs=True, progress=progress)
         replaced = 0
         if prepared.rows:
+            progress.stage("menyimpan")
             condition, params = _existing_filter(spec, prepared)
             replaced = db.execute(
                 text(f"DELETE FROM {quote_table(spec.table)} WHERE period = :p AND {condition}"), {**params, "p": period}
@@ -211,7 +219,9 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
             copy_rows(db, quote_table(spec.table), columns, (
                 [r["block_id"], period, *(r[c.column] for c in spec.columns), r["geom"], batch_id] for r in prepared.rows
             ))
+        progress.stage("karantina")
         quarantined = quarantine.save(db, batch_id, spec.table, quarantine.from_report(prepared.report))
+        progress.stage("menyelesaikan")
         stored_version = bump(db, GEOJSON) if prepared.rows else None
         db.commit()
     except Exception as exc:

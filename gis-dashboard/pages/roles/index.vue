@@ -2,9 +2,6 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import Header from "~/components/Header.vue";
 import { useManageRoleStore } from "~/stores/manageRoleStore";
-import {
-  transformDataToForm,
-} from "~/stores/roleStoreExtractData";
 import { dashboardStore } from '~/stores/dashboardStore'
 
 defineOptions({
@@ -19,8 +16,9 @@ const showFormModal = ref(false);
 const formMode = ref("create");
 const selectedRoleId = ref("");
 
-const searchQueryArea = ref("");
+const searchQueryGroup = ref("");
 const searchQueryPerusahaan = ref("");
+const searchQueryArea = ref("");
 const searchQueryEstate = ref("");
 const searchQueryAfdeling = ref("");
 
@@ -42,8 +40,9 @@ const form = reactive({
   nama: "",
   deskripsi: "",
   menu_ids: [],
-  area_ids: [],
+  group_ids: [],
   perusahaan_ids: [],
+  area_ids: [],
   estate_ids: [],
   afdeling_ids: [],
   blok_ids: [],
@@ -56,10 +55,13 @@ const form = reactive({
   selected_afdeling_items: [],
 });
 
-const perusahaanByAreaMap = ref({});
-const estateByPerusahaanMap = ref({});
+const perusahaanByGroupMap = ref({});
+const areaByPerusahaanMap = ref({});
+const estateByAreaMap = ref({});
 const afdelingByEstateMap = ref({});
 const blokByAfdelingMap = ref({});
+
+const AREA_KEY_SEPARATOR = "::";
 
 const filteredRoles = computed(() => {
   const keyword = search.value.trim().toLowerCase();
@@ -91,26 +93,48 @@ const saveButtonLabel = computed(() => {
   return "Simpan";
 });
 
-const allDataArea = computed(() => {
-  const areas = manageRoleStore.allDataArea ?? [];
-  if (!searchQueryArea.value) return areas;
+const getGroupCode = (group) =>
+  String(group?.kode_grup ?? group?.code ?? "").trim();
 
-  const keyword = searchQueryArea.value.toLowerCase();
-  return areas.filter((area) => {
-    const name = String(area?.nama_area ?? area?.nama ?? area?.title ?? "").toLowerCase();
-    const code = String(getAreaId(area)).toLowerCase();
+const getPerusahaanCode = (perusahaan) =>
+  String(
+    perusahaan?.kode_pt ??
+    perusahaan?.kode ??
+    perusahaan?.id_perusahaan ??
+    perusahaan?.id ??
+    "",
+  ).trim();
+
+const getAreaId = (area) =>
+  String(area?.area_id ?? area?.kode_area ?? area?.id_area ?? area?.id ?? "").trim();
+
+const getAreaSelectionKey = (ptCode, areaCode) => {
+  const pt = String(ptCode ?? "").trim();
+  const area = String(areaCode ?? "").trim();
+  if (!pt || !area) return "";
+  return `${pt}${AREA_KEY_SEPARATOR}${area}`;
+};
+
+const allDataGroup = computed(() => {
+  const groups = manageRoleStore.allDataGroup ?? [];
+  if (!searchQueryGroup.value) return groups;
+
+  const keyword = searchQueryGroup.value.toLowerCase();
+  return groups.filter((group) => {
+    const name = String(group?.nama_grup ?? group?.nama ?? "").toLowerCase();
+    const code = getGroupCode(group).toLowerCase();
     return name.includes(keyword) || code.includes(keyword);
   });
 });
 
-const areaIdentityValues = (area) =>
-  [area?.id, area?.area_id, area?.kode_area, area?.id_area, getAreaId(area)]
-    .map((value) => String(value ?? ""))
+const groupIdentityValues = (group) =>
+  [group?.id, group?.kode_grup, group?.code, getGroupCode(group)]
+    .map((value) => String(value ?? "").trim())
     .filter(Boolean);
 
-const isAreaSelected = (area) => {
-  const saved = new Set(form.area_ids.map((id) => String(id)));
-  return areaIdentityValues(area).some((value) => saved.has(value));
+const isGroupSelected = (group) => {
+  const saved = new Set(form.group_ids.map((id) => String(id)));
+  return groupIdentityValues(group).some((value) => saved.has(value));
 };
 
 const perusahaanIdentityValues = (perusahaan) =>
@@ -120,8 +144,6 @@ const perusahaanIdentityValues = (perusahaan) =>
     perusahaan?.kode,
     perusahaan?.id_perusahaan,
     getPerusahaanCode(perusahaan),
-    perusahaan?.nama_pt,
-    perusahaan?.nama,
   ]
     .map((value) => String(value ?? "").trim())
     .filter(Boolean);
@@ -131,37 +153,64 @@ const isPerusahaanSelected = (perusahaan) => {
   return perusahaanIdentityValues(perusahaan).some((value) => saved.has(value));
 };
 
-const selectedAreas = computed(() => {
-  return (manageRoleStore.allDataArea ?? []).filter((area) => isAreaSelected(area));
-});
+const isAreaSelected = (ptCode, area) =>
+  form.area_ids.map((id) => String(id)).includes(getAreaSelectionKey(ptCode, getAreaId(area)));
 
-const groupedPerusahaanByArea = computed(() => {
-  return selectedAreas.value.map((area) => {
-    const areaKey = getAreaId(area);
+const selectedGroups = computed(() =>
+  (manageRoleStore.allDataGroup ?? []).filter((group) => isGroupSelected(group)),
+);
+
+const groupedPerusahaanByGroup = computed(() =>
+  selectedGroups.value.map((group) => {
+    const groupKey = getGroupCode(group);
     return {
-      area,
-      areaKey,
-      perusahaan: perusahaanByAreaMap.value[areaKey] ?? [],
+      group,
+      groupKey,
+      perusahaan: perusahaanByGroupMap.value[groupKey] ?? [],
     };
-  });
-});
+  }),
+);
 
-const selectedPerusahaanList = computed(() => {
-  return groupedPerusahaanByArea.value
-    .flatMap((group) => group.perusahaan)
-    .filter((item) => isPerusahaanSelected(item));
-});
+const selectedPerusahaanList = computed(() =>
+  groupedPerusahaanByGroup.value.flatMap((group) =>
+    (group.perusahaan ?? [])
+      .filter((item) => isPerusahaanSelected(item))
+      .map((item) => ({ ...item, _groupCode: group.groupKey })),
+  ),
+);
 
-const groupedEstateByPerusahaan = computed(() => {
-  return selectedPerusahaanList.value.map((perusahaan) => {
+const groupedAreaByPerusahaan = computed(() =>
+  selectedPerusahaanList.value.map((perusahaan) => {
     const perusahaanKey = getPerusahaanCode(perusahaan);
     return {
       perusahaan,
       perusahaanKey,
-      estates: estateByPerusahaanMap.value[perusahaanKey] ?? [],
+      groupCode: String(perusahaan?._groupCode ?? perusahaan?.kode_grup ?? ""),
+      areas: areaByPerusahaanMap.value[perusahaanKey] ?? [],
     };
-  });
-});
+  }),
+);
+
+const selectedAreaEntries = computed(() =>
+  groupedAreaByPerusahaan.value.flatMap((group) =>
+    (group.areas ?? [])
+      .filter((area) => isAreaSelected(group.perusahaanKey, area))
+      .map((area) => ({
+        area,
+        perusahaan: group.perusahaan,
+        perusahaanKey: group.perusahaanKey,
+        groupCode: group.groupCode,
+        areaKey: getAreaSelectionKey(group.perusahaanKey, getAreaId(area)),
+      })),
+  ),
+);
+
+const groupedEstateByArea = computed(() =>
+  selectedAreaEntries.value.map((entry) => ({
+    ...entry,
+    estates: estateByAreaMap.value[entry.areaKey] ?? [],
+  })),
+);
 
 const estateMatchesSelection = (estate, selectedIds) => {
   const kode = String(getEstateCode(estate) ?? "");
@@ -171,9 +220,16 @@ const estateMatchesSelection = (estate, selectedIds) => {
 
 const selectedEstateList = computed(() => {
   const selectedIds = new Set(form.estate_ids.map((id) => String(id)));
-  return groupedEstateByPerusahaan.value
+  const seen = new Set();
+  return groupedEstateByArea.value
     .flatMap((group) => group.estates)
-    .filter((item) => estateMatchesSelection(item, selectedIds));
+    .filter((item) => {
+      if (!estateMatchesSelection(item, selectedIds)) return false;
+      const code = String(getEstateCode(item) ?? "");
+      if (!code || seen.has(code)) return false;
+      seen.add(code);
+      return true;
+    });
 });
 
 const groupedAfdelingByEstate = computed(() => {
@@ -223,8 +279,9 @@ function resetForm() {
   form.nama = "";
   form.deskripsi = "";
   form.menu_ids = [];
-  form.area_ids = [];
+  form.group_ids = [];
   form.perusahaan_ids = [];
+  form.area_ids = [];
   form.estate_ids = [];
   form.afdeling_ids = [];
   form.blok_ids = [];
@@ -236,49 +293,33 @@ function resetForm() {
   form.selected_estate_items = [];
   form.selected_afdeling_items = [];
 
-  searchQueryArea.value = "";
+  searchQueryGroup.value = "";
   searchQueryPerusahaan.value = "";
+  searchQueryArea.value = "";
   searchQueryEstate.value = "";
   searchQueryAfdeling.value = "";
 
-  perusahaanByAreaMap.value = {};
-  estateByPerusahaanMap.value = {};
+  perusahaanByGroupMap.value = {};
+  areaByPerusahaanMap.value = {};
+  estateByAreaMap.value = {};
   afdelingByEstateMap.value = {};
   blokByAfdelingMap.value = {};
 
   activePermissionTab.value = "menu";
 }
 
-function resolveAreaIdsForForm(areaIds = [], selectedAreaItems = []) {
-  const areas = manageRoleStore.allDataArea ?? [];
-
-  const resolveOne = (id, areaCode = "") => {
-    const idStr = String(id ?? "");
-    if (areas.some((area) => String(area?.id) === idStr)) return idStr;
-
-    const code = String(areaCode || id);
-    const matchedArea = areas.find((area) => {
-      const candidates = [
-        getAreaId(area),
-        area?.kode_area,
-        area?.area_id,
-        area?.id_area,
-        area?.id,
-      ].map((value) => String(value ?? ""));
-
-      return candidates.includes(code);
-    });
-
-    return matchedArea ? String(matchedArea.id) : idStr;
-  };
-
-  if (selectedAreaItems.length > 0) {
-    return selectedAreaItems.map((item) =>
-      resolveOne(item?.id, item?.area_id),
-    );
-  }
-
-  return areaIds.map((id) => resolveOne(id));
+function clearWilayahSelection() {
+  form.group_ids = [];
+  form.perusahaan_ids = [];
+  form.area_ids = [];
+  form.estate_ids = [];
+  form.afdeling_ids = [];
+  form.blok_ids = [];
+  perusahaanByGroupMap.value = {};
+  areaByPerusahaanMap.value = {};
+  estateByAreaMap.value = {};
+  afdelingByEstateMap.value = {};
+  blokByAfdelingMap.value = {};
 }
 
 async function fillForm(role) {
@@ -287,17 +328,13 @@ async function fillForm(role) {
   form.layer_ids = [];
   form.transaksi_ids = [];
   form.preserved_grant_ids = [];
-  perusahaanByAreaMap.value = {};
-  estateByPerusahaanMap.value = {};
-  afdelingByEstateMap.value = {};
-  blokByAfdelingMap.value = {};
-  form.blok_ids = [];
+  clearWilayahSelection();
 
   try {
     const existingAkses = await manageRoleStore.getExistingAksesByRole(role.id);
 
-    if (!(manageRoleStore.allDataArea ?? []).length) {
-      await manageRoleStore.initDataArea();
+    if (!(manageRoleStore.allDataGroup ?? []).length) {
+      await manageRoleStore.initDataGroup();
     }
     if (!(manageRoleStore.allDataMenu ?? []).length) {
       await manageRoleStore.initDataMenu();
@@ -308,13 +345,6 @@ async function fillForm(role) {
     if (!(manageRoleStore.allDataTransaksi ?? []).length) {
       await manageRoleStore.initDataTableTransaksi();
     }
-
-    const result = transformDataToForm(existingAkses?.data ?? [], {
-      nama: "",
-      deskripsi: "",
-    });
-
-    Object.assign(form, result);
 
     form.nama = String(role.nama ?? "").toUpperCase();
     form.deskripsi = String(role.deskripsi ?? "").toUpperCase();
@@ -330,17 +360,7 @@ async function fillForm(role) {
     form.preserved_grant_ids = savedGrants.preserved_grant_ids;
     grantCatalogReady.value = true;
 
-    form.area_ids = resolveAreaIdsForForm(
-      result.area_ids,
-      result.selected_area_items,
-    );
-
-    form.afdeling_ids = normalizeAfdelingIds(
-      result.afdeling_ids,
-      result.selected_afdeling_items,
-    );
-
-    await loadHierarchyForEdit();
+    await applySavedGroupTree(existingAkses?.grup ?? []);
   } finally {
     loadingRoleData.value = false;
   }
@@ -367,57 +387,112 @@ function closeFormModal() {
   showFormModal.value = false;
 }
 
-function buildAksesWilayahTree() {
-  const selectedAreaIds = new Set(form.area_ids.map((id) => String(id)));
-  const selectedPtIds = new Set(form.perusahaan_ids.map((id) => String(id)));
-  const selectedEstateIds = new Set(form.estate_ids.map((id) => String(id)));
+function mapHas(map, key) {
+  return Object.prototype.hasOwnProperty.call(map, key);
+}
 
-  return (manageRoleStore.allDataArea ?? [])
-    .filter((area) => selectedAreaIds.has(String(area?.id ?? "")))
-    .map((area) => {
-      const areaCode = String(getAreaId(area));
-      const perusahaan = (perusahaanByAreaMap.value[areaCode] ?? [])
-        .filter((pt) => selectedPtIds.has(String(pt?.id ?? "")))
-        .map((pt) => {
-          const ptCode = String(getPerusahaanCode(pt));
-          const estate = (estateByPerusahaanMap.value[ptCode] ?? [])
-            .filter((item) => estateMatchesSelection(item, selectedEstateIds))
-            .map((item) => {
-              const estateCode = String(getEstateCode(item));
-              const afdeling = (afdelingByEstateMap.value[estateCode] ?? [])
-                .filter((afd) => isAfdelingSelected(item, afd))
-                .map((afd) => ({
-                  id_afdeling: String(afd?.id ?? getAfdelingCode(afd)),
-                  nama_afdeling: String(
-                    afd?.nama_afdeling ?? afd?.nama ?? getAfdelingCode(afd),
-                  ),
-                }));
-              if (!afdeling.length) return null;
+function estateIsFull(estate) {
+  const code = String(getEstateCode(estate) ?? "");
+  if (!code || !mapHas(afdelingByEstateMap.value, code)) return false;
+  const afdelings = afdelingByEstateMap.value[code] ?? [];
+  if (!afdelings.length) return true;
+  return afdelings.every((afdeling) => isAfdelingSelected(estate, afdeling));
+}
+
+function areaIsFull(ptCode, area) {
+  const key = getAreaSelectionKey(ptCode, getAreaId(area));
+  if (!key || !mapHas(estateByAreaMap.value, key)) return false;
+  const estates = estateByAreaMap.value[key] ?? [];
+  if (!estates.length) return true;
+  return estates.every((estate) => isEstateSelected(estate) && estateIsFull(estate));
+}
+
+function companyIsFull(perusahaan) {
+  const ptCode = getPerusahaanCode(perusahaan);
+  if (!ptCode || !mapHas(areaByPerusahaanMap.value, ptCode)) return false;
+  const areas = areaByPerusahaanMap.value[ptCode] ?? [];
+  if (!areas.length) return true;
+  return areas.every((area) => isAreaSelected(ptCode, area) && areaIsFull(ptCode, area));
+}
+
+function groupIsFull(group) {
+  const groupCode = getGroupCode(group);
+  if (!groupCode || !mapHas(perusahaanByGroupMap.value, groupCode)) return false;
+  const companies = perusahaanByGroupMap.value[groupCode] ?? [];
+  if (!companies.length) return true;
+  return companies.every((perusahaan) => isPerusahaanSelected(perusahaan) && companyIsFull(perusahaan));
+}
+
+function buildAksesData() {
+  const items = [];
+  const areaNodes = new Map();
+
+  for (const group of selectedGroups.value) {
+    if (groupIsFull(group)) {
+      const groupCode = getGroupCode(group);
+      if (groupCode) items.push({ kode_grup: groupCode });
+      continue;
+    }
+
+    const companies = (perusahaanByGroupMap.value[getGroupCode(group)] ?? [])
+      .filter((perusahaan) => isPerusahaanSelected(perusahaan));
+
+    for (const perusahaan of companies) {
+      const ptCode = getPerusahaanCode(perusahaan);
+      if (companyIsFull(perusahaan)) {
+        if (ptCode) items.push({ kode_pt: ptCode });
+        continue;
+      }
+
+      for (const area of areaByPerusahaanMap.value[ptCode] ?? []) {
+        if (!isAreaSelected(ptCode, area)) continue;
+        const areaCode = getAreaId(area);
+        const areaKey = getAreaSelectionKey(ptCode, areaCode);
+        const estates = (estateByAreaMap.value[areaKey] ?? [])
+          .filter((estate) => isEstateSelected(estate))
+          .map((estate) => {
+            const estateCode = String(getEstateCode(estate));
+            const afdeling = (afdelingByEstateMap.value[estateCode] ?? [])
+              .filter((item) => isAfdelingSelected(estate, item))
+              .map((item) => ({
+                id_afdeling: String(item?.id ?? getAfdelingCode(item)),
+                nama_afdeling: String(item?.nama_afdeling ?? item?.nama ?? getAfdelingCode(item)),
+              }));
+            if (estateIsFull(estate)) {
               return {
-                id_estate: String(item?.id ?? estateCode),
-                nama_estate: String(item?.nama_estate ?? item?.nama ?? estateCode),
-                afdeling,
+                id_estate: String(estate?.id ?? estateCode),
+                nama_estate: String(estate?.nama_estate ?? estate?.nama ?? estateCode),
+                afdeling: [],
               };
-            })
-            .filter(Boolean);
-          if (!estate.length) return null;
-          return {
-            id_perusahaan: String(pt?.id ?? ptCode),
-            nama_perusahaan: String(
-              pt?.nama_pt ?? pt?.nama_perusahaan ?? pt?.nama ?? ptCode,
-            ),
-            estate,
-          };
-        })
-        .filter(Boolean);
-      if (!perusahaan.length) return null;
-      return {
-        id_area: areaCode,
-        nama_area: String(area?.nama_area ?? area?.nama ?? areaCode),
-        perusahaan,
-      };
-    })
-    .filter(Boolean);
+            }
+            if (!afdeling.length) return null;
+            return {
+              id_estate: String(estate?.id ?? estateCode),
+              nama_estate: String(estate?.nama_estate ?? estate?.nama ?? estateCode),
+              afdeling,
+            };
+          })
+          .filter(Boolean);
+        if (!estates.length) continue;
+
+        const node = areaNodes.get(areaCode) ?? {
+          id_area: areaCode,
+          nama_area: String(area?.nama_area ?? area?.nama ?? areaCode),
+          perusahaan: [],
+        };
+        node.perusahaan.push({
+          id_perusahaan: String(perusahaan?.id ?? ptCode),
+          nama_perusahaan: String(
+            perusahaan?.nama_pt ?? perusahaan?.nama_perusahaan ?? perusahaan?.nama ?? ptCode,
+          ),
+          estate: estates,
+        });
+        areaNodes.set(areaCode, node);
+      }
+    }
+  }
+
+  return [...items, ...areaNodes.values()];
 }
 
 async function submitForm() {
@@ -429,7 +504,7 @@ async function submitForm() {
 
   const payload = {
     ...form,
-    akses_data: buildAksesWilayahTree(),
+    akses_data: buildAksesData(),
   };
 
   try {
@@ -518,18 +593,6 @@ const toggleMenuPermission = (menuId) => {
 
   form.menu_ids = Array.from(selected);
 };
-
-const getAreaId = (area) =>
-  String(area?.area_id ?? area?.kode_area ?? area?.id_area ?? area?.id ?? "");
-
-const getPerusahaanCode = (perusahaan) =>
-  String(
-    perusahaan?.kode_pt ??
-    perusahaan?.kode ??
-    perusahaan?.id_perusahaan ??
-    perusahaan?.id ??
-    "",
-  );
 
 const getEstateCode = (estate) =>
   String(estate?.kode_est ?? estate?.id_estate ?? estate?.id ?? "");
@@ -638,12 +701,16 @@ function countRoleAccess(role, kind) {
 }
 
 const syncSelectedItemsFromIds = () => {
-  const areaMapById = new Map(
-    (manageRoleStore.allDataArea ?? []).map((area) => [String(area?.id ?? ""), area]),
-  );
+  const areaByKey = new Map();
+  Object.entries(areaByPerusahaanMap.value).forEach(([ptCode, areas]) => {
+    (areas ?? []).forEach((area) => {
+      const key = getAreaSelectionKey(ptCode, getAreaId(area));
+      if (key) areaByKey.set(key, area);
+    });
+  });
 
   form.selected_area_items = form.area_ids
-    .map((id) => areaMapById.get(String(id)))
+    .map((id) => areaByKey.get(String(id)))
     .filter(Boolean)
     .map((area) => ({
       id: String(area?.id ?? ""),
@@ -652,7 +719,7 @@ const syncSelectedItemsFromIds = () => {
     }));
 
   const perusahaanMapById = new Map();
-  Object.values(perusahaanByAreaMap.value).forEach((perusahaanList) => {
+  Object.values(perusahaanByGroupMap.value).forEach((perusahaanList) => {
     (perusahaanList ?? []).forEach((item) => {
       perusahaanMapById.set(String(item?.id ?? ""), item);
     });
@@ -669,7 +736,7 @@ const syncSelectedItemsFromIds = () => {
     }));
 
   const estateMapByCode = new Map();
-  Object.values(estateByPerusahaanMap.value).forEach((estateList) => {
+  Object.values(estateByAreaMap.value).forEach((estateList) => {
     (estateList ?? []).forEach((item) => {
       estateMapByCode.set(String(getEstateCode(item)), item);
     });
@@ -718,215 +785,228 @@ const syncSelectedItemsFromIds = () => {
     }));
 };
 
-const loadPerusahaanMapsForAreas = async (areaIds = []) => {
-  const selectedAreasLocal = (manageRoleStore.allDataArea ?? []).filter((area) => {
-    if (areaIds?.length) {
-      const saved = new Set((areaIds ?? []).map((id) => String(id)));
-      return areaIdentityValues(area).some((value) => saved.has(value));
-    }
-    return isAreaSelected(area);
-  });
+function uniqueIds(values = []) {
+  return Array.from(new Set((values ?? []).map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
 
-  const areaCodes = [...new Set(
-    selectedAreasLocal
-      .map((area) => String(getAreaId(area)))
-      .filter((areaCode) => areaCode && !perusahaanByAreaMap.value[areaCode]),
-  )];
-  const perusahaanLists = await Promise.all(
-    areaCodes.map((areaCode) => manageRoleStore.initDataPerusahaanByArea(areaCode)),
-  );
-  areaCodes.forEach((areaCode, index) => {
-    perusahaanByAreaMap.value[areaCode] = perusahaanLists[index] ?? [];
-  });
+function mergeIds(current, values) {
+  return uniqueIds([...current, ...values]);
+}
 
-  return selectedAreasLocal;
-};
-
-const loadHierarchyForEdit = async () => {
-  beginDataLoad();
-  try {
-    const selectedAreasLocal = await loadPerusahaanMapsForAreas(form.area_ids);
-    if (selectedAreasLocal.length) {
-      form.area_ids = Array.from(new Set(
-        selectedAreasLocal.map((area) => String(area?.id ?? "")).filter(Boolean),
-      ));
-    }
-
-    const matchedPerusahaan = [];
-    for (const area of selectedAreasLocal) {
-      const areaCode = String(getAreaId(area));
-      for (const perusahaan of perusahaanByAreaMap.value[areaCode] ?? []) {
-        if (!isPerusahaanSelected(perusahaan)) continue;
-        matchedPerusahaan.push(perusahaan);
-      }
-    }
-    if (matchedPerusahaan.length) {
-      form.perusahaan_ids = Array.from(new Set(
-        matchedPerusahaan.map((item) => String(item?.id ?? "")).filter(Boolean),
-      ));
-    }
-
-    const perusahaanCodesToLoad = [...new Set(
-      matchedPerusahaan.map((item) => String(getPerusahaanCode(item))).filter(Boolean),
-    )];
-    const perusahaanCodes = perusahaanCodesToLoad.filter(
-      (perusahaanCode) => !estateByPerusahaanMap.value[perusahaanCode],
-    );
-    const estateLists = await Promise.all(
-      perusahaanCodes.map((perusahaanCode) => manageRoleStore.initDataEstate(perusahaanCode)),
-    );
-    perusahaanCodes.forEach((perusahaanCode, index) => {
-      estateByPerusahaanMap.value[perusahaanCode] = estateLists[index] ?? [];
-    });
-
-    const selectedEstateSet = new Set(form.estate_ids.map((id) => String(id)));
-    const estateCodesToLoad = [];
-    for (const perusahaanCode of perusahaanCodesToLoad) {
-      const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
-
-      for (const estate of estateList) {
-        const estateCode = String(getEstateCode(estate));
-        if (!estateCode || !estateMatchesSelection(estate, selectedEstateSet)) continue;
-        if (afdelingByEstateMap.value[estateCode]) continue;
-        estateCodesToLoad.push(estateCode);
-      }
-    }
-
-    const uniqueEstateCodes = [...new Set(estateCodesToLoad)];
-    const afdelingLists = await Promise.all(
-      uniqueEstateCodes.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
-    );
-    uniqueEstateCodes.forEach((estateCode, index) => {
-      afdelingByEstateMap.value[estateCode] = afdelingLists[index] ?? [];
-    });
-
-    form.estate_ids = Array.from(new Set(
-      form.estate_ids
-        .map((value) => {
-          const raw = String(value ?? "");
-          for (const estates of Object.values(estateByPerusahaanMap.value)) {
-            const match = (estates ?? []).find(
-              (estate) => String(estate?.id ?? "") === raw || String(getEstateCode(estate)) === raw,
-            );
-            if (match) return String(getEstateCode(match));
-          }
-          return raw;
-        })
-        .filter(Boolean),
-    ));
-
-    form.afdeling_ids = Array.from(new Set(
-      form.afdeling_ids
-        .map((value) => {
-          const raw = String(value ?? "");
-          const { kodeEst, kodeAfd } = parseAfdelingSelectionKey(raw);
-          const estate = Object.values(estateByPerusahaanMap.value)
-            .flat()
-            .find(
-              (item) => String(getEstateCode(item)) === kodeEst || String(item?.id ?? "") === kodeEst,
-            );
-          const estateCode = estate ? String(getEstateCode(estate)) : kodeEst;
-          const afdeling = (afdelingByEstateMap.value[estateCode] ?? []).find(
-            (item) => String(getAfdelingCode(item)) === kodeAfd || String(item?.id ?? "") === kodeAfd,
-          );
-          const afdelingCode = afdeling ? String(getAfdelingCode(afdeling)) : kodeAfd;
-          return getAfdelingSelectionKey(estateCode, afdelingCode) || raw;
-        })
-        .filter(Boolean),
-    ));
-
-    syncSelectedItemsFromIds();
-    pruneDownstreamSelections();
-
-    try {
-      await ensureBloksForAfdelingKeys(form.afdeling_ids);
-      form.blok_ids = collectBlokIds(form.afdeling_ids);
-    } catch {
-      form.blok_ids = collectBlokIds(form.afdeling_ids);
-    }
-  } finally {
-    endDataLoad();
+async function ensureCompanies(groupCode) {
+  const code = String(groupCode ?? "").trim();
+  if (!code || mapHas(perusahaanByGroupMap.value, code)) {
+    return perusahaanByGroupMap.value[code] ?? [];
   }
-};
+  const list = await manageRoleStore.initDataPerusahaanByGroup(code);
+  perusahaanByGroupMap.value[code] = list ?? [];
+  return perusahaanByGroupMap.value[code];
+}
 
-const autoSelectHierarchyFromAreas = async (areaIds = []) => {
+async function ensureAreas(groupCode, ptCode) {
+  const code = String(ptCode ?? "").trim();
+  if (!code || mapHas(areaByPerusahaanMap.value, code)) {
+    return areaByPerusahaanMap.value[code] ?? [];
+  }
+  const list = await manageRoleStore.initDataAreaByPerusahaan(groupCode, code);
+  areaByPerusahaanMap.value[code] = list ?? [];
+  return areaByPerusahaanMap.value[code];
+}
+
+async function ensureEstates(groupCode, ptCode, areaCode) {
+  const key = getAreaSelectionKey(ptCode, areaCode);
+  if (!key || mapHas(estateByAreaMap.value, key)) {
+    return estateByAreaMap.value[key] ?? [];
+  }
+  const list = await manageRoleStore.initDataEstateByScope(groupCode, ptCode, areaCode);
+  estateByAreaMap.value[key] = list ?? [];
+  return estateByAreaMap.value[key];
+}
+
+async function collectUnderPerusahaan(groupCode, perusahaan) {
+  const ptCode = getPerusahaanCode(perusahaan);
+  const areas = await ensureAreas(groupCode, ptCode);
+  const areaResults = await Promise.all(areas.map(async (area) => {
+    const areaCode = getAreaId(area);
+    const estates = await ensureEstates(groupCode, ptCode, areaCode);
+    return {
+      areaKey: getAreaSelectionKey(ptCode, areaCode),
+      estateCodes: estates.map((estate) => getEstateCode(estate)).filter(Boolean),
+    };
+  }));
+  const estateCodes = areaResults.flatMap((item) => item.estateCodes);
+  await ensureAfdelingsLoaded(estateCodes);
+  return {
+    areaKeys: areaResults.map((item) => item.areaKey).filter(Boolean),
+    estateCodes,
+    afdelingKeys: afdelingKeysForEstates(estateCodes),
+  };
+}
+
+async function expandGroup(groupCode) {
+  const companies = await ensureCompanies(groupCode);
+  const results = await Promise.all(
+    companies.map((perusahaan) => collectUnderPerusahaan(groupCode, perusahaan)),
+  );
+  return {
+    ptIds: companies.map((perusahaan) => String(perusahaan?.id ?? "")).filter(Boolean),
+    areaKeys: results.flatMap((item) => item.areaKeys),
+    estateCodes: results.flatMap((item) => item.estateCodes),
+    afdelingKeys: results.flatMap((item) => item.afdelingKeys),
+  };
+}
+
+function applyExpanded(result, { replace = false } = {}) {
+  form.perusahaan_ids = replace
+    ? uniqueIds(result.ptIds)
+    : mergeIds(form.perusahaan_ids, result.ptIds);
+  form.area_ids = replace ? uniqueIds(result.areaKeys) : mergeIds(form.area_ids, result.areaKeys);
+  form.estate_ids = replace
+    ? uniqueIds(result.estateCodes)
+    : mergeIds(form.estate_ids, result.estateCodes);
+  form.afdeling_ids = replace
+    ? uniqueIds(result.afdelingKeys)
+    : mergeIds(form.afdeling_ids, result.afdelingKeys);
+}
+
+async function autoSelectHierarchyFromGroups(groupCodes = []) {
   beginDataLoad();
   try {
-    const selectedAreasLocal = await loadPerusahaanMapsForAreas(areaIds);
-
-    const perusahaanIds = [];
-    const perusahaanCodes = [];
-    for (const area of selectedAreasLocal) {
-      const areaCode = String(getAreaId(area));
-      const perusahaanList = perusahaanByAreaMap.value[areaCode] ?? [];
-
-      for (const perusahaan of perusahaanList) {
-        const perusahaanId = String(perusahaan?.id ?? "");
-        const perusahaanCode = String(getPerusahaanCode(perusahaan));
-        if (perusahaanId) perusahaanIds.push(perusahaanId);
-        if (perusahaanCode) perusahaanCodes.push(perusahaanCode);
-      }
-    }
-
-    const uniquePerusahaanCodes = [...new Set(perusahaanCodes)];
-    const missingEstateCodes = uniquePerusahaanCodes.filter(
-      (perusahaanCode) => perusahaanCode && !estateByPerusahaanMap.value[perusahaanCode],
-    );
-    const estateLists = await Promise.all(
-      missingEstateCodes.map((perusahaanCode) => manageRoleStore.initDataEstate(perusahaanCode)),
-    );
-    missingEstateCodes.forEach((perusahaanCode, index) => {
-      estateByPerusahaanMap.value[perusahaanCode] = estateLists[index] ?? [];
-    });
-
-    form.perusahaan_ids = Array.from(new Set(perusahaanIds));
-
-    const estateCodes = [];
-    const missingAfdelingCodes = [];
-    for (const perusahaanCode of uniquePerusahaanCodes) {
-      const estateList = estateByPerusahaanMap.value[perusahaanCode] ?? [];
-      for (const estate of estateList) {
-        const estateCode = String(getEstateCode(estate));
-        if (!estateCode) continue;
-        estateCodes.push(estateCode);
-        if (!afdelingByEstateMap.value[estateCode]) missingAfdelingCodes.push(estateCode);
-      }
-    }
-
-    const uniqueAfdelingCodes = [...new Set(missingAfdelingCodes)];
-    const afdelingLists = await Promise.all(
-      uniqueAfdelingCodes.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
-    );
-    uniqueAfdelingCodes.forEach((estateCode, index) => {
-      afdelingByEstateMap.value[estateCode] = afdelingLists[index] ?? [];
-    });
-
-    form.estate_ids = Array.from(new Set(estateCodes));
-
-    const afdelingKeys = [];
-    form.estate_ids.forEach((estateCode) => {
-      const afdelingList = afdelingByEstateMap.value[String(estateCode)] ?? [];
-      afdelingList.forEach((afdeling) => {
-        const kodeAfd = String(getAfdelingCode(afdeling));
-        const selectionKey = getAfdelingSelectionKey(estateCode, kodeAfd);
-        if (selectionKey) afdelingKeys.push(selectionKey);
-      });
-    });
-
-    form.afdeling_ids = Array.from(new Set(afdelingKeys));
+    const codes = uniqueIds(groupCodes);
+    const collected = await Promise.all(codes.map((code) => expandGroup(code)));
+    const result = {
+      ptIds: collected.flatMap((item) => item.ptIds),
+      areaKeys: collected.flatMap((item) => item.areaKeys),
+      estateCodes: collected.flatMap((item) => item.estateCodes),
+      afdelingKeys: collected.flatMap((item) => item.afdelingKeys),
+    };
+    applyExpanded(result, { replace: true });
     await ensureBloksForAfdelingKeys(form.afdeling_ids);
     form.blok_ids = collectBlokIds(form.afdeling_ids);
-    syncSelectedItemsFromIds();
     pruneDownstreamSelections();
   } finally {
     endDataLoad();
   }
-};
+}
+
+function findCompany(groupCode, node) {
+  const list = perusahaanByGroupMap.value[groupCode] ?? [];
+  const id = String(node?.id_perusahaan ?? "");
+  const code = String(node?.kode_pt ?? "");
+  return list.find((item) => String(item?.id ?? "") === id || getPerusahaanCode(item) === code);
+}
+
+function findArea(ptCode, node) {
+  const code = String(node?.kode_area ?? "");
+  return (areaByPerusahaanMap.value[ptCode] ?? []).find((area) => {
+    const values = [getAreaId(area), area?.kode_area, area?.area_id, area?.id]
+      .map((value) => String(value ?? ""));
+    return code && values.includes(code);
+  });
+}
+
+function findEstate(areaKey, node) {
+  const code = String(node?.kode_est ?? "");
+  const id = String(node?.id_estate ?? "");
+  return (estateByAreaMap.value[areaKey] ?? []).find((estate) =>
+    getEstateCode(estate) === code
+    || String(estate?.id ?? "") === id
+    || getEstateCode(estate) === id,
+  );
+}
+
+async function applySavedGroupTree(trees = []) {
+  beginDataLoad();
+  try {
+    for (const node of trees ?? []) {
+      const groupCode = String(node?.kode_grup ?? "").trim();
+      if (!groupCode) continue;
+      form.group_ids = mergeIds(form.group_ids, [groupCode]);
+
+      if (node.penuh || !(node.perusahaan ?? []).length) {
+        applyExpanded(await expandGroup(groupCode));
+        await ensureBloksForAfdelingKeys(form.afdeling_ids);
+        mergeBlokIds(form.afdeling_ids);
+        continue;
+      }
+
+      await ensureCompanies(groupCode);
+      for (const ptNode of node.perusahaan ?? []) {
+        const perusahaan = findCompany(groupCode, ptNode);
+        if (!perusahaan) continue;
+        const ptId = String(perusahaan?.id ?? "");
+        const ptCode = getPerusahaanCode(perusahaan);
+        if (ptId) form.perusahaan_ids = mergeIds(form.perusahaan_ids, [ptId]);
+
+        if (ptNode.penuh || !(ptNode.area ?? []).length) {
+          const result = await collectUnderPerusahaan(groupCode, perusahaan);
+          form.area_ids = mergeIds(form.area_ids, result.areaKeys);
+          form.estate_ids = mergeIds(form.estate_ids, result.estateCodes);
+          form.afdeling_ids = mergeIds(form.afdeling_ids, result.afdelingKeys);
+          await ensureBloksForAfdelingKeys(result.afdelingKeys);
+          mergeBlokIds(result.afdelingKeys);
+          continue;
+        }
+
+        await ensureAreas(groupCode, ptCode);
+        for (const areaNode of ptNode.area ?? []) {
+          const area = findArea(ptCode, areaNode);
+          if (!area) continue;
+          const areaCode = getAreaId(area);
+          const areaKey = getAreaSelectionKey(ptCode, areaCode);
+          if (areaKey) form.area_ids = mergeIds(form.area_ids, [areaKey]);
+
+          if (areaNode.penuh || !(areaNode.estate ?? []).length) {
+            const estates = await ensureEstates(groupCode, ptCode, areaCode);
+            const estateCodes = estates.map((estate) => getEstateCode(estate)).filter(Boolean);
+            await ensureAfdelingsLoaded(estateCodes);
+            const afdelingKeys = afdelingKeysForEstates(estateCodes);
+            form.estate_ids = mergeIds(form.estate_ids, estateCodes);
+            form.afdeling_ids = mergeIds(form.afdeling_ids, afdelingKeys);
+            await ensureBloksForAfdelingKeys(afdelingKeys);
+            mergeBlokIds(afdelingKeys);
+            continue;
+          }
+
+          await ensureEstates(groupCode, ptCode, areaCode);
+          for (const estateNode of areaNode.estate ?? []) {
+            const estate = findEstate(areaKey, estateNode);
+            if (!estate) continue;
+            const estateCode = getEstateCode(estate);
+            if (!estateCode) continue;
+            form.estate_ids = mergeIds(form.estate_ids, [estateCode]);
+            await ensureAfdelingsLoaded([estateCode]);
+            const keys = estateNode.penuh || !(estateNode.afdeling ?? []).length
+              ? afdelingKeysForEstates([estateCode])
+              : (estateNode.afdeling ?? [])
+                .map((afdeling) => getAfdelingSelectionKey(
+                  estateCode,
+                  String(afdeling?.kode_afd ?? afdeling?.id_afdeling ?? ""),
+                ))
+                .filter(Boolean);
+            form.afdeling_ids = mergeIds(form.afdeling_ids, keys);
+            await ensureBloksForAfdelingKeys(keys);
+            mergeBlokIds(keys);
+          }
+        }
+      }
+    }
+  } finally {
+    endDataLoad();
+  }
+}
 
 const pruneDownstreamSelections = () => {
+  const selectedGroupCodes = new Set(form.group_ids.map((id) => String(id)));
+  Object.keys(perusahaanByGroupMap.value).forEach((groupCode) => {
+    if (!selectedGroupCodes.has(String(groupCode))) {
+      delete perusahaanByGroupMap.value[groupCode];
+    }
+  });
+
   const availablePerusahaanMap = new Map();
-  groupedPerusahaanByArea.value.forEach((group) => {
-    (group.perusahaan ?? []).forEach((item) => {
+  Object.values(perusahaanByGroupMap.value).forEach((list) => {
+    (list ?? []).forEach((item) => {
       availablePerusahaanMap.set(String(item?.id), item);
     });
   });
@@ -943,16 +1023,32 @@ const pruneDownstreamSelections = () => {
       .map((item) => String(getPerusahaanCode(item))),
   );
 
-  Object.keys(estateByPerusahaanMap.value).forEach((kodePt) => {
+  Object.keys(areaByPerusahaanMap.value).forEach((kodePt) => {
     if (!selectedPerusahaanCodes.has(String(kodePt))) {
-      delete estateByPerusahaanMap.value[kodePt];
+      delete areaByPerusahaanMap.value[kodePt];
+    }
+  });
+
+  const availableAreaKeys = new Set();
+  Object.entries(areaByPerusahaanMap.value).forEach(([ptCode, areas]) => {
+    (areas ?? []).forEach((area) => {
+      const key = getAreaSelectionKey(ptCode, getAreaId(area));
+      if (key) availableAreaKeys.add(key);
+    });
+  });
+  form.area_ids = form.area_ids.filter((id) => availableAreaKeys.has(String(id)));
+
+  const selectedAreaKeys = new Set(form.area_ids.map((id) => String(id)));
+  Object.keys(estateByAreaMap.value).forEach((areaKey) => {
+    if (!selectedAreaKeys.has(String(areaKey))) {
+      delete estateByAreaMap.value[areaKey];
     }
   });
 
   const availableEstateKeys = new Set();
   const selectedEstateCodes = new Set();
   const keptEstateIds = new Set(form.estate_ids.map((id) => String(id)));
-  Object.values(estateByPerusahaanMap.value).forEach((estates) => {
+  Object.values(estateByAreaMap.value).forEach((estates) => {
     (estates ?? []).forEach((estate) => {
       const code = String(getEstateCode(estate) ?? "");
       const id = String(estate?.id ?? "");
@@ -976,7 +1072,7 @@ const pruneDownstreamSelections = () => {
 
   const availableAfdelingKeys = new Set();
   Object.entries(afdelingByEstateMap.value).forEach(([estateCode, afdelings]) => {
-    const estate = Object.values(estateByPerusahaanMap.value)
+    const estate = Object.values(estateByAreaMap.value)
       .flat()
       .find((item) => String(getEstateCode(item)) === String(estateCode));
     const estateId = String(estate?.id ?? "");
@@ -1053,11 +1149,9 @@ const ensureAfdelingsLoaded = async (estateCodes = []) => {
     const lists = await Promise.all(
       missing.map((estateCode) => manageRoleStore.initDataAfdelingByEstate(estateCode)),
     );
-    const next = { ...afdelingByEstateMap.value };
     missing.forEach((estateCode, index) => {
-      next[estateCode] = lists[index] ?? [];
+      afdelingByEstateMap.value[estateCode] = lists[index] ?? [];
     });
-    afdelingByEstateMap.value = next;
   } finally {
     endDataLoad();
   }
@@ -1158,78 +1252,77 @@ const toggleBlok = (blok, estateCode, afdeling) => {
   }
 };
 
-const toggleArea = async (area) => {
-  const id = String(area?.id ?? "");
-  if (!id) return;
+const toggleGroup = async (group) => {
+  const code = getGroupCode(group);
+  if (!code) return;
 
-  const areaId = getAreaId(area);
-  const index = form.area_ids.indexOf(id);
-
+  const index = form.group_ids.map((id) => String(id)).indexOf(code);
   if (index > -1) {
-    form.area_ids.splice(index, 1);
-    form.selected_area_items = form.selected_area_items.filter(
-      (item) => String(item?.id ?? "") !== id,
-    );
-
-    delete perusahaanByAreaMap.value[areaId];
+    form.group_ids.splice(index, 1);
+    delete perusahaanByGroupMap.value[code];
     pruneDownstreamSelections();
-  } else {
-    form.area_ids.push(id);
-    await autoSelectHierarchyFromAreas(form.area_ids);
+    return;
   }
+
+  form.group_ids.push(code);
+  await autoSelectHierarchyFromGroups(form.group_ids);
 };
 
-const togglePerusahaan = async (perusahaan) => {
+const togglePerusahaan = async (perusahaan, groupCode = "") => {
   const id = String(perusahaan?.id ?? "");
   if (!id) return;
 
-  const perusahaanCode = getPerusahaanCode(perusahaan);
-  const index = form.perusahaan_ids.indexOf(id);
-
+  const code = String(groupCode || perusahaan?._groupCode || perusahaan?.kode_grup || "");
+  const index = form.perusahaan_ids.map((value) => String(value)).indexOf(id);
   if (index > -1) {
     form.perusahaan_ids.splice(index, 1);
-    form.selected_perusahaan_items = form.selected_perusahaan_items.filter(
-      (item) => String(item?.id ?? "") !== id,
-    );
-    delete estateByPerusahaanMap.value[perusahaanCode];
+    delete areaByPerusahaanMap.value[getPerusahaanCode(perusahaan)];
     pruneDownstreamSelections();
-  } else {
-    form.perusahaan_ids.push(id);
-    form.selected_perusahaan_items = [
-      ...form.selected_perusahaan_items,
-      {
-        id: String(perusahaan?.id ?? ""),
-        kode_pt: String(perusahaan?.kode_pt ?? perusahaan?.kode ?? ""),
-        kode_area: String(
-          perusahaan?.kode_area ?? perusahaan?.area_id ?? perusahaan?.area?.area_id ?? "",
-        ),
-        nama_pt: String(
-          perusahaan?.nama_pt ?? perusahaan?.nama_perusahaan ?? perusahaan?.nama ?? "",
-        ),
-      },
-    ];
-    if (!estateByPerusahaanMap.value[perusahaanCode]) {
-      beginDataLoad();
-      try {
-        const data = await manageRoleStore.initDataEstate(perusahaanCode);
-        estateByPerusahaanMap.value[perusahaanCode] = data ?? [];
-      } finally {
-        endDataLoad();
-      }
-    }
-    const estateCodes = (estateByPerusahaanMap.value[perusahaanCode] ?? [])
-      .map((estate) => String(getEstateCode(estate)))
-      .filter(Boolean);
-    form.estate_ids = Array.from(new Set([
-      ...form.estate_ids.map((value) => String(value)),
-      ...estateCodes,
-    ]));
+    return;
+  }
+
+  form.perusahaan_ids.push(id);
+  beginDataLoad();
+  try {
+    const result = await collectUnderPerusahaan(code, perusahaan);
+    form.area_ids = mergeIds(form.area_ids, result.areaKeys);
+    form.estate_ids = mergeIds(form.estate_ids, result.estateCodes);
+    form.afdeling_ids = mergeIds(form.afdeling_ids, result.afdelingKeys);
+    await ensureBloksForAfdelingKeys(result.afdelingKeys);
+    mergeBlokIds(result.afdelingKeys);
+    pruneDownstreamSelections();
+  } finally {
+    endDataLoad();
+  }
+};
+
+const toggleArea = async (area, perusahaan, groupCode = "") => {
+  const ptCode = getPerusahaanCode(perusahaan);
+  const key = getAreaSelectionKey(ptCode, getAreaId(area));
+  if (!key) return;
+
+  const index = form.area_ids.indexOf(key);
+  if (index > -1) {
+    form.area_ids.splice(index, 1);
+    delete estateByAreaMap.value[key];
+    pruneDownstreamSelections();
+    return;
+  }
+
+  form.area_ids.push(key);
+  beginDataLoad();
+  try {
+    const estates = await ensureEstates(groupCode, ptCode, getAreaId(area));
+    const estateCodes = estates.map((estate) => getEstateCode(estate)).filter(Boolean);
     await ensureAfdelingsLoaded(estateCodes);
-    const afdelingKeys = mergeAfdelingIds(estateCodes);
+    const afdelingKeys = afdelingKeysForEstates(estateCodes);
+    form.estate_ids = mergeIds(form.estate_ids, estateCodes);
+    form.afdeling_ids = mergeIds(form.afdeling_ids, afdelingKeys);
     await ensureBloksForAfdelingKeys(afdelingKeys);
     mergeBlokIds(afdelingKeys);
-    syncSelectedItemsFromIds();
     pruneDownstreamSelections();
+  } finally {
+    endDataLoad();
   }
 };
 
@@ -1359,7 +1452,7 @@ onMounted(async () => {
   await Promise.all([
     manageRoleStore.fetchRoles(),
     manageRoleStore.initDataMenu(),
-    manageRoleStore.initDataArea(),
+    manageRoleStore.initDataGroup(),
     manageRoleStore.initDataLayer(),
     manageRoleStore.initDataTableTransaksi(),
   ]).catch(() => {
@@ -1532,48 +1625,44 @@ onMounted(async () => {
             <div v-show="activePermissionTab === 'perusahaan'" class="rounded-xl border border-default p-4">
               <div class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-brand">Level 1 - Area</p>
-                  <!-- <input v-model="searchQueryArea" type="text" placeholder="Cari area..."
-                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
+                  <p class="font-semibold text-brand">Level 1 - Group</p>
                 </div>
-                <div v-if="!allDataArea.length" class="text-muted">
-                  Belum ada data area.
+                <div v-if="!allDataGroup.length" class="text-muted">
+                  Belum ada data group.
                 </div>
                 <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <label v-for="area in allDataArea" :key="area.id ?? area.kode_area ?? area.kode"
+                  <label v-for="group in allDataGroup" :key="getGroupCode(group) || group.id"
                     class="flex items-center gap-2 rounded-lg border border-default p-2">
-                    <input :checked="isAreaSelected(area)" type="checkbox" class="h-4 w-4"
-                      @change="toggleArea(area)" />
-                    <span>{{ area.nama ?? '' }}</span>
+                    <input :checked="isGroupSelected(group)" type="checkbox" class="h-4 w-4"
+                      @change="toggleGroup(group)" />
+                    <span>{{ group.nama_grup ?? group.nama ?? getGroupCode(group) }}</span>
                   </label>
                 </div>
               </div>
 
               <div v-if="loadingHierarchy" class="mb-4 rounded-xl border border-default p-4 text-muted">
-                Memuat data hierarchy (perusahaan, estate, afdeling, blok)...
+                Memuat data hierarchy (perusahaan, area, estate, afdeling, blok)...
               </div>
 
-              <div v-if="groupedPerusahaanByArea.length" class="mb-4 rounded-xl border border-default p-4">
+              <div v-if="groupedPerusahaanByGroup.length" class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
                   <p class="font-semibold text-brand">Level 2 - Perusahaan</p>
-                  <!-- <input v-model="searchQueryPerusahaan" type="text" placeholder="Cari perusahaan..."
-                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
 
                 <div class="space-y-3">
-                  <div v-for="group in groupedPerusahaanByArea" :key="group.areaKey"
+                  <div v-for="group in groupedPerusahaanByGroup" :key="group.groupKey"
                     class="rounded-lg border border-default p-3">
                     <p class="mb-2 text-size-sm font-semibold text-label">
-                      Area: {{ group.area?.nama_area ?? group.area?.nama ?? group.areaKey }}
+                      Group: {{ group.group?.nama_grup ?? group.group?.nama ?? group.groupKey }}
                     </p>
                     <div v-if="!group.perusahaan.length" class="text-muted">
-                      Tidak ada perusahaan untuk area ini.
+                      Tidak ada perusahaan untuk group ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="perusahaan in group.perusahaan" :key="perusahaan.id"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
                         <input :checked="isPerusahaanSelected(perusahaan)" type="checkbox"
-                          class="h-4 w-4" @change="togglePerusahaan(perusahaan)" />
+                          class="h-4 w-4" @change="togglePerusahaan(perusahaan, group.groupKey)" />
                         <span>{{ perusahaan.nama_pt ?? perusahaan.nama ?? perusahaan.title ??
                           getPerusahaanCode(perusahaan) }}</span>
                       </label>
@@ -1582,21 +1671,48 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="groupedEstateByPerusahaan.length" class="mb-4 rounded-xl border border-default p-4">
+              <div v-if="groupedAreaByPerusahaan.length" class="mb-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-brand">Level 3 - Estate</p>
-                  <!-- <input v-model="searchQueryEstate" type="text" placeholder="Cari estate..."
-                    class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
+                  <p class="font-semibold text-brand">Level 3 - Area</p>
                 </div>
 
                 <div class="space-y-3">
-                  <div v-for="group in groupedEstateByPerusahaan" :key="group.perusahaanKey"
+                  <div v-for="group in groupedAreaByPerusahaan" :key="group.perusahaanKey"
                     class="rounded-lg border border-default p-3">
                     <p class="mb-2 text-size-sm font-semibold text-label">
                       Perusahaan: {{ group.perusahaan?.nama_pt ?? group.perusahaan?.nama ?? group.perusahaanKey }}
                     </p>
+                    <div v-if="!group.areas.length" class="text-muted">
+                      Tidak ada area untuk perusahaan ini.
+                    </div>
+                    <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <label v-for="area in group.areas" :key="getAreaSelectionKey(group.perusahaanKey, getAreaId(area))"
+                        class="flex items-center gap-2 rounded-lg border border-default p-2">
+                        <input :checked="isAreaSelected(group.perusahaanKey, area)" type="checkbox"
+                          class="h-4 w-4" @change="toggleArea(area, group.perusahaan, group.groupCode)" />
+                        <span>{{ area.nama_area ?? area.nama ?? getAreaId(area) }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="groupedEstateByArea.length" class="mb-4 rounded-xl border border-default p-4">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p class="font-semibold text-brand">Level 4 - Estate</p>
+                </div>
+
+                <div class="space-y-3">
+                  <div v-for="group in groupedEstateByArea" :key="group.areaKey"
+                    class="rounded-lg border border-default p-3">
+                    <p class="mb-2 text-size-sm font-semibold text-label">
+                      Area: {{ group.area?.nama_area ?? group.area?.nama ?? getAreaId(group.area) }}
+                      <span class="text-muted">
+                        · {{ group.perusahaan?.nama_pt ?? group.perusahaan?.nama ?? group.perusahaanKey }}
+                      </span>
+                    </p>
                     <div v-if="!group.estates.length" class="text-muted">
-                      Tidak ada estate untuk perusahaan ini.
+                      Tidak ada estate untuk area ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="estate in group.estates" :key="getEstateCode(estate)"
@@ -1612,7 +1728,7 @@ onMounted(async () => {
 
               <div v-if="groupedAfdelingByEstate.length" class="rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-brand">Level 4 - Afdeling</p>
+                  <p class="font-semibold text-brand">Level 5 - Afdeling</p>
                   <!-- <input v-model="searchQueryAfdeling" type="text" placeholder="Cari afdeling..."
                     class="rounded-lg border border-tan bg-cream px-3 py-1.5 text-size-sm text-brand focus:outline-none focus:ring-1 focus-ring-brand" /> -->
                 </div>
@@ -1642,7 +1758,7 @@ onMounted(async () => {
 
               <div v-if="groupedBlokByAfdeling.length" class="mt-4 rounded-xl border border-default p-4">
                 <div class="mb-3 flex items-center justify-between gap-2">
-                  <p class="font-semibold text-brand">Level 5 - Blok</p>
+                  <p class="font-semibold text-brand">Level 6 - Blok</p>
                 </div>
 
                 <div class="space-y-3">
