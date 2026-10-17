@@ -1,4 +1,18 @@
 import { AUTH_USER_STORAGE_KEY } from "~/utils/authSession";
+import { authCookieOptions } from "~/stores/authStore";
+
+function readAuthHeader() {
+  try {
+    const auth = useAuthStore();
+    if (auth.token) return `${auth.tokenType ?? "bearer"} ${auth.token}`;
+  } catch {
+    const options = authCookieOptions();
+    const token = useCookie<string | null>("auth_token", options);
+    const tokenType = useCookie<string | null>("auth_token_type", options);
+    if (token.value) return `${tokenType.value ?? "bearer"} ${token.value}`;
+  }
+  return null;
+}
 
 export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig();
@@ -6,16 +20,11 @@ export default defineNuxtPlugin(() => {
   const api = $fetch.create({
     baseURL: config.public.apiBaseUrlPython,
     onRequest({ options }) {
-      const token = useCookie<string | null>("auth_token");
-      const tokenType = useCookie<string | null>("auth_token_type");
-
       const headers = new Headers(options.headers as HeadersInit);
+      const authorization = readAuthHeader();
 
-      if (token.value) {
-        headers.set(
-          "Authorization",
-          `${tokenType.value ?? "bearer"} ${token.value}`,
-        );
+      if (authorization) {
+        headers.set("Authorization", authorization);
       }
 
       if (!headers.has("accept")) {
@@ -30,9 +39,10 @@ export default defineNuxtPlugin(() => {
       try {
         useAuthStore().clearAuthData();
       } catch {
-        const token = useCookie<string | null>("auth_token");
-        const tokenType = useCookie<string | null>("auth_token_type");
-        const user = useCookie("auth_user");
+        const options = authCookieOptions();
+        const token = useCookie<string | null>("auth_token", options);
+        const tokenType = useCookie<string | null>("auth_token_type", options);
+        const user = useCookie("auth_user", options);
         token.value = null;
         tokenType.value = null;
         user.value = null;

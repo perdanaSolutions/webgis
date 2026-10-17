@@ -1,4 +1,4 @@
-/** Cookie sesi bertahan 1 hari. */
+/** Cookie sesi dan JWT login sama-sama bertahan 1 hari. */
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24
 
 export const AUTH_USER_STORAGE_KEY = "auth_user"

@@ -91,11 +91,15 @@ function getApiBaseUrl() {
   return config.public.apiBaseUrlPython;
 }
 
-const cookieOptions = {
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  maxAge: SESSION_MAX_AGE_SECONDS,
-};
+/** Tanpa Secure, cookie sesi tersimpan di HTTP maupun HTTPS. */
+export function authCookieOptions() {
+  return {
+    path: "/",
+    sameSite: "lax" as const,
+    secure: false,
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
 
 function readStoredUser(): UserInfo | null {
   if (!import.meta.client) return null;
@@ -111,6 +115,7 @@ function readStoredUser(): UserInfo | null {
 }
 
 export const useAuthStore = defineStore("auth", () => {
+  const cookieOptions = authCookieOptions();
   const token = useCookie<string | null>("auth_token", cookieOptions);
   const tokenType = useCookie<string | null>("auth_token_type", cookieOptions);
   const profileCookie = useCookie<UserInfo | null>("auth_user", cookieOptions);

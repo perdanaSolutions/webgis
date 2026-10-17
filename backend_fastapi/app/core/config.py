@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     # Konfigurasi Auth/JWT (wajib dari .env)
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # 1440 menit = 1 hari, sama dengan cookie sesi di gis-dashboard.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     UPLOAD_MAX_MB: int = 50
 
     # Token akun layanan (sistem lain): masa berlaku bawaan & batas maksimum, dalam hari.
