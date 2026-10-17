@@ -38,6 +38,9 @@ const SECTION_TITLES: Record<string, string> = {
   blok_terpecah: "Blok Terpecah (satu blok di beberapa data)",
   blok_akan_ditimpa: "Blok yang Batasnya Akan Ditimpa",
   blok_baru_di_master: "Blok Baru di Master",
+  grup_pt: "Penyesuaian Grup PT",
+  area_estate: "Penyesuaian Area Estate",
+  nama_pendek_pt: "Penyesuaian Nama Pendek PT",
   koreksi_label_blok: "Koreksi Label Blok (dicocokkan dari posisi geometri)",
   contoh_blok_tidak_ditemukan: "Contoh Blok Tidak Ditemukan",
   kolom_tersimpan: "Kolom Atribut yang Disimpan",
@@ -48,6 +51,10 @@ const COLUMN_LABELS: Record<string, string> = {
   data_yang_tersimpan: "Data yang Tersimpan",
   label_file: "Label di File",
   blok_master: "Blok di Master",
+  pemilik: "Pemilik",
+  file: "Nilai di File",
+  master: "Nilai di Master",
+  status: "Status",
 };
 
 function asDataWord(text: string): string {

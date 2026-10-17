@@ -38,6 +38,7 @@ class Company(Base):
     group_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master.groups.id"))
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str | None] = mapped_column(String(150))
+    short_name: Mapped[str | None] = mapped_column(String(50))
 
 
 class Estate(Base):

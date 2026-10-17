@@ -11,10 +11,11 @@ Catatan model v3:
   kode = nama PT yang dinormalisasi (maks 20 karakter).
 - Satu blok boleh terdiri dari beberapa fitur (blok terpecah): poligonnya
   digabung menjadi satu MultiPolygon sebelum disimpan.
-- Struktur v2: properti `Group` adalah sumber resmi grup PT (companies.group_id)
-  dan properti `Area` sumber resmi area saat ini estate (estates.area_id). Nilai
-  master diisi/diganti sesuai file; PT/estate yang nilainya berbeda-beda di dalam
-  satu file tidak diubah.
+- Struktur v2: properti `Group` adalah sumber resmi grup PT (companies.group_id),
+  properti `Area` sumber resmi area saat ini estate (estates.area_id), dan
+  properti `short_name_pt` sumber resmi nama pendek PT (companies.short_name).
+  Nilai master diisi/diganti sesuai file; PT/estate yang nilainya berbeda-beda
+  di dalam satu file tidak diubah.
 """
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -33,6 +34,7 @@ from app.utils.period import period_label, to_period
 from app.utils.sql import quote_table
 
 TARGET_TABLE = "spatial.block_boundaries"
+SHORT_NAME_LEN = 50
 
 
 @dataclass
@@ -40,6 +42,7 @@ class BlockFeature:
     area: str | None
     company: str | None
     company_code: str | None
+    company_short_name: str | None  # properti short_name_pt
     group: str | None  # kode grup huruf besar (TPA/SGA)
     estate_code: str
     estate_name: str
@@ -49,16 +52,27 @@ class BlockFeature:
     geom: object | None  # MultiPolygon shapely
 
 
+def _prop_ci(props: dict, name: str) -> str | None:
+    """Ambil properti GeoJSON tanpa peduli huruf besar/kecil kuncinya."""
+    target = name.lower()
+    for key, value in props.items():
+        if str(key).lower() == target:
+            return clean_str(value)
+    return None
+
+
 def _read_feature(props: dict, geometry: dict | None) -> BlockFeature | None:
     estate_code = clean_str(props.get("Est_ID") or props.get("EstID") or props.get("Est") or props.get("Estate"))
     division, block = clean_str(props.get("Afdeling")), clean_str(props.get("Blok"))
     if not (estate_code and division and block):
         return None
     group = clean_str(props.get("Group") or props.get("Grup"))
+    short_name = _prop_ci(props, "short_name_pt")
     return BlockFeature(
         area=area[:50] if (area := clean_str(props.get("Area"))) else None,
         company=clean_str(props.get("PT")),
         company_code=clean_str(props.get("Company_Code") or props.get("CompanyCode")),
+        company_short_name=short_name[:SHORT_NAME_LEN] if short_name else None,
         group=group.upper()[:20] if group else None,
         estate_code=estate_code,
         estate_name=clean_str(props.get("Estate")) or estate_code,
@@ -127,24 +141,42 @@ def _plan(items: list[BlockFeature], owner_of, value_of, master: dict[str, str |
     return plan
 
 
+def _short_name_refs(items: list[BlockFeature]) -> Ref:
+    """Bentuk tulisan pertama tiap nama pendek. Bukan tabel master: hanya supaya 'Tbp' = 'TBP'."""
+    refs: Ref = {}
+    for item in items:
+        if item.company_short_name:
+            refs.setdefault(norm_key(item.company_short_name), (0, item.company_short_name))
+    return refs
+
+
 def _org_plans(db: Session, items) -> tuple[dict[str, list[dict]], dict[str, Ref]]:
-    """Rencana `grup` (per PT, dari Group) dan `area` (per estate, dari Area), beserta tabel pencocokannya."""
+    """Rencana grup PT, area estate, dan nama pendek PT, beserta tabel pencocokannya."""
     items = list(items)
-    refs = {"grup": _ref_lookup(db, "master.groups"), "area": _ref_lookup(db, "master.areas")}
+    refs = {"grup": _ref_lookup(db, "master.groups"), "area": _ref_lookup(db, "master.areas"),
+            "nama_pendek": _short_name_refs(items)}
     companies = _ref_lookup(db, "master.companies")
     company_groups = {f"co:{company_id}": group for company_id, group in db.execute(text(
         "SELECT co.id, gr.code FROM master.companies co LEFT JOIN master.groups gr ON gr.id = co.group_id"))}
+    company_short_names = {f"co:{company_id}": short_name for company_id, short_name in db.execute(text(
+        "SELECT id, short_name FROM master.companies"))}
     estate_areas = {norm_key(code): area for code, area in db.execute(text(
         "SELECT es.code, ar.code FROM master.estates es LEFT JOIN master.areas ar ON ar.id = es.area_id"))}
+    owner = _company_owner(companies)
     plans = {
-        "grup": _plan(items, _company_owner(companies), lambda i: i.group, company_groups, refs["grup"]),
+        "grup": _plan(items, owner, lambda i: i.group, company_groups, refs["grup"]),
         "area": _plan(items, _estate_of, lambda i: i.area, estate_areas, refs["area"]),
+        "nama_pendek": _plan(items, owner, lambda i: i.company_short_name, company_short_names, refs["nama_pendek"]),
     }
     return plans, refs
 
 
 # (kode peringatan, label pemilik untuk pesan) per jenis rencana
-_PLAN_LABELS = {"grup": ("GRUP", "PT", "Grup"), "area": ("AREA", "estate", "Area")}
+_PLAN_LABELS = {
+    "grup": ("GRUP", "PT", "Grup"),
+    "area": ("AREA", "estate", "Area"),
+    "nama_pendek": ("NAMA_PENDEK", "PT", "Nama pendek"),
+}
 
 
 def _plan_warnings(kind: str, plan: list[dict], refs: Ref) -> list[dict]:
@@ -350,6 +382,8 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
             parts.append(f"Grup {changed['grup']} PT akan diisi/diganti.")
         if changed["area"]:
             parts.append(f"Area {changed['area']} estate akan diisi/diganti.")
+        if changed["nama_pendek"]:
+            parts.append(f"Nama pendek {changed['nama_pendek']} PT akan diisi/diganti.")
         conclusion = " ".join(parts)
 
     return {
@@ -385,6 +419,7 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
             ],
             "grup_pt": [{k: v for k, v in p.items() if k != "key"} for p in plans["grup"]],
             "area_estate": [{k: v for k, v in p.items() if k != "key"} for p in plans["area"]],
+            "nama_pendek_pt": [{k: v for k, v in p.items() if k != "key"} for p in plans["nama_pendek"]],
             "blok_akan_ditimpa": [_block_label(b["item"]) for b in overwritten[:DETAIL_LIMIT]],
             "blok_baru_di_master": [_block_label(b["item"]) for b in new_master[:DETAIL_LIMIT]],
             "blok_pindah_afdeling": [{"blok": _block_label(b["item"]), "afdeling_master": b["afdeling_master"]}
@@ -489,14 +524,24 @@ def _apply_plan(db: Session, plan: list[dict], ref_table: str, refs: Ref, update
     return created, targets
 
 
+def _apply_values(db: Session, plan: list[dict], update_sql: str, owner_ids: dict[str, int]) -> list[dict]:
+    """Isi/ganti kolom teks master (bukan id referensi) sesuai rencana. Nilai yang bentrok di file dilewati."""
+    targets = [p for p in plan if p["status"] in ("DIISI", "BERUBAH") and p["key"] in owner_ids]
+    for p in targets:
+        db.execute(text(update_sql), {"v": p["file"][:SHORT_NAME_LEN], "id": owner_ids[p["key"]]})
+    return targets
+
+
 def _apply_org(db: Session, cache: _MasterCache, plans: dict[str, list[dict]], refs: dict[str, Ref]) -> dict:
-    """Grup PT dan area estate dari file. PT dikenali lewat id hasil pencocokan (atau kode/nama), estate lewat kode."""
+    """Grup PT, area estate, dan nama pendek PT dari file. PT dikenali lewat id hasil pencocokan, estate lewat kode."""
     company_ids = {**cache.companies, **{f"co:{company_id}": company_id for company_id in set(cache.companies.values())}}
     groups_new, groups = _apply_plan(db, plans["grup"], "master.groups", refs["grup"],
                                      "UPDATE master.companies SET group_id = :v WHERE id = :id", company_ids)
     areas_new, areas = _apply_plan(db, plans["area"], "master.areas", refs["area"],
                                    "UPDATE master.estates SET area_id = :v WHERE id = :id",
                                    {key: ids[0] for key, ids in cache.estates.items()})
+    short_names = _apply_values(db, plans["nama_pendek"],
+                                "UPDATE master.companies SET short_name = :v WHERE id = :id", company_ids)
 
     def changes(targets):
         return [f"{p['pemilik']}: {p['master']} -> {p['file']}" for p in targets if p["status"] == "BERUBAH"]
@@ -513,6 +558,9 @@ def _apply_org(db: Session, cache: _MasterCache, plans: dict[str, list[dict]], r
         "area_estate_diisi": sum(p["status"] == "DIISI" for p in areas),
         "area_estate_diganti": changes(areas),
         "area_estate_bertentangan_di_file": conflicts(plans["area"]),
+        "nama_pendek_pt_diisi": sum(p["status"] == "DIISI" for p in short_names),
+        "nama_pendek_pt_diganti": changes(short_names),
+        "nama_pendek_pt_bertentangan_di_file": conflicts(plans["nama_pendek"]),
     }
 
 
@@ -590,7 +638,8 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
     progress.stage("karantina")
     quarantined = quarantine.save(db, batch_id, TARGET_TABLE, rejected)
     progress.stage("menyelesaikan")
-    org_changed = any(org[k] for k in ("grup_pt_diisi", "grup_pt_diganti", "area_estate_diisi", "area_estate_diganti"))
+    org_changed = any(org[k] for k in ("grup_pt_diisi", "grup_pt_diganti", "area_estate_diisi", "area_estate_diganti",
+                                       "nama_pendek_pt_diisi", "nama_pendek_pt_diganti"))
     stored_version = bump(db, GEOJSON) if success or org_changed else None
     db.commit()
 

@@ -88,11 +88,11 @@ def list_companies(db: Session, search: str | None, kode_pt: str | None, area: s
     if kode_pt and kode_pt.strip():
         clauses.append("(co.code = :kode_pt OR co.id::text = :kode_pt)")
         params["kode_pt"] = kode_pt.strip()
-    _search_clause(["co.name", "co.code"], search, clauses, params)
+    _search_clause(["co.name", "co.code", "co.short_name"], search, clauses, params)
 
     # Area "utama" PT = area dengan estate terbanyak milik PT itu (atau area yang difilter).
     sql = f"""
-        SELECT co.id, co.code, COALESCE(NULLIF(co.name, ''), co.code) AS name, co.code AS short_name_pt,
+        SELECT co.id, co.code, COALESCE(NULLIF(co.name, ''), co.code) AS name, co.short_name AS short_name_pt,
                pa.area_code, pa.area_name, gr.code AS group_code
         FROM master.companies co
         LEFT JOIN master.groups gr ON gr.id = co.group_id

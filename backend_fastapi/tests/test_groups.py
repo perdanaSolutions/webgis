@@ -226,6 +226,57 @@ def test_block_upload_matches_area_and_company_by_code_or_name(client, auth, gro
     assert len(grup) == 1 and grup[0]["status"] == "BERTENTANGAN_DI_FILE"
 
 
+def test_block_upload_sets_company_short_name_from_geojson(client, auth, grouped_block):
+    """short_name_pt mengisi/mengganti master.companies.short_name; nilai yang bentrok di file tidak ditulis."""
+    b = grouped_block
+    same = _fc(_feature(b, b["polygon"], Group=b["grup"], Area=b["area"], short_name_pt="TBP"))
+    replaced = _fc(_feature(b, b["polygon"], Group=b["grup"], Area=b["area"], short_name_pt="TBX"))
+    conflict = _fc(_feature(b, b["polygon"], Group=b["grup"], Area=b["area"], short_name_pt="AAA"),
+                   _feature(b, _shifted(b["polygon"], 0.5), Group=b["grup"], Area=b["area"], short_name_pt="BBB"))
+    with engine.begin() as conn:
+        previous = conn.execute(text("SELECT short_name FROM master.companies WHERE id = :c"),
+                                {"c": b["company_id"]}).scalar()
+        conn.execute(text("UPDATE master.companies SET short_name = NULL WHERE id = :c"), {"c": b["company_id"]})
+    try:
+        analyze = _upload(client, auth, "upload-analyze", same).json()
+        assert analyze["rincian"]["nama_pendek_pt"] == [{"pemilik": b["company"], "file": "TBP",
+                                                         "master": None, "status": "DIISI"}]
+        assert "NAMA_PENDEK_DIISI" in {w["kode"] for w in analyze["peringatan"]}
+        assert "Nama pendek" in analyze["kesimpulan"]
+
+        result = _upload(client, auth, "upload-execute", same).json()["data"]["detail_status"]
+        assert result["nama_pendek_pt_diisi"] == 1 and result["nama_pendek_pt_diganti"] == []
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT short_name FROM master.companies WHERE id = :c"),
+                                {"c": b["company_id"]}).scalar() == "TBP"
+        assert _get(client, auth, "/pt", kode_pt=b["company"])[0]["short_name_pt"] == "TBP"
+
+        same_spelling = _upload(client, auth, "upload-analyze", _fc(
+            _feature(b, b["polygon"], Group=b["grup"], Area=b["area"], short_name_pt="tbp"))).json()
+        assert same_spelling["rincian"]["nama_pendek_pt"][0]["status"] == "SAMA"
+
+        changed = _upload(client, auth, "upload-analyze", replaced).json()
+        assert changed["rincian"]["nama_pendek_pt"] == [{"pemilik": b["company"], "file": "TBX",
+                                                         "master": "TBP", "status": "BERUBAH"}]
+        assert "NAMA_PENDEK_BERUBAH" in {w["kode"] for w in changed["peringatan"]}
+        executed = _upload(client, auth, "upload-execute", replaced).json()["data"]["detail_status"]
+        assert executed["nama_pendek_pt_diganti"] == [f"{b['company']}: TBP -> TBX"]
+
+        clash = _upload(client, auth, "upload-analyze", conflict).json()
+        assert clash["rincian"]["nama_pendek_pt"][0]["status"] == "BERTENTANGAN_DI_FILE"
+        assert "NAMA_PENDEK_BERTENTANGAN" in {w["kode"] for w in clash["peringatan"]}
+        _upload(client, auth, "upload-execute", conflict)
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT short_name FROM master.companies WHERE id = :c"),
+                                {"c": b["company_id"]}).scalar() == "TBX"
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE master.companies SET short_name = :s WHERE id = :c"),
+                         {"s": previous, "c": b["company_id"]})
+            conn.execute(text("DELETE FROM spatial.block_boundaries WHERE block_id = :b AND period = :p"),
+                         {"b": b["id"], "p": PERIOD})
+
+
 def test_area_statement_import_fills_empty_estate_area_only(client, auth, grouped_block):
     b = grouped_block
     header = ["Year", "Month", "AreaCode", "UnitCode", "DivisionCode", "KodeBlok", "StatusTanam"]
