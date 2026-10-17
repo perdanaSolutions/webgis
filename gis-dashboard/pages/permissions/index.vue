@@ -5,7 +5,6 @@ import {
   useManagePermissionStore,
   type PermissionItem,
 } from "~/stores/managePermissionStore";
-import { parsePermissionMeta } from "~/composables/usePermissionScope";
 
 defineOptions({
   name: "PermissionsManagementPage",
@@ -43,44 +42,6 @@ const filteredPermissions = computed(() => {
 const submitLoading = computed(
   () => managePermissionStore.loadingCreate || managePermissionStore.loadingUpdate,
 );
-
-const permissionScopeGroups = computed(() =>
-  managePermissionStore.scopeGroups.filter((group) => group.items.length > 0),
-);
-
-const selectedScopePreview = computed(() => {
-  if (!form.kode && !form.resource && !form.aksi && !form.deskripsi) {
-    return {
-      categoryLabel: "Belum terdeteksi",
-      ptCode: "-",
-      estateCode: "-",
-      transactionCode: "-",
-    };
-  }
-
-  const meta = parsePermissionMeta({
-    id: selectedPermissionId.value || "draft",
-    kode: form.kode,
-    resource: form.resource,
-    aksi: form.aksi,
-    deskripsi: form.deskripsi,
-  });
-
-  const categoryMap: Record<string, string> = {
-    menu: "Level 1 - Menu / Modul Dashboard",
-    pt: "Level 2 - Akses PT",
-    estate: "Level 3 - Akses Estate",
-    transaction: "Level 4 - Akses Transaksi",
-    general: "Permission Umum / Lainnya",
-  };
-
-  return {
-    categoryLabel: categoryMap[meta.category] ?? "Permission Umum / Lainnya",
-    ptCode: meta.ptCode ?? "-",
-    estateCode: meta.estateCode ?? "-",
-    transactionCode: meta.transactionCode ?? "-",
-  };
-});
 
 const pageTitle = computed(() =>
   formMode.value === "create" ? "Tambah Permission" : "Edit Permission",
@@ -203,26 +164,6 @@ onMounted(async () => {
           {{ managePermissionStore.errorMessage }}
         </p>
 
-        <!-- <div class="mb-4 rounded-xl border border-default bg-cream-light p-4">
-          <h3 class="text-16 font-bold text-brand">Struktur Permission Bertingkat</h3>
-          <p class="mt-1 text-muted">
-            Preview kategori permission berdasarkan data saat ini. Ini membantu memastikan flow level akses konsisten.
-          </p>
-
-          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div v-for="group in permissionScopeGroups" :key="group.category"
-              class="rounded-lg border border-dashed-tan bg-surface p-3">
-              <p class="text-size-sm font-semibold text-brand">{{ group.label }}</p>
-              <p class="mt-1 text-size-xs text-muted">{{ group.items.length }} permission</p>
-            </div>
-
-            <div v-if="permissionScopeGroups.length === 0"
-              class="rounded-lg border border-dashed border-dashed-tan bg-surface p-3 text-muted">
-              Belum ada data permission yang bisa dikategorikan.
-            </div>
-          </div>
-        </div> -->
-
         <div class="overflow-x-auto rounded-xl border border-default">
           <table class="min-w-full bg-surface">
             <thead class="bg-surface-warm text-left text-brand">
@@ -330,33 +271,6 @@ onMounted(async () => {
               <textarea v-model="form.deskripsi" rows="3"
                 class="w-full rounded-xl border border-default px-3 py-2 outline-none" />
             </div>
-
-            <!-- <div class="md:col-span-2 rounded-xl border border-default bg-cream-light p-4">
-              <h4 class="text-15 font-bold text-brand">Preview Scope Permission</h4>
-              <p class="mt-1 text-13 text-muted">
-                Kategori akan terdeteksi otomatis dari kombinasi kode/resource/deskripsi.
-              </p>
-
-              <div class="mt-3 grid grid-cols-1 gap-2 text-13 md:grid-cols-2">
-                <div class="rounded-lg border border-default bg-surface px-3 py-2">
-                  <p class="text-muted">Kategori</p>
-                  <p class="font-semibold text-brand">{{ selectedScopePreview.categoryLabel }}</p>
-                </div>
-                <div class="rounded-lg border border-default bg-surface px-3 py-2">
-                  <p class="text-muted">PT Scope</p>
-                  <p class="font-semibold text-brand">{{ selectedScopePreview.ptCode }}</p>
-                </div>
-                <div class="rounded-lg border border-default bg-surface px-3 py-2">
-                  <p class="text-muted">Estate Scope</p>
-                  <p class="font-semibold text-brand">{{ selectedScopePreview.estateCode }}</p>
-                </div>
-                <div class="rounded-lg border border-default bg-surface px-3 py-2">
-                  <p class="text-muted">Transaction Scope</p>
-                  <p class="font-semibold text-brand">{{ selectedScopePreview.transactionCode }}</p>
-                </div>
-              </div>
-            </div> -->
-
 
             <div class="md:col-span-2 mt-2 flex justify-end gap-2">
               <button type="button"

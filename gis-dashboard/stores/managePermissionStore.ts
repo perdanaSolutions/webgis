@@ -1,10 +1,6 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
-import {
-  parsePermissionMeta,
-  type PermissionScopeCategory,
-} from "~/composables/usePermissionScope";
 
 export type PermissionItem = {
   kode: string;
@@ -35,12 +31,6 @@ export type UpdatePermissionPayload = {
   deskripsi: string;
 };
 
-export type ScopePermissionGroup = {
-  category: PermissionScopeCategory;
-  label: string;
-  items: PermissionItem[];
-};
-
 function getApiBaseUrl() {
   const config = useRuntimeConfig();
   return config.public.apiBaseUrlPython;
@@ -59,43 +49,6 @@ export const useManagePermissionStore = defineStore("managePermission", () => {
   const errorMessage = ref("");
 
   const hasPermissions = computed(() => permissions.value.length > 0);
-
-  const scopeGroups = computed<ScopePermissionGroup[]>(() => {
-    const menu: PermissionItem[] = [];
-    const pt: PermissionItem[] = [];
-    const estate: PermissionItem[] = [];
-    const transaction: PermissionItem[] = [];
-    const general: PermissionItem[] = [];
-
-    permissions.value.forEach((permission) => {
-      const meta = parsePermissionMeta(permission);
-      if (meta.category === "menu") menu.push(permission);
-      else if (meta.category === "pt") pt.push(permission);
-      else if (meta.category === "estate") estate.push(permission);
-      else if (meta.category === "transaction") transaction.push(permission);
-      else general.push(permission);
-    });
-
-    return [
-      {
-        category: "menu",
-        label: "Level 1 - Akses Menu / Modul Dashboard",
-        items: menu,
-      },
-      { category: "pt", label: "Level 2 - Akses Data Map per PT", items: pt },
-      {
-        category: "estate",
-        label: "Level 3 - Akses Data Map per Estate",
-        items: estate,
-      },
-      {
-        category: "transaction",
-        label: "Level 4 - Akses Data Transaksi",
-        items: transaction,
-      },
-      { category: "general", label: "Permission Lainnya", items: general },
-    ];
-  });
 
   function getAuthHeaders() {
     return {
@@ -221,7 +174,6 @@ export const useManagePermissionStore = defineStore("managePermission", () => {
     loadingDelete,
     errorMessage,
     hasPermissions,
-    scopeGroups,
     fetchPermissions,
     createPermission,
     updatePermission,
