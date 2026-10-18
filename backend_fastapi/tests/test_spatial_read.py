@@ -608,3 +608,35 @@ def test_block_detail_year_to_date_matches_geojson(client, auth, sample_block):
     month = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
         "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year}).json()
     assert month["periode"]["produksi_awal"] == month["periode"]["produksi_akhir"] == f"{period.month}-{period.year}"
+
+
+def test_year_to_date_bjr_is_total_tbs_over_total_bunches(client, auth, sample_block):
+    """BJR beberapa bulan = total TBS / total janjang; satu bulan atau tanpa janjang = BJR hasil upload."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    rows = [("2098-01-01", 1000, 100, 99), ("2098-02-01", 3000, 100, 1)]
+    with engine.begin() as conn:
+        for period, tbs, jjg, bjr in rows:
+            conn.execute(text("""
+                INSERT INTO trx.block_productions (block_id, period, ffb_actual_kg, bunches_actual, bjr_actual,
+                                                   ffb_census_kg, bjr_census)
+                VALUES (:b, :p, :t, :j, :bjr, :t, 5)
+            """), {"b": sample_block["id"], "p": period, "t": tbs, "j": jjg, "bjr": bjr})
+    try:
+        params = {"bulan": 2, "tahun": 2098}
+        ytd = _block_props(client, auth, sample_block, **params, year_to_date="true")["produksi_tbs"]
+        month = _block_props(client, auth, sample_block, **params)["produksi_tbs"]
+        assert (ytd["tbs_aktual"], ytd["janjang_aktual"], ytd["bjr_aktual"]) == (4000, 200, 20)
+        assert month["bjr_aktual"] == 1  # satu bulan: nilai upload apa adanya
+
+        detail = client.get("/api/v1/spatial/blok/detail", headers=auth,
+                            params={"blok_id": sample_block["id"], **params, "year_to_date": "true"}).json()
+        bjr = detail["informasi_blok"]["bjr"]
+        assert bjr["aktual"] == 20
+        assert bjr["sensus"] == 5  # janjang sensus kosong: rata-rata BJR upload
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM trx.block_productions WHERE block_id = :b AND period >= '2098-01-01'"),
+                         {"b": sample_block["id"]})

@@ -93,6 +93,16 @@ def _resolve_detail_period(db: Session, block_id: int, bulan: int | None, tahun:
     return period, False
 
 
+def bjr_sql(tbs: str, jjg: str, bjr: str) -> str:
+    """
+    BJR rentang beberapa bulan (year to date) = total TBS / total janjang, hanya dari bulan yang janjangnya
+    terisi. Satu bulan atau tanpa janjang: nilai BJR hasil upload (rata-rata bila lebih dari satu bulan).
+    """
+    both = f"FILTER (WHERE {jjg} > 0 AND {tbs} IS NOT NULL)"
+    return (f"CASE WHEN count(*) > 1 AND COALESCE(SUM({jjg}) {both}, 0) > 0 "
+            f"THEN SUM({tbs}) {both} / SUM({jjg}) {both} ELSE AVG({bjr}) END")
+
+
 def _triplet(actual, budget, census, *, whole_number: bool = False) -> dict:
     cast = whole if whole_number else lambda value: round(num(value), 2)
     return {"aktual": cast(actual), "budget": cast(budget), "sensus": cast(census)}
@@ -132,16 +142,16 @@ def get_block_detail(
     """), master_params).mappings().one()
 
     production_start = date(period.year, 1, 1) if period is not None and year_to_date else period
-    prod = db.execute(text("""
+    prod = db.execute(text(f"""
         SELECT COALESCE(SUM(ffb_actual_kg), 0) AS tbs_aktual,
                COALESCE(SUM(ffb_budget_kg), 0) AS tbs_budget,
                COALESCE(SUM(ffb_census_kg), 0) AS tbs_sensus,
                COALESCE(SUM(bunches_actual), 0) AS jjg_aktual,
                COALESCE(SUM(bunches_budget), 0) AS jjg_budget,
                COALESCE(SUM(bunches_census), 0) AS jjg_sensus,
-               COALESCE(AVG(bjr_actual), 0) AS bjr_aktual,
-               COALESCE(AVG(bjr_budget), 0) AS bjr_budget,
-               COALESCE(AVG(bjr_census), 0) AS bjr_sensus
+               COALESCE({bjr_sql("ffb_actual_kg", "bunches_actual", "bjr_actual")}, 0) AS bjr_aktual,
+               COALESCE({bjr_sql("ffb_budget_kg", "bunches_budget", "bjr_budget")}, 0) AS bjr_budget,
+               COALESCE({bjr_sql("ffb_census_kg", "bunches_census", "bjr_census")}, 0) AS bjr_sensus
         FROM trx.block_productions
         WHERE block_id = :bid AND period BETWEEN :start AND :as_of
     """), {"bid": block_id, "as_of": period, "start": production_start}).mappings().one() if period is not None else {}
