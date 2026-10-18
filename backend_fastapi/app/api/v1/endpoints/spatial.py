@@ -14,7 +14,7 @@ from app.api.params import read_upload
 from app.core.exceptions import bad_request
 from app.schemas.spatial import PaginatedResponse
 from app.services import (
-    block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
+    area_statement_summary_service, block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
     user_access,
 )
 from app.services.block_filter import BlockFilter
@@ -287,6 +287,34 @@ def get_history_planting_years(
     user_access.apply_data_scope(db, current_user, flt)
     years = history_service.list_planting_years(db, flt)
     return {"data": years, "total": len(years)}
+
+
+@router.get("/areal-statement/ringkasan", summary="Ringkasan areal statement untuk card Areal Statement",
+            description="Snapshot areal statement terakhir s/d bulan/tahun (kosong = terbaru): tanaman per status "
+                        "(TM/TBM/LC) dan tahun tanam, populasi per kelas kerapatan pokok (>136, 130-135, <130 pokok/ha), "
+                        "serta luas tanah blok yang tidak tertanam. Persen = terhadap total luas tanam. "
+                        "`non_tanam` (areal non-tanam dari layer landuse) masih null.")
+def get_area_statement_summary(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA) saat ini milik PT. Kosong = semua"),
+    area_id: Optional[str] = Query(None, description="Kode/ID area (area saat ini estate)"),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    blok_id: Optional[str] = Query(None),
+    kode_blok: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(None),
+    bulan: Optional[int] = Query(None, ge=1, le=12),
+    tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    user_access.require_transaction(db, current_user, "trx_areal_statement", "trx.area_statements")
+    flt = BlockFilter(
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd,
+        blok=blok_id or kode_blok, ownership=ownership,
+    )
+    user_access.apply_data_scope(db, current_user, flt)
+    return area_statement_summary_service.area_statement_summary(db, flt, as_of_period(bulan, tahun))
 
 
 @router.get("/history", summary="Histori transaksi per wilayah")

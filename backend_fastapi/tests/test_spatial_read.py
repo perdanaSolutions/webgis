@@ -640,3 +640,35 @@ def test_year_to_date_bjr_is_total_tbs_over_total_bunches(client, auth, sample_b
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM trx.block_productions WHERE block_id = :b AND period >= '2098-01-01'"),
                          {"b": sample_block["id"]})
+
+
+def test_area_statement_summary_matches_history_and_is_consistent(client, auth, sample_block):
+    params = {"kode_est": sample_block["estate"]}
+    summary = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params=params)
+    assert summary.status_code == 200, summary.text
+    summary = summary.json()
+    history = client.get("/api/v1/spatial/history", headers=auth,
+                         params={"table": "trx_areal_statement", **params}).json()["data"]
+    tanam = summary["tanam"]
+    assert tanam["total_luas_tanam"] == history["group_tahun_tanam"]["total_luas_tanam"]
+    assert [(r["tahun_tanam"], r["luas_tanam"]) for r in tanam["per_tahun_tanam"]] == [
+        (r["tahun_tanam"], r["luas_tanam"]) for r in history["group_tahun_tanam"]["details"]]
+    assert round(sum(r["luas_tanam"] for r in tanam["per_status"]), 2) == tanam["total_luas_tanam"]
+    assert sum(r["jumlah_blok"] for r in tanam["per_status"]) == tanam["jumlah_blok"]
+
+    populasi = summary["populasi"]
+    assert [c["kode"] for c in populasi["kelas"]] == ["ATAS_136", "ANTARA_130_135", "BAWAH_130"]
+    classified = sum(c["luas_tanam"] for c in populasi["kelas"]) + populasi["tanpa_sph"]["luas_tanam"]
+    assert abs(classified - tanam["total_luas_tanam"]) < 0.05
+    assert summary["tidak_tertanam_dalam_blok"]["luas"] >= 0 and summary["non_tanam"] is None
+
+    old = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth,
+                     params={**params, "bulan": 1, "tahun": 1900}).json()
+    assert old["periode"] is None and old["tanam"]["jumlah_blok"] == 0 and old["tanam"]["per_status"] == []
+
+
+def test_population_class_boundaries():
+    from app.services.area_statement_summary_service import _population_class
+
+    assert [_population_class(v) for v in (140, 136, 135.9, 130, 129.99, None)] == [
+        "ATAS_136", "ATAS_136", "ANTARA_130_135", "ANTARA_130_135", "BAWAH_130", None]
