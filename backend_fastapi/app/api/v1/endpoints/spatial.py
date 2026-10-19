@@ -326,6 +326,11 @@ def get_area_statement_summary(
 def get_history_data(
     table: str = Query("trx_produksi_tbs"),
     tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    bulan: Optional[int] = Query(
+        None, ge=1, le=12,
+        description="Filter bulan: hanya periode bulan itu (bersama `tahun` = satu periode; tanpa `tahun` = bulan "
+                    "itu di tiap tahun). Areal statement = snapshot s/d bulan itu. Baris respons per bulan.",
+    ),
     tahun_tanam: Optional[int] = Query(
         None, ge=0, le=2100,
         description="Filter tahun transaksi. Tabel trx yang punya planting_year disaring kolom itu; selain itu tahun kolom period.",
@@ -356,6 +361,7 @@ def get_history_data(
     # `tahun` tetap drill bulanan tahun kalender untuk tabel tanpa planting_year.
     return history_service.get_history(
         db, table, tahun, flt, period_year=tahun_tanam, gap_as_of=as_of_period(gap_bulan, gap_tahun),
+        bulan=bulan,
     )
 
 
