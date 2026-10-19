@@ -176,7 +176,7 @@ function onField(key: FieldKey, value: unknown) {
             item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading"
             variant="solo" flat density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-            :menu-props="{ contentClass: 'bp-filter-menu' }" @update:model-value="onField(field.key, $event)" />
+            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }" @update:model-value="onField(field.key, $event)" />
         </label>
 
       </template>
@@ -198,13 +198,13 @@ function onField(key: FieldKey, value: unknown) {
             item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
             density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:bulan', $event == null ? '' : String($event))" />
           <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahun || null" :items="yearOptions"
             item-title="label" item-value="value" placeholder="Tahun" :disabled="loading" variant="solo" flat
             density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
         </div>
         <p v-if="yearToDate && !bulan" class="mt-1 text-12 text-[#55604c]">
@@ -217,13 +217,13 @@ function onField(key: FieldKey, value: unknown) {
             :items="comparisonMonthOptions" item-title="label" item-value="value" placeholder="Bulan"
             :disabled="loading" variant="solo" flat density="comfortable" hide-details single-line color="#638840"
             base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-            :menu-props="{ contentClass: 'bp-filter-menu' }"
+            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:bulanComparison', $event == null ? '' : String($event))" />
           <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahunComparison || null"
             :items="[{ label: 'Tahun', value: '' }, ...yearOptions]" item-title="label" item-value="value"
             placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details
             single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
-            no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu' }"
+            no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
         </div>
         <p v-if="comparisonIncomplete" class="mt-1 text-12 text-[#b45309]">

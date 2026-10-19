@@ -45,6 +45,7 @@ export default defineNuxtConfig({
         "leaflet",
         "jspdf",
         "html-to-image",
+        "xlsx",
         "vuetify/components",
         "vuetify/directives",
         "vuetify/iconsets/mdi",

@@ -738,7 +738,11 @@ function applyInsets() {
   map?.invalidateSize();
 }
 
-defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip });
+function invalidateSize() {
+  map?.invalidateSize({ animate: false });
+}
+
+defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, invalidateSize });
 
 // ------------------------------------------------------------------ siklus hidup
 onMounted(async () => {

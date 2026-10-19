@@ -114,8 +114,88 @@ function closePanels() {
   activeRight.value = null;
 }
 
+const isFullscreen = ref(false);
+const pseudoFullscreen = ref(false);
+
+type FullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenHost = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+function nativeFullscreenElement() {
+  const doc = document as FullscreenDocument;
+  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+}
+
+function refreshMapSize() {
+  nextTick(() => {
+    measureStage();
+    mapRef.value?.invalidateSize();
+    window.setTimeout(() => mapRef.value?.invalidateSize(), 80);
+  });
+}
+
+function onFullscreenChange() {
+  const native = nativeFullscreenElement() === stageRef.value;
+  if (!native) pseudoFullscreen.value = false;
+  isFullscreen.value = native || pseudoFullscreen.value;
+  refreshMapSize();
+}
+
+async function enterFullscreen() {
+  const el = stageRef.value as FullscreenHost | null;
+  if (!el) return;
+  try {
+    if (typeof el.requestFullscreen === "function") {
+      await el.requestFullscreen();
+      return;
+    }
+    if (typeof el.webkitRequestFullscreen === "function") {
+      await el.webkitRequestFullscreen();
+      return;
+    }
+  } catch {
+    /* API ditolak browser — sembunyikan header dan perbesar area peta */
+  }
+  pseudoFullscreen.value = true;
+  isFullscreen.value = true;
+  refreshMapSize();
+}
+
+async function exitFullscreen() {
+  pseudoFullscreen.value = false;
+  const doc = document as FullscreenDocument;
+  try {
+    if (nativeFullscreenElement()) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else await doc.webkitExitFullscreen?.();
+      return;
+    }
+  } catch {
+    /* lanjut menutup mode cadangan */
+  }
+  isFullscreen.value = false;
+  refreshMapSize();
+}
+
+async function toggleFullscreen() {
+  if (isFullscreen.value) await exitFullscreen();
+  else await enterFullscreen();
+}
+
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") closePanels();
+  if (event.key !== "Escape") return;
+  if (pseudoFullscreen.value) {
+    event.preventDefault();
+    void exitFullscreen();
+    return;
+  }
+  if (nativeFullscreenElement() === stageRef.value) return;
+  closePanels();
 }
 
 function syncOnline() {
@@ -279,6 +359,8 @@ onMounted(async () => {
   mqMobile.addEventListener("change", syncLayout);
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("keydown", onExportKeydown, true);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
   if (stageRef.value && typeof ResizeObserver !== "undefined") {
     stageObserver = new ResizeObserver(() => syncLayout());
     stageObserver.observe(stageRef.value);
@@ -307,6 +389,9 @@ onBeforeUnmount(() => {
   mqMobile?.removeEventListener("change", syncLayout);
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("keydown", onExportKeydown, true);
+  document.removeEventListener("fullscreenchange", onFullscreenChange);
+  document.removeEventListener("webkitfullscreenchange", onFullscreenChange);
+  if (nativeFullscreenElement() === stageRef.value) void document.exitFullscreen?.();
   window.removeEventListener("online", syncOnline);
   window.removeEventListener("offline", syncOnline);
   stageObserver?.disconnect();
@@ -315,53 +400,55 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="bp-map-shell flex min-h-0 flex-col overflow-hidden bg-[#f4f6f1] text-14 text-[#1f2a18]">
-    <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
+    <div v-show="!isFullscreen" class="contents">
+      <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
 
-    <!-- PAGE HEADER -->
-    <div
-      class="flex shrink-0 items-center justify-between gap-2 border-b border-[#d5dcc8] bg-white px-3 py-1.5 sm:px-4 lg:px-6">
-      <div class="min-w-0">
-        <nav class="hidden text-11 leading-none text-[#6e7866] sm:block" aria-label="Breadcrumb">
-          <NuxtLink to="/dashboard" class="hover:underline">Beranda</NuxtLink>
-          <span class="mx-1">/</span>
-          <span>{{ pageTitle }}</span>
-        </nav>
-        <div class="flex min-w-0 items-baseline gap-x-2 sm:mt-0.5">
-          <h1 class="truncate text-base font-bold leading-none tracking-tight text-[#1f2a18] sm:text-lg">{{ pageTitle }}
-          </h1>
-          <p class="hidden min-w-0 truncate text-12 leading-none text-[#6e7866] md:block">Tampilan peta layar penuh ·
-            scope: {{ store.scopeLabel }}</p>
+      <!-- PAGE HEADER -->
+      <div
+        class="bp-map-chrome flex shrink-0 items-center justify-between gap-2 border-b border-[#d5dcc8] bg-white px-3 py-1.5 sm:px-4 lg:px-6">
+        <div class="min-w-0">
+          <nav class="hidden text-11 leading-none text-[#6e7866] sm:block" aria-label="Breadcrumb">
+            <NuxtLink to="/dashboard" class="hover:underline">Beranda</NuxtLink>
+            <span class="mx-1">/</span>
+            <span>{{ pageTitle }}</span>
+          </nav>
+          <div class="flex min-w-0 items-baseline gap-x-2 sm:mt-0.5">
+            <h1 class="truncate text-base font-bold leading-none tracking-tight text-[#1f2a18] sm:text-lg">{{ pageTitle
+            }}
+            </h1>
+            <p class="hidden min-w-0 truncate text-12 leading-none text-[#6e7866] md:block">Tampilan peta layar penuh ·
+              scope: {{ store.scopeLabel }}</p>
+          </div>
         </div>
-      </div>
-      <div class="flex shrink-0 items-center gap-1.5">
-        <button type="button" class="bp-btn max-sm:w-9 max-sm:justify-center max-sm:px-0"
-          title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
-          :aria-busy="exporting" @click="downloadPdf">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"
-            aria-hidden="true">
-            <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
-          </svg>
-          <span class="hidden sm:inline">Unduh Peta</span>
-        </button>
-        <NuxtLink to="/document" class="bp-btn bp-btn-primary max-sm:w-9 max-sm:justify-center max-sm:px-0"
-          aria-label="Tambah blok">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"
-            aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          <span class="hidden sm:inline">Tambah Blok</span>
-        </NuxtLink>
+        <div class="flex shrink-0 items-center gap-1.5">
+          <button type="button" class="bp-btn max-sm:w-9 max-sm:justify-center max-sm:px-0"
+            title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
+            :aria-busy="exporting" @click="downloadPdf">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"
+              aria-hidden="true">
+              <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
+            </svg>
+            <span class="hidden sm:inline">Unduh Peta</span>
+          </button>
+          <NuxtLink to="/document" class="bp-btn bp-btn-primary max-sm:w-9 max-sm:justify-center max-sm:px-0"
+            aria-label="Tambah blok">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"
+              aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span class="hidden sm:inline">Tambah Blok</span>
+          </NuxtLink>
+        </div>
       </div>
     </div>
 
-    <div ref="stageRef" class="relative min-h-0 flex-1 overflow-hidden">
+    <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
       <section class="absolute inset-0 z-0">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
           :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
           :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadSelectedDetail"
-          :popup-period="store.popupPeriod"
-          @select="onSelectBlock" @deselect="onDeselectBlock" />
+          :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -410,27 +497,45 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div class="bp-card flex overflow-hidden !rounded-2xl">
-            <button type="button" class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-              aria-label="Perbesar" @click="mapRef?.zoomIn()">
-              <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
+          <div class="flex flex-col items-end gap-2">
             <button type="button"
-              class="flex h-11 w-11 items-center justify-center border-x border-[#d5dcc8] hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-              aria-label="Perkecil" @click="mapRef?.zoomOut()">
-              <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14" />
+              class="bp-card flex h-11 w-11 items-center justify-center !rounded-2xl hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+              :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
+              :title="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'" :aria-pressed="isFullscreen"
+              @click="toggleFullscreen">
+              <svg v-if="!isFullscreen" viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor"
+                stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M15 4h5v5M4 15v5h5M20 15v5h-5" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"
+                aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
               </svg>
             </button>
-            <button type="button" class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-              aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
-              <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="4" />
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-              </svg>
-            </button>
+            <div class="bp-card flex overflow-hidden !rounded-2xl">
+              <button type="button"
+                class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                aria-label="Perbesar" @click="mapRef?.zoomIn()">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+              <button type="button"
+                class="flex h-11 w-11 items-center justify-center border-x border-[#d5dcc8] hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                aria-label="Perkecil" @click="mapRef?.zoomOut()">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12h14" />
+                </svg>
+              </button>
+              <button type="button"
+                class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -467,23 +572,22 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div v-if="activeLeft" :id="`bp-panel-${activeLeft}`" class="bp-collapse-panel">
-          <FilterPanel :section="activeLeft" :group-options="store.groupOptions" :area-options="store.areaOptions" :pt-options="store.ptOptions"
-            :estate-options="store.estateOptions" :afdeling-options="store.afdelingOptions"
-            :blok-options="store.blokOptions" :ownership-options="store.ownershipOptions"
-            :grup="store.grup" :area="store.area" :pt="store.pt" :estate="store.estate"
-            :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
+          <FilterPanel :section="activeLeft" :group-options="store.groupOptions" :area-options="store.areaOptions"
+            :pt-options="store.ptOptions" :estate-options="store.estateOptions"
+            :afdeling-options="store.afdelingOptions" :blok-options="store.blokOptions"
+            :ownership-options="store.ownershipOptions" :grup="store.grup" :area="store.area" :pt="store.pt"
+            :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
             :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate"
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :basemap="basemap" :opacity="opacity"
-            :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup" @update:area="store.setArea"
-            @update:pt="store.setPt" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
-            @update:blok="store.setBlok" @update:ownership="store.setOwnership"
+            :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
+            @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
+            @update:afdeling="store.setAfdeling" @update:blok="store.setBlok" @update:ownership="store.setOwnership"
             @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
-            @reset="onResetFilters"
-            @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
+            @reset="onResetFilters" @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
             @toggle-yield-gap="showYieldGap = !showYieldGap" @update:basemap="basemap = $event"
             @update:opacity="opacity = $event" />
         </div>
@@ -531,7 +635,7 @@ onBeforeUnmount(() => {
           <button v-if="store.canViewRotation" type="button" class="bp-collapse-btn"
             :class="activeRight === 'rotasi' && 'is-active'" :aria-expanded="activeRight === 'rotasi'"
             aria-controls="bp-panel-rotasi" @click="openRight('rotasi')">
-            <span>Rotasi Pusingan</span>
+            <span>Rotasi</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M20 12a8 8 0 1 1-2.3-5.7L20 8" />
               <path stroke-linecap="round" stroke-linejoin="round" d="M20 4v4h-4" />
@@ -561,33 +665,32 @@ onBeforeUnmount(() => {
     </div>
 
     <Teleport to="body">
-    <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel" :filter-line="pdfFilterLine"
-      :summary="store.summary" :detail="store.detail" :loading-detail="store.loadingDetail"
-      :can-view-production="store.canViewProduction" :production-years="store.productionYears"
-      :production-loading="store.loadingProduction"
-      :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
-      :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
-      :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
-      :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
-      :area-statement="store.areaStatementView"
-      :area-loading="store.loadingAreaStatement"
-      :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
-      :rotation-loading="store.loadingRotation" />
+      <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel"
+        :filter-line="pdfFilterLine" :summary="store.summary" :detail="store.detail"
+        :loading-detail="store.loadingDetail" :can-view-production="store.canViewProduction"
+        :production-years="store.productionYears" :production-loading="store.loadingProduction"
+        :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
+        :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
+        :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
+        :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
+        :area-statement="store.areaStatementView" :area-loading="store.loadingAreaStatement"
+        :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
+        :rotation-loading="store.loadingRotation" />
 
-    <div v-if="exporting" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
-      aria-labelledby="bp-pdf-loader-title" tabindex="-1">
-      <div class="bp-pdf-loader-panel">
-        <span v-if="!exportError" class="bp-pdf-spinner" aria-hidden="true" />
-        <h2 id="bp-pdf-loader-title" class="text-16 font-bold text-[#1f2a18]">
-          {{ exportError ? "Unduhan gagal" : "Menyiapkan peta" }}
-        </h2>
-        <p class="max-w-[280px] text-center text-13 leading-snug text-[#55604c]">
-          {{ exportError || exportStatus }}
-        </p>
-        <div v-if="!exportError" class="bp-pdf-bar" aria-hidden="true"><span /></div>
-        <button v-else type="button" class="bp-btn mt-1" @click="closeExportError">Tutup</button>
+      <div v-if="exporting" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
+        aria-labelledby="bp-pdf-loader-title" tabindex="-1">
+        <div class="bp-pdf-loader-panel">
+          <span v-if="!exportError" class="bp-pdf-spinner" aria-hidden="true" />
+          <h2 id="bp-pdf-loader-title" class="text-16 font-bold text-[#1f2a18]">
+            {{ exportError ? "Unduhan gagal" : "Menyiapkan peta" }}
+          </h2>
+          <p class="max-w-[280px] text-center text-13 leading-snug text-[#55604c]">
+            {{ exportError || exportStatus }}
+          </p>
+          <div v-if="!exportError" class="bp-pdf-bar" aria-hidden="true"><span /></div>
+          <button v-else type="button" class="bp-btn mt-1" @click="closeExportError">Tutup</button>
+        </div>
       </div>
-    </div>
     </Teleport>
   </main>
 </template>

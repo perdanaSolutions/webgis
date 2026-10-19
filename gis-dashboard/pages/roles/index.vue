@@ -667,18 +667,18 @@ const getAfdelingCode = (afdeling) =>
 const getLayerCode = (layer) =>
   String(
     layer?.nama_table_transaksi ||
-      layer?.table_name ||
-      layer?.id ||
-      "",
+    layer?.table_name ||
+    layer?.id ||
+    "",
   );
 
 const getTransaksiCode = (transaksi) =>
   String(
     transaksi?.physical_table ||
-      transaksi?.nama_table_transaksi ||
-      transaksi?.table_name ||
-      transaksi?.id ||
-      "",
+    transaksi?.nama_table_transaksi ||
+    transaksi?.table_name ||
+    transaksi?.id ||
+    "",
   );
 
 function countRoleAccess(role, kind) {
@@ -1558,13 +1558,13 @@ onMounted(async () => {
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
-            <label class="mb-1 block text-label">Nama Role</label>
+            <label class="mb-1 block text-label">Nama Role <span class="text-error">*</span></label>
             <input :value="form.nama" @input="onNamaInput" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-label">Deskripsi</label>
+            <label class="mb-1 block text-label">Deskripsi <span class="text-error">*</span></label>
             <input :value="form.deskripsi" @input="onDeskripsiInput" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
@@ -1611,8 +1611,8 @@ onMounted(async () => {
                 <label v-for="menu in manageRoleStore.allDataMenu" :key="menu.id"
                   class="flex items-center gap-2 rounded-lg border border-default p-2"
                   :style="{ marginLeft: `${(Number(menu.level || 1) - 1) * 20}px` }">
-                  <input :checked="form.menu_ids.map((id) => String(id)).includes(String(menu.id))" type="checkbox" class="h-4 w-4"
-                    @change="toggleMenuPermission(menu.id)" />
+                  <input :checked="form.menu_ids.map((id) => String(id)).includes(String(menu.id))" type="checkbox"
+                    class="h-4 w-4" @change="toggleMenuPermission(menu.id)" />
                   <span>
                     <span v-if="Number(menu.level) > 1" class="text-muted">↳ </span>
                     {{ menu.title }}
@@ -1661,8 +1661,8 @@ onMounted(async () => {
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="perusahaan in group.perusahaan" :key="perusahaan.id"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="isPerusahaanSelected(perusahaan)" type="checkbox"
-                          class="h-4 w-4" @change="togglePerusahaan(perusahaan, group.groupKey)" />
+                        <input :checked="isPerusahaanSelected(perusahaan)" type="checkbox" class="h-4 w-4"
+                          @change="togglePerusahaan(perusahaan, group.groupKey)" />
                         <span>{{ perusahaan.nama_pt ?? perusahaan.nama ?? perusahaan.title ??
                           getPerusahaanCode(perusahaan) }}</span>
                       </label>
@@ -1686,10 +1686,11 @@ onMounted(async () => {
                       Tidak ada area untuk perusahaan ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <label v-for="area in group.areas" :key="getAreaSelectionKey(group.perusahaanKey, getAreaId(area))"
+                      <label v-for="area in group.areas"
+                        :key="getAreaSelectionKey(group.perusahaanKey, getAreaId(area))"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="isAreaSelected(group.perusahaanKey, area)" type="checkbox"
-                          class="h-4 w-4" @change="toggleArea(area, group.perusahaan, group.groupCode)" />
+                        <input :checked="isAreaSelected(group.perusahaanKey, area)" type="checkbox" class="h-4 w-4"
+                          @change="toggleArea(area, group.perusahaan, group.groupCode)" />
                         <span>{{ area.nama_area ?? area.nama ?? getAreaId(area) }}</span>
                       </label>
                     </div>
@@ -1717,8 +1718,8 @@ onMounted(async () => {
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <label v-for="estate in group.estates" :key="getEstateCode(estate)"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="isEstateSelected(estate)" type="checkbox"
-                          class="h-4 w-4" @change="toggleEstate(estate)" />
+                        <input :checked="isEstateSelected(estate)" type="checkbox" class="h-4 w-4"
+                          @change="toggleEstate(estate)" />
                         <span>{{ estate.nama_estate ?? estate.nama ?? estate.title ?? getEstateCode(estate) }}</span>
                       </label>
                     </div>
@@ -1746,10 +1747,10 @@ onMounted(async () => {
                       <label v-for="afdeling in group.afdelings"
                         :key="getAfdelingSelectionKey(group.estateKey, getAfdelingCode(afdeling))"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
-                        <input :checked="isAfdelingSelected(group.estate, afdeling)" type="checkbox"
-                          class="h-4 w-4" @change="toggleAfdeling(afdeling, group.estateKey)" />
+                        <input :checked="isAfdelingSelected(group.estate, afdeling)" type="checkbox" class="h-4 w-4"
+                          @change="toggleAfdeling(afdeling, group.estateKey)" />
                         <span>{{ afdeling.nama_afdeling ?? afdeling.nama ?? afdeling.title ?? getAfdelingCode(afdeling)
-                          }}</span>
+                        }}</span>
                       </label>
                     </div>
                   </div>
@@ -1765,7 +1766,8 @@ onMounted(async () => {
                   <div v-for="group in groupedBlokByAfdeling" :key="group.mapKey"
                     class="rounded-lg border border-default p-3">
                     <p class="mb-2 text-size-sm font-semibold text-label">
-                      Afdeling: {{ group.afdeling?.nama_afdeling ?? group.afdeling?.nama ?? getAfdelingCode(group.afdeling) }}
+                      Afdeling: {{ group.afdeling?.nama_afdeling ?? group.afdeling?.nama ??
+                      getAfdelingCode(group.afdeling) }}
                       <span class="text-muted">
                         · Estate {{ group.estate?.nama_estate ?? group.estate?.nama ?? group.estateKey }}
                       </span>
@@ -1777,7 +1779,8 @@ onMounted(async () => {
                       Tidak ada blok untuk afdeling ini.
                     </div>
                     <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <label v-for="blok in group.bloks" :key="getBlokSelectionKey(group.estateKey, getAfdelingCode(group.afdeling), getBlokCode(blok))"
+                      <label v-for="blok in group.bloks"
+                        :key="getBlokSelectionKey(group.estateKey, getAfdelingCode(group.afdeling), getBlokCode(blok))"
                         class="flex items-center gap-2 rounded-lg border border-default p-2">
                         <input :checked="isBlokSelected(group.estateKey, group.afdeling, blok)" type="checkbox"
                           class="h-4 w-4" @change="toggleBlok(blok, group.estateKey, group.afdeling)" />
@@ -1809,8 +1812,8 @@ onMounted(async () => {
               <div v-else class="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <label v-for="layer in allDataLayer" :key="getLayerCode(layer)"
                   class="flex items-center gap-2 rounded-lg border border-default p-2">
-                  <input :checked="form.layer_ids.includes(getLayerCode(layer))" type="checkbox"
-                    class="h-4 w-4" @change="togglePermission(getLayerCode(layer))" />
+                  <input :checked="form.layer_ids.includes(getLayerCode(layer))" type="checkbox" class="h-4 w-4"
+                    @change="togglePermission(getLayerCode(layer))" />
                   <span>{{ layer?.title ?? layer?.nama_table_transaksi ?? layer }}</span>
                 </label>
               </div>

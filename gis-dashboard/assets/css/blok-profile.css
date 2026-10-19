@@ -304,6 +304,14 @@
   height: 100dvh;
 }
 
+.bp-stage:fullscreen,
+.bp-stage:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  background: #3f4a3a;
+}
+
 .bp-controls {
   right: max(0.75rem, env(safe-area-inset-right, 0px));
   bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
