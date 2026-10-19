@@ -1,12 +1,16 @@
 import json
 import logging
+import re
 from typing import Any
 
+import numpy as np
 import orjson
+import shapely
 from fastapi import Response
 from shapely import wkb
 from shapely.errors import ShapelyError
-from shapely.geometry import MultiLineString, MultiPoint, MultiPolygon, shape
+from pyproj import Transformer
+from shapely.geometry import MultiLineString, MultiPoint, MultiPolygon, mapping, shape
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
@@ -36,9 +40,38 @@ def parse_features(content: bytes) -> list[dict]:
         raise bad_request("Format file tidak valid atau bukan JSON.", field="file") from exc
     if not isinstance(data, dict):
         raise bad_request("Isi file bukan objek GeoJSON.", field="file")
-    if data.get("type") == "FeatureCollection":
-        return [f for f in data.get("features") or [] if isinstance(f, dict)]
-    return [data]
+    features = ([f for f in data.get("features") or [] if isinstance(f, dict)]
+                if data.get("type") == "FeatureCollection" else [data])
+    return _to_wgs84(features, _source_epsg(data))
+
+
+def _source_epsg(data: dict) -> int:
+    """EPSG dari member `crs` (mis. export ArcGIS UTM `urn:ogc:def:crs:EPSG::32650`); tanpa `crs` dianggap 4326."""
+    name = ((data.get("crs") or {}).get("properties") or {}).get("name") or ""
+    match = re.search(r"EPSG:+(\d+)", str(name))
+    return int(match.group(1)) if match else SRID
+
+
+def _to_wgs84(features: list[dict], epsg: int) -> list[dict]:
+    if epsg == SRID:
+        return features
+    try:
+        transformer = Transformer.from_crs(epsg, SRID, always_xy=True)
+    except Exception as exc:  # CRSError
+        raise bad_request(f"Sistem koordinat EPSG:{epsg} tidak dikenali.", field="file") from exc
+
+    def project(coords):
+        x, y = transformer.transform(coords[:, 0], coords[:, 1])
+        return np.column_stack([x, y])
+
+    for feature in features:
+        try:
+            geom = shape(feature["geometry"]) if feature.get("geometry") else None
+            if geom is not None:
+                feature["geometry"] = mapping(shapely.transform(geom, project))
+        except (ShapelyError, ValueError, TypeError, KeyError):
+            feature["geometry"] = None  # ditolak sebagai GEOMETRI_TIDAK_VALID oleh pemanggil
+    return features
 
 
 def prepare_geometry(geometry: dict | None, target_type: str):

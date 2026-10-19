@@ -22,7 +22,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.block_detail_service import _yield_ton_ha, gap_kategori, gap_value
+from app.services.block_detail_service import _yield_ton_ha, bjr_sql, gap_kategori, gap_value
 from app.services.block_filter import BlockFilter, statement_as_of_join
 from app.services.hierarchy_service import BLOCK_ATTRIBUTE_COLUMNS
 from app.utils.geojson import feature_collection, make_feature
@@ -115,7 +115,7 @@ def _produksi_payload(period: date, luas: float, row, window: TrxWindow | None =
 
 def _window_summaries(db: Session, block_ids: list[int], window: TrxWindow) -> dict[int, tuple]:
     """id blok -> (statement | None, produksi | None) untuk satu rentang; blok tanpa keduanya tidak ada."""
-    rows = db.execute(text("""
+    rows = db.execute(text(f"""
         WITH statements AS (
             SELECT DISTINCT ON (a.block_id)
                    a.block_id, a.period, a.planted_area_ha, a.land_area_ha, a.tree_count, a.sph
@@ -129,7 +129,7 @@ def _window_summaries(db: Session, block_ids: list[int], window: TrxWindow) -> d
                    SUM(p.ffb_budget_kg) AS ffb_budget_kg,
                    SUM(p.ffb_census_kg) AS ffb_census_kg,
                    SUM(p.bunches_actual) AS bunches_actual,
-                   AVG(p.bjr_actual) AS bjr_actual
+                   {bjr_sql("p.ffb_actual_kg", "p.bunches_actual", "p.bjr_actual")} AS bjr_actual
             FROM trx.block_productions p
             WHERE p.block_id = ANY(:ids) AND p.period BETWEEN :start AND :end
             GROUP BY p.block_id

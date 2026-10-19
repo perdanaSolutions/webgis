@@ -608,3 +608,107 @@ def test_block_detail_year_to_date_matches_geojson(client, auth, sample_block):
     month = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
         "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year}).json()
     assert month["periode"]["produksi_awal"] == month["periode"]["produksi_akhir"] == f"{period.month}-{period.year}"
+
+
+def test_year_to_date_bjr_is_total_tbs_over_total_bunches(client, auth, sample_block):
+    """BJR beberapa bulan = total TBS / total janjang; satu bulan atau tanpa janjang = BJR hasil upload."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    rows = [("2098-01-01", 1000, 100, 99), ("2098-02-01", 3000, 100, 1)]
+    with engine.begin() as conn:
+        for period, tbs, jjg, bjr in rows:
+            conn.execute(text("""
+                INSERT INTO trx.block_productions (block_id, period, ffb_actual_kg, bunches_actual, bjr_actual,
+                                                   ffb_census_kg, bjr_census)
+                VALUES (:b, :p, :t, :j, :bjr, :t, 5)
+            """), {"b": sample_block["id"], "p": period, "t": tbs, "j": jjg, "bjr": bjr})
+    try:
+        params = {"bulan": 2, "tahun": 2098}
+        ytd = _block_props(client, auth, sample_block, **params, year_to_date="true")["produksi_tbs"]
+        month = _block_props(client, auth, sample_block, **params)["produksi_tbs"]
+        assert (ytd["tbs_aktual"], ytd["janjang_aktual"], ytd["bjr_aktual"]) == (4000, 200, 20)
+        assert month["bjr_aktual"] == 1  # satu bulan: nilai upload apa adanya
+
+        detail = client.get("/api/v1/spatial/blok/detail", headers=auth,
+                            params={"blok_id": sample_block["id"], **params, "year_to_date": "true"}).json()
+        bjr = detail["informasi_blok"]["bjr"]
+        assert bjr["aktual"] == 20
+        assert bjr["sensus"] == 5  # janjang sensus kosong: rata-rata BJR upload
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM trx.block_productions WHERE block_id = :b AND period >= '2098-01-01'"),
+                         {"b": sample_block["id"]})
+
+
+def test_area_statement_summary_matches_history_and_is_consistent(client, auth, sample_block):
+    params = {"kode_est": sample_block["estate"]}
+    summary = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params=params)
+    assert summary.status_code == 200, summary.text
+    summary = summary.json()
+    history = client.get("/api/v1/spatial/history", headers=auth,
+                         params={"table": "trx_areal_statement", **params}).json()["data"]
+    tanam = summary["tanam"]
+    assert tanam["total_luas_tanam"] == history["group_tahun_tanam"]["total_luas_tanam"]
+    assert [(r["tahun_tanam"], r["luas_tanam"]) for r in tanam["per_tahun_tanam"]] == [
+        (r["tahun_tanam"], r["luas_tanam"]) for r in history["group_tahun_tanam"]["details"]]
+    assert round(sum(r["luas_tanam"] for r in tanam["per_status"]), 2) == tanam["total_luas_tanam"]
+    assert sum(r["jumlah_blok"] for r in tanam["per_status"]) == tanam["jumlah_blok"]
+
+    populasi = summary["populasi"]
+    assert [c["kode"] for c in populasi["kelas"]] == ["ATAS_136", "ANTARA_130_135", "BAWAH_130"]
+    classified = sum(c["luas_tanam"] for c in populasi["kelas"]) + populasi["tanpa_sph"]["luas_tanam"]
+    assert abs(classified - tanam["total_luas_tanam"]) < 0.05
+    assert summary["tidak_tertanam_dalam_blok"]["luas"] >= 0
+    non_tanam = summary["non_tanam"]
+    if non_tanam is not None:  # null bila belum ada data landuse di database
+        rows = non_tanam["per_baris"]
+        detail = [d["kategori"].lower() for r in rows for d in r["rincian"]]
+        assert rows and "sawit" not in detail and "perkampungan" not in detail
+        assert round(sum(r["luas"] for r in rows), 1) == round(non_tanam["total_luas"], 1)
+        assert all(round(sum(d["luas"] for d in r["rincian"]), 1) == round(r["luas"], 1) for r in rows)
+        assert abs(non_tanam["grand_total_areal"] - (tanam["total_luas_tanam"] + non_tanam["total_luas"])) < 0.02
+
+    old = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth,
+                     params={**params, "bulan": 1, "tahun": 1900}).json()
+    assert old["periode"] is None and old["tanam"]["jumlah_blok"] == 0 and old["tanam"]["per_status"] == []
+    assert old["non_tanam"] is None
+
+
+def test_non_tanam_rows_cover_known_landuse_once():
+    from app.services.area_statement_summary_service import NON_TANAM_ROWS
+
+    names = [n for _, _, ns in NON_TANAM_ROWS for n in ns]
+    assert len(names) == len(set(names)) and "sawit" not in names
+
+
+def test_population_class_boundaries():
+    from app.services.area_statement_summary_service import _population_class
+
+    assert [_population_class(v) for v in (140, 136, 135.9, 130, 129.99, None)] == [
+        "ATAS_136", "ATAS_136", "ANTARA_130_135", "ANTARA_130_135", "BAWAH_130", None]
+
+
+def test_block_detail_non_tanam_matches_landuse(client, auth):
+    import pytest
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT block_id, max(period) AS period FROM spatial.landuse_polygons
+            WHERE lower(landuse) NOT IN ('sawit', 'perkampungan') GROUP BY block_id ORDER BY count(*) DESC LIMIT 1
+        """)).first()
+    if row is None:
+        pytest.skip("belum ada data landuse")
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": row.block_id, "bulan": row.period.month, "tahun": row.period.year}).json()
+    non_tanam = detail["non_tanam"]
+    assert non_tanam is not None and non_tanam["per_baris"]
+    assert round(sum(r["luas"] for r in non_tanam["per_baris"]), 1) == round(non_tanam["total_luas"], 1)
+    assert abs(non_tanam["grand_total_areal"] - (detail["informasi_blok"]["luas_tanam"] + non_tanam["total_luas"])) < 0.02
+    only = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params={
+        "blok_id": row.block_id, "bulan": row.period.month, "tahun": row.period.year}).json()
+    assert only["non_tanam"]["total_luas"] == non_tanam["total_luas"]

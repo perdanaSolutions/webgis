@@ -546,7 +546,11 @@ def hidden_feature_keys(db: Session, user) -> tuple[str, ...]:
 
 
 def redact_block_detail(db: Session, user, payload: dict) -> dict:
-    if transaction_keys(db, user) is None or not isinstance(payload, dict):
+    if not isinstance(payload, dict):
+        return payload
+    if payload.get("non_tanam") is not None and not layer_allowed(db, user, "landuse"):
+        payload["non_tanam"] = None
+    if transaction_keys(db, user) is None:
         return payload
     info = payload.get("informasi_blok")
     if isinstance(info, dict):
