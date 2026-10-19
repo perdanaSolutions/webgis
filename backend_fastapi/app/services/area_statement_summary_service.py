@@ -6,7 +6,8 @@ Ringkasan Areal Statement untuk card "Areal Statement" (format laporan peta area
 
 Memakai SATU snapshot: periode areal statement terakhir s/d batas bulan/tahun (blok yang tidak dilaporkan
 di periode itu tidak ikut), sama dengan GET /history?table=trx_areal_statement.
-Areal non-tanam dari layer landuse menyusul; `non_tanam` dikirim null sampai datanya tersedia.
+Areal non-tanam dari layer landuse (snapshot landuse terakhir s/d batas yang sama), dikelompokkan ke baris laporan
+(Bibitan, Emplasemen, Pabrik, Jalan/prasarana, Cadangan, Okupasi, Bukit/Sungai/Rawa dll, LC); Sawit (tanaman) dan Perkampungan tidak ikut. `non_tanam` null bila belum ada data landuse.
 """
 from datetime import date
 
@@ -35,6 +36,27 @@ def _population_class(sph: float | None) -> str | None:
         if (low is None or sph >= low) and (high is None or sph < high):
             return code
     return None
+
+
+# Kategori landuse yang sudah dihitung sebagai areal tanam (kelas Normal/Kuning/Bersemak/Vacant ada di dalamnya).
+LANDUSE_TANAM = ("sawit",)
+
+# Baris non-tanam laporan areal statement -> kategori landuse (huruf kecil). Urutan = urutan di laporan.
+NON_TANAM_ROWS = (
+    ("LC", "Pembukaan Lahan / LC", ("lc",)),
+    ("BIBITAN", "Bibitan", ("bibitan",)),
+    ("EMPLASEMEN", "Emplasemen/Pondok", ("emplasment",)),
+    ("PABRIK", "Pabrik", ("pks",)),
+    ("JALAN_PRASARANA", "Jalan/Jembatan/Prasarana lain", ("jalan", "buffer jalan", "kolam", "quarry")),
+    ("CADANGAN", "Cadangan", ("cadangan",)),
+    ("OKUPASI", "Okupasi", ("overlap", "enclave", "ladang", "sawit masyarakat", "karet masyarakat")),
+    ("BUKIT_SUNGAI_RAWA", "Bukit, Sungai, Rawa, Tandus dll",
+     ("hutan", "rawa", "sungai", "sempadan sungai", "terjal", "batuan", "lebungan", "hcv", "belukar", "buffer kbk",
+      "tanah terbuka")),
+)
+# Tanah desa tidak ada di data landuse; Perkampungan sengaja tidak ditampilkan.
+LANDUSE_DIABAIKAN = ("perkampungan",)
+_ROW_OF = {name: code for code, _, names in NON_TANAM_ROWS for name in names}
 
 
 def _ha(value) -> float:
@@ -118,5 +140,43 @@ def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None) ->
             "luas": _ha(max(land - planted, 0.0)),
             "keterangan": "Luas tanah blok dikurangi luas tanam (jalan, parit, dan areal tidak tertanam di dalam blok).",
         },
-        "non_tanam": None,
+        "non_tanam": _non_tanam(db, blocks_sql, params, as_of, planted),
+    }
+
+
+def _non_tanam(db: Session, blocks_sql: str, params: dict, as_of: date | None, planted: float) -> dict | None:
+    period_sql = "AND l.period <= :as_of" if as_of else ""
+    rows = db.execute(text(f"""
+        WITH scoped AS (
+            SELECT l.* FROM spatial.landuse_polygons l
+            WHERE l.block_id IN ({blocks_sql}) {period_sql}
+        )
+        SELECT (SELECT max(period) FROM scoped) AS period, COALESCE(NULLIF(trim(landuse), ''), 'Tanpa kategori') AS kategori,
+               count(*) AS jumlah_polygon, sum(ST_Area(geom::geography)) / 10000 AS luas
+        FROM scoped WHERE period = (SELECT max(period) FROM scoped)
+          AND lower(trim(COALESCE(landuse, ''))) <> ALL(:diabaikan)
+        GROUP BY 2 ORDER BY luas DESC
+    """), {**params, "as_of": as_of, "diabaikan": [*LANDUSE_TANAM, *LANDUSE_DIABAIKAN]}).mappings().all()
+    if not rows:
+        return None
+    grouped: dict[str, list] = {}
+    for r in rows:
+        grouped.setdefault(_ROW_OF.get(r["kategori"].lower(), "LAINNYA"), []).append(r)
+    total = sum(num(r["luas"]) for r in rows)
+    labels = [*((c, label) for c, label, _ in NON_TANAM_ROWS), ("LAINNYA", "Lainnya")]
+    items = []
+    for code, label in labels:
+        if code not in grouped:
+            continue
+        luas = sum(num(r["luas"]) for r in grouped[code])
+        items.append({
+            "kode": code, "label": label, "luas": _ha(luas), "persen": _pct(luas, total),
+            "rincian": [{"kategori": r["kategori"], "jumlah_polygon": r["jumlah_polygon"], "luas": _ha(r["luas"])}
+                        for r in grouped[code]],
+        })
+    return {
+        "periode": period_label(rows[0]["period"]),
+        "total_luas": _ha(total),
+        "grand_total_areal": _ha(planted + total),
+        "per_baris": items,
     }

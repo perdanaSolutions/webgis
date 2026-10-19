@@ -208,6 +208,9 @@ def geojson_block_keys(properties: dict) -> tuple[tuple, Any, Any] | None:
     """Properti standar GeoJSON kebun: PT, EstID/Estate/Est, Afdeling, Blok."""
     estate_refs = (properties.get("EstID"), properties.get("Est"), properties.get("Estate"))
     division, block = properties.get("Afdeling"), properties.get("Blok")
+    if not any(estate_refs) or not division:  # export landuse: atribut master blok ada di kolom *_2 bila polygon tanpa afdeling
+        estate_refs = estate_refs if any(estate_refs) else (properties.get("EstID_2"), None, properties.get("Estate_2"))
+        division = division or properties.get("Afdeling_2")
     if not any(estate_refs) or not division or not block:
         return None
     return estate_refs, division, block

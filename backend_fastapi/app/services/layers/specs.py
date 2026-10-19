@@ -65,6 +65,7 @@ LAYER_SPECS: dict[str, LayerSpec] = {
                      Column("landuse", "landuse", ("Landuse", "LandUse")),
                      Column("landuse_class", "landuse_class", ("Class", "Landuse_Class")),
                      Column("ownership", "ownership", ("Ownership",))),
+            unique_objectid=False,  # OBJECTID export landuse berulang antar blok/file (migrasi 012)
         ),
         LayerSpec(
             code="jalan", label="Jalan", table="spatial.roads", geometry_type="MULTILINESTRING",

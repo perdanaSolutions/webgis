@@ -660,11 +660,27 @@ def test_area_statement_summary_matches_history_and_is_consistent(client, auth, 
     assert [c["kode"] for c in populasi["kelas"]] == ["ATAS_136", "ANTARA_130_135", "BAWAH_130"]
     classified = sum(c["luas_tanam"] for c in populasi["kelas"]) + populasi["tanpa_sph"]["luas_tanam"]
     assert abs(classified - tanam["total_luas_tanam"]) < 0.05
-    assert summary["tidak_tertanam_dalam_blok"]["luas"] >= 0 and summary["non_tanam"] is None
+    assert summary["tidak_tertanam_dalam_blok"]["luas"] >= 0
+    non_tanam = summary["non_tanam"]
+    if non_tanam is not None:  # null bila belum ada data landuse di database
+        rows = non_tanam["per_baris"]
+        detail = [d["kategori"].lower() for r in rows for d in r["rincian"]]
+        assert rows and "sawit" not in detail and "perkampungan" not in detail
+        assert round(sum(r["luas"] for r in rows), 1) == round(non_tanam["total_luas"], 1)
+        assert all(round(sum(d["luas"] for d in r["rincian"]), 1) == round(r["luas"], 1) for r in rows)
+        assert abs(non_tanam["grand_total_areal"] - (tanam["total_luas_tanam"] + non_tanam["total_luas"])) < 0.02
 
     old = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth,
                      params={**params, "bulan": 1, "tahun": 1900}).json()
     assert old["periode"] is None and old["tanam"]["jumlah_blok"] == 0 and old["tanam"]["per_status"] == []
+    assert old["non_tanam"] is None
+
+
+def test_non_tanam_rows_cover_known_landuse_once():
+    from app.services.area_statement_summary_service import NON_TANAM_ROWS
+
+    names = [n for _, _, ns in NON_TANAM_ROWS for n in ns]
+    assert len(names) == len(set(names)) and "sawit" not in names
 
 
 def test_population_class_boundaries():

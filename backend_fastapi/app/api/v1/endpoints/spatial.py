@@ -293,7 +293,9 @@ def get_history_planting_years(
             description="Snapshot areal statement terakhir s/d bulan/tahun (kosong = terbaru): tanaman per status "
                         "(TM/TBM/LC) dan tahun tanam, populasi per kelas kerapatan pokok (>136, 130-135, <130 pokok/ha), "
                         "serta luas tanah blok yang tidak tertanam. Persen = terhadap total luas tanam. "
-                        "`non_tanam` (areal non-tanam dari layer landuse) masih null.")
+                        "`non_tanam`: areal non-tanam dari layer landuse (snapshot terakhir s/d periode yang sama) per baris laporan "
+                        "(`per_baris`, dengan `rincian` per kategori landuse) dan `grand_total_areal` (tanam + non-tanam); "
+                        "null bila belum ada data landuse.")
 def get_area_statement_summary(
     kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA) saat ini milik PT. Kosong = semua"),
     area_id: Optional[str] = Query(None, description="Kode/ID area (area saat ini estate)"),
