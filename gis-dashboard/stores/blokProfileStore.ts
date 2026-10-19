@@ -14,17 +14,19 @@ import { readBudgetCategory } from "~/utils/mapLayers";
  * -> Periode (bulan + tahun, plus Year to Date) -> Periode pembanding.
  * Level master mengikuti API: GET /spatial/pt?kode_grup, /area?kode_grup&kode_pt,
  * /estate?kode_grup&kode_pt&area_id, /afdeling?kode_grup&kode_pt&kode_est, /blok.
- * Ownership tidak menyaring daftar master; ikut saat Apply (GeoJSON, detail, histori).
+ * Ownership tidak menyaring daftar master; ikut ke GeoJSON, detail, dan histori.
  * - Grup (TPA/SGA) opsional untuk semua user ("Semua grup"). Mengganti grup memuat
  *   ulang perusahaan pada grup itu; `kode_grup` ikut ke semua opsi, GeoJSON, layer, dan histori.
- * - Mengubah field hanya mengisi opsi berjenjang (draft). Peta dan transaksi
- *   baru dimuat saat tombol Apply ditekan.
- * - Apply menyalin draft ke filter terapan, lalu memuat GeoJSON peta (wilayah)
+ * - Mengubah field mengisi opsi berjenjang, lalu peta dan transaksi langsung dimuat.
+ *   Satu pilihan (misalnya grup) menunggu opsi di bawahnya selesai, baru diterapkan sekali.
+ * - Penerapan menyalin draft ke filter terapan, lalu memuat GeoJSON peta (wilayah)
  *   dan kartu transaksi. Ownership masuk API history, detail, dan setiap GeoJSON.
  *   Setiap GeoJSON membawa tahun dari field Periode, plus bulan bila dipilih.
- *   Periode default = periode terakhir yang sudah diupload (GET /spatial/periode-terakhir);
- *   bila tidak tersedia, tahun berjalan tanpa bulan.
- * - Year to date dan periode pembanding hanya dikirim ke GeoJSON batas blok
+ *   Tahun default = tahun periode terakhir yang sudah diupload (GET /spatial/periode-terakhir);
+ *   bulan periode selalu kosong saat load pertama dan reset.
+ * - Year to date tanpa bulan = produksi Januari s/d bulan berjalan (tahun lalu: s/d Desember).
+ *   Mencentang Year to Date mengosongkan bulan periode. Year to date dan periode
+ *   pembanding hanya dikirim ke GeoJSON batas blok
  *   (`year_to_date`, `bulan_comparison` + `tahun_comparison`), bukan ke layer lain.
  * - Popup blok dibuka pada bulan produksi yang mewarnai blok itu (produksi_tbs.periode).
  * - Blok hanya MEMILIH satu blok di dalam scope (peta tidak difilter ulang ke
@@ -214,6 +216,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   let blocksSeq = 0;
   let detailSeq = 0;
   let historySeq = 0;
+  let applySeq = 0;
   let filterEpoch = 0;
   const filterGeneration = ref(0);
   let detailKey = "";
@@ -299,12 +302,21 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     });
   }
 
-  /** Histori scope yang selesai setelah klik peta tetap masuk ke pencarian tersimpan, bukan ke tampilan blok. */
+  /** Histori scope Filter Kebun yang selesai setelah klik peta disimpan untuk pemulihan, tanpa menimpa kartu blok. */
   function patchSavedHistories() {
     if (!mapDrillActive || !memorySearch) return;
     memorySearch.production = cloneData(production.value);
     memorySearch.areaStatement = cloneData(areaStatement.value);
     memorySearch.rotation = cloneData(rotation.value);
+    persistSearch(memorySearch);
+  }
+
+  function rememberScopeHistory(table: string, value: unknown) {
+    if (!mapDrillActive || !memorySearch) return;
+    if (table === "trx_produksi_tbs") memorySearch.production = cloneData(value) as SavedSearch["production"];
+    else if (table === "trx_areal_statement") memorySearch.areaStatement = cloneData(value) as SavedSearch["areaStatement"];
+    else if (table === "trx_rotasi_pusingan") memorySearch.rotation = cloneData(value) as SavedSearch["rotation"];
+    else return;
     persistSearch(memorySearch);
   }
 
@@ -488,7 +500,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return epoch === filterEpoch;
   }
 
-  /** Isi filter Periode dengan periode terakhir yang sudah diupload. Gagal = tetap tahun berjalan. */
+  /** Tahun default = tahun periode terakhir yang sudah diupload. Bulan tetap kosong. */
   async function loadDefaultPeriod() {
     try {
       const res = await get<{ bulan: number | null; tahun: number | null }>("/spatial/periode-terakhir");
@@ -496,10 +508,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     } catch {
       defaultPeriod.value = null;
     }
-    if (defaultPeriod.value) {
-      bulan.value = defaultPeriod.value.bulan;
-      tahun.value = defaultPeriod.value.tahun;
-    }
+    if (defaultPeriod.value?.tahun) tahun.value = defaultPeriod.value.tahun;
   }
 
   /** Opsi grup tidak ikut dikosongkan clearMap (daftar tetap sama selama sesi). */
@@ -631,13 +640,18 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     };
   });
 
-  /** Periode cadangan popup bila blok tidak punya produksi: bulan filter, periode default, atau akhir tahun filter. */
+  /** Akhir rentang Year to Date: bulan berjalan pada tahun ini, Desember pada tahun lain. */
+  function yearToDateEndMonth(year: string) {
+    return year === currentYear() ? String(new Date().getMonth() + 1) : "12";
+  }
+
+  /** Periode cadangan popup bila blok tidak punya produksi: bulan filter, akhir YTD, atau periode default. */
   function filterPeriod() {
     const year = applied.value.tahun || currentYear();
     if (applied.value.bulan) return { bulan: applied.value.bulan, tahun: year };
+    if (applied.value.yearToDate) return { bulan: yearToDateEndMonth(year), tahun: year };
     if (defaultPeriod.value?.tahun === year && defaultPeriod.value.bulan) return defaultPeriod.value;
-    const month = year === currentYear() ? String(new Date().getMonth() + 1) : "12";
-    return { bulan: month, tahun: year };
+    return { bulan: yearToDateEndMonth(year), tahun: year };
   }
 
   function popupPeriod(properties?: Record<string, any>) {
@@ -710,7 +724,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
 
   /**
    * Satu-satunya sumber kartu kanan saat satu blok dipilih.
-   * Klik peta dan tombol Apply berbagi request yang sama (bulan+tahun sama tidak diulang).
+   * Klik peta dan penerapan filter berbagi request yang sama (bulan+tahun sama tidak diulang).
    */
   async function loadSelectedDetail(id: string, bulan: string, tahun: string) {
     const key = [id, bulan, tahun, applied.value.ownership].join("|");
@@ -753,7 +767,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return flight.promise;
   }
 
-  /** Parameter GET /spatial/history dari filter terapan. Nilai kosong tidak dikirim. */
+  /** Parameter GET /spatial/history: hierarki Filter Kebun yang terapan, plus blok yang sedang dipilih. */
   function historyParams() {
     const kodeBlok = String(selectedFeature.value?.properties?.kode_blok ?? "").trim();
     return {
@@ -768,8 +782,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     };
   }
 
-  async function loadHistories() {
+  /**
+   * Histori produksi, areal statement, dan rotasi.
+   * `patchSaved` false saat klik peta: kartu mengikuti blok, snapshot Filter Kebun tidak ditimpa.
+   */
+  async function loadHistories(options?: { patchSaved?: boolean }) {
     const seq = ++historySeq;
+    const patchSaved = options?.patchSaved !== false;
     const params = historyParams();
     const jobs: Array<Promise<void>> = [];
 
@@ -788,9 +807,12 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       jobs.push(
         get<T>("/spatial/history", { table, ...params })
           .then((res) => {
-            if (seq !== historySeq) return;
+            if (seq !== historySeq) {
+              if (patchSaved) rememberScopeHistory(table, res);
+              return;
+            }
             target.value = res;
-            patchSavedHistories();
+            if (patchSaved) patchSavedHistories();
           })
           .catch(() => { if (seq === historySeq) target.value = null; })
           .finally(() => { if (seq === historySeq) loading.value = false; }),
@@ -822,8 +844,15 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return incoming || current || firstOf(options);
   }
 
-  /** Apply: terapkan semua field form ke peta (GeoJSON) dan kartu transaksi. */
+  /** Periode dan pembanding sama-sama punya bulan serta tahun, jadi Year to Date dilepas. */
+  function comparingFixedPeriods() {
+    return Boolean(bulan.value && tahun.value && bulanComparison.value && tahunComparison.value);
+  }
+
+  /** Terapkan semua field form ke peta (GeoJSON) dan kartu transaksi. Panggilan lama dibatalkan. */
   async function applyFilters() {
+    if (comparingFixedPeriods()) yearToDate.value = false;
+    const ticket = ++applySeq;
     const epoch = filterEpoch;
     mapDrillActive = false;
     if (!filterAlive(epoch)) return;
@@ -832,9 +861,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     detailKey = "";
     detailSeq += 1;
     setStatus("loading", "Sedang menerapkan filter...");
+    const current = () => ticket === applySeq && filterAlive(epoch);
     try {
       await loadBlocks();
-      if (!filterAlive(epoch)) return;
+      if (!current()) return;
       if (errorMessage.value) {
         setStatus("error", errorMessage.value, 3500);
         return;
@@ -851,14 +881,14 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         detail.value = null;
         await loadHistories();
       }
-      if (!filterAlive(epoch)) return;
+      if (!current()) return;
       captureSearch();
       setStatus("success", "Selesai menerapkan filter.", 2500);
     } catch {
-      if (!filterAlive(epoch)) return;
+      if (!current()) return;
       setStatus("error", "Gagal menerapkan filter.", 3500);
     } finally {
-      if (filterAlive(epoch)) applying.value = false;
+      if (current()) applying.value = false;
     }
   }
 
@@ -893,6 +923,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (next === area.value) return;
     area.value = next;
     await refillFromArea(epoch);
+    if (filterAlive(epoch)) await applyFilters();
   }
 
   /** Grup opsional. Perusahaan yang hilang diganti perusahaan pertama, lalu area pertama perusahaan itu. */
@@ -910,6 +941,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (!filterAlive(epoch)) return;
     area.value = firstOf(areaOptions.value);
     await refillFromArea(epoch);
+    if (filterAlive(epoch)) await applyFilters();
   }
 
   async function setPt(value: string) {
@@ -921,6 +953,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (!filterAlive(epoch)) return;
     area.value = firstOf(areaOptions.value);
     await refillFromArea(epoch);
+    if (filterAlive(epoch)) await applyFilters();
   }
 
   async function setEstate(value: string) {
@@ -929,6 +962,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (next === estate.value) return;
     estate.value = next;
     await refillFromEstate(epoch);
+    if (filterAlive(epoch)) await applyFilters();
   }
 
   async function setAfdeling(value: string) {
@@ -938,39 +972,61 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     afdeling.value = next;
     blokId.value = "";
     await loadBloks();
+    if (filterAlive(epoch)) await applyFilters();
   }
 
   function setBlok(value: string) {
     const next = resolveChoice(blokId.value, value || "", blokOptions.value, true);
     if (next === blokId.value) return;
     blokId.value = next;
+    void applyFilters();
   }
 
   function setOwnership(value: string) {
-    ownership.value = value || "";
+    const next = value || "";
+    if (next === ownership.value) return;
+    ownership.value = next;
+    void applyFilters();
   }
 
   function setBulan(value: string) {
-    bulan.value = value || "";
+    const next = value || "";
+    if (next === bulan.value) return;
+    bulan.value = next;
+    void applyFilters();
   }
 
   function setTahun(value: string) {
-    tahun.value = value || currentYear();
+    const next = value || currentYear();
+    if (next === tahun.value) return;
+    tahun.value = next;
+    void applyFilters();
   }
 
   function setYearToDate(value: boolean) {
-    yearToDate.value = Boolean(value);
+    if (comparingFixedPeriods()) return;
+    const next = Boolean(value);
+    if (next === yearToDate.value && (!next || !bulan.value)) return;
+    yearToDate.value = next;
+    if (next) bulan.value = "";
+    void applyFilters();
   }
 
   function setBulanComparison(value: string) {
-    bulanComparison.value = value || "";
+    const next = value || "";
+    if (next === bulanComparison.value) return;
+    bulanComparison.value = next;
+    void applyFilters();
   }
 
   function setTahunComparison(value: string) {
-    tahunComparison.value = value || "";
+    const next = value || "";
+    if (next === tahunComparison.value) return;
+    tahunComparison.value = next;
+    void applyFilters();
   }
 
-  /** Klik peta: muat detail blok. Histori kebun tidak diminta ulang. */
+  /** Klik peta: muat detail blok dan histori tiga transaksi pada scope Filter Kebun + blok ini. */
   async function selectBlock(value: string, source: "filter" | "map" = "filter") {
     if (source !== "map") {
       setBlok(value);
@@ -984,11 +1040,23 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       return;
     }
     blokId.value = value;
-    applied.value = { ...applied.value, blokId: value };
+    applied.value = {
+      ...applied.value,
+      grup: grup.value,
+      area: area.value,
+      pt: pt.value,
+      estate: estate.value,
+      afdeling: afdeling.value,
+      ownership: ownership.value,
+      blokId: value,
+    };
     const period = popupPeriod(blockFeatures.value.find((f) => String(f.properties?.blok_id) === value)?.properties);
-    await loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
-      detail.value = null;
-    });
+    await Promise.all([
+      loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
+        detail.value = null;
+      }),
+      loadHistories({ patchSaved: false }),
+    ]);
   }
 
   /** Tutup popup peta: kembalikan Filter Kebun dan kartu kanan ke pencarian terakhir, tanpa menggeser peta. */
@@ -1173,7 +1241,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     };
   }
 
-  /** Kartu transaksi kanan hanya memakai histori dari apply, reset, atau muatan pertama. */
+  /** Kartu transaksi kanan memakai histori scope Filter Kebun, termasuk setelah satu blok diklik. */
   const productionGapBudget = computed<ProductionGapSummary | null>(() =>
     gapSummaryOf(production.value, "ringkasan_gap_budget"),
   );

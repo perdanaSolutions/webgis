@@ -25,7 +25,7 @@ const props = defineProps<{
   ownership: string;
   bulan: string;
   tahun: string;
-  /** true = produksi diakumulasi Januari s/d bulan Periode. */
+  /** true = produksi Januari s/d bulan Periode, atau s/d bulan berjalan bila bulan kosong. */
   yearToDate: boolean;
   bulanComparison: string;
   tahunComparison: string;
@@ -49,7 +49,6 @@ const emit = defineEmits<{
   (e: "update:grup" | "update:area" | "update:pt" | "update:estate" | "update:afdeling" | "update:blok" | "update:ownership" | "update:bulan" | "update:tahun", value: string): void;
   (e: "update:bulanComparison" | "update:tahunComparison", value: string): void;
   (e: "update:yearToDate", value: boolean): void;
-  (e: "apply"): void;
   (e: "reset"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
@@ -77,8 +76,21 @@ const yearOptions = computed(() => {
   });
 });
 
+/** Akhir rentang Year to Date bila bulan periode dikosongkan. */
+const yearToDateEndLabel = computed(() => {
+  const year = Number(props.tahun) || new Date().getFullYear();
+  const index = year === new Date().getFullYear() ? new Date().getMonth() : 11;
+  return BULAN_POPUP_OPTIONS[index]?.label ?? "";
+});
+
+const periodMonthLabel = computed(() => {
+  if (props.bulan) return BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
+  if (props.yearToDate) return `Januari s/d ${yearToDateEndLabel.value}`;
+  return "";
+});
+
 const scopeInfo = computed(() => {
-  const month = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
+  const month = periodMonthLabel.value;
   const periode = [props.yearToDate ? "YTD" : "", month, props.tahun].filter(Boolean).join(" ");
   const comparisonMonth = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulanComparison)?.label ?? "";
   const comparison = comparisonComplete.value ? `vs ${comparisonMonth} ${props.tahunComparison}` : "";
@@ -88,12 +100,14 @@ const scopeInfo = computed(() => {
   const base = props.scopeLevel === "blok"
     ? `Pilihan: Blok${suffix}`
     : `Pilihan: ${SCOPE_TEXT[props.scopeLevel]}${suffix} · ${props.blockCount.toLocaleString("id-ID")} blok di peta terapan`;
-  return `${base}. Tekan Apply Filter untuk memuat peta dan data transaksi.`;
+  return `${base}. Peta dan data transaksi dimuat otomatis mengikuti pilihan ini.`;
 });
 
 /** Pembanding dipakai hanya bila bulan dan tahunnya diisi. */
 const comparisonComplete = computed(() => Boolean(props.bulanComparison && props.tahunComparison));
 const comparisonIncomplete = computed(() => Boolean(props.bulanComparison) !== Boolean(props.tahunComparison));
+/** Kedua periode sudah tetap, jadi Year to Date tidak dipakai. */
+const yearToDateLocked = computed(() => Boolean(props.bulan && props.tahun && comparisonComplete.value));
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0) + (props.showYieldGap ? 1 : 0));
 const totalCount = computed(() => props.layers.length + 2);
@@ -170,14 +184,17 @@ function onField(key: FieldKey, value: unknown) {
       <div class="mb-3">
         <div class="mb-1.5 flex items-center justify-between gap-3">
           <span class="bp-label" style="margin-bottom: 0">Periode</span>
-          <label class="flex shrink-0 items-center gap-2 text-13 font-semibold text-[#1f2a18]">
-            <input type="checkbox" class="h-4 w-4 accent-[#638840]" :checked="yearToDate" :disabled="loading"
+          <label class="flex shrink-0 items-center gap-2 text-13 font-semibold"
+            :class="yearToDateLocked ? 'cursor-not-allowed text-[#9aa392]' : 'text-[#1f2a18]'">
+            <input type="checkbox" class="h-4 w-4 accent-[#638840] disabled:cursor-not-allowed"
+              :checked="yearToDate && !yearToDateLocked" :disabled="loading || yearToDateLocked"
               @change="emit('update:yearToDate', ($event.target as HTMLInputElement).checked)">
             Year to Date
           </label>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <v-autocomplete class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
+          <v-autocomplete :key="`${filterGeneration}-bulan-${yearToDate}-${bulan || 'kosong'}`"
+            class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
             item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
             density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
@@ -190,6 +207,9 @@ function onField(key: FieldKey, value: unknown) {
             :menu-props="{ contentClass: 'bp-filter-menu' }"
             @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
         </div>
+        <p v-if="yearToDate && !bulan" class="mt-1 text-12 text-[#55604c]">
+          Data diambil dari Januari s/d {{ yearToDateEndLabel }}.
+        </p>
 
         <span class="bp-label mt-3">Periode pembanding</span>
         <div class="grid grid-cols-2 gap-2">
@@ -219,16 +239,6 @@ function onField(key: FieldKey, value: unknown) {
         </svg>
         <span>{{ scopeInfo }}</span>
       </div>
-
-      <button type="button" class="bp-btn bp-btn-primary mt-4 h-11 w-full justify-center text-14"
-        :disabled="loading || !area" @click="emit('apply')">
-        <svg v-if="loading" viewBox="0 0 24 24" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor"
-          stroke-width="2" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" class="opacity-25" />
-          <path d="M21 12a9 9 0 0 1-9 9" />
-        </svg>
-        <span class="!text-white">{{ loading ? "Menerapkan…" : "Apply Filter" }}</span>
-      </button>
     </section>
 
     <!-- LAYER DATA -->
@@ -270,7 +280,7 @@ function onField(key: FieldKey, value: unknown) {
             </span>
             <div class="min-w-0 flex-1" :class="!showYieldGap && 'opacity-60'">
               <p class="bp-layer-name">Yield Gap</p>
-              <p class="bp-layer-sub">{{ showYieldGap ? "Blok diwarnai menurut kategori yield" : "Mati · batas blok tetap garis abu-abu" }}</p>
+              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield") : "Mati · batas blok tetap garis abu-abu" }}</p>
             </div>
             <button type="button" role="switch" :aria-checked="showYieldGap" aria-label="Yield Gap" class="bp-switch"
               :class="showYieldGap && 'is-on'" @click="emit('toggle-yield-gap')"><span /></button>

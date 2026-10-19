@@ -4,6 +4,7 @@ import {
   BUDGET_GAP_COLOR,
   getOverlayColor,
   readBudgetCategory,
+  readComparisonBudgetCategory,
   type OverlayStyle,
   type LegendItem,
 } from "~/utils/mapLayers";
@@ -223,7 +224,7 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       interactive: false,
       style: (feature) => paint(feature ?? undefined),
     }).addTo(map));
-    if (blockFeatures.length <= 80) addBlockLabels(Lf, map, blockLayer);
+    if (blockFeatures.length <= 80) addBlockLabels(Lf, map, blockLayer, input);
     addSelectedTag(Lf, map, blockLayer, input.selectedId);
   }
 
@@ -288,22 +289,64 @@ function blockPaint(properties: GeoJSON.GeoJsonProperties | null | undefined, in
   };
 }
 
-function addBlockLabels(Lf: Leaflet, map: import("leaflet").Map, blocks: import("leaflet").GeoJSON) {
+function addBlockLabels(
+  Lf: Leaflet,
+  map: import("leaflet").Map,
+  blocks: import("leaflet").GeoJSON,
+  input: PdfExportInput,
+) {
   const labels = Lf.layerGroup();
+  const markers = Lf.layerGroup();
   blocks.eachLayer((layer) => {
     const feature = (layer as import("leaflet").GeoJSON & { feature?: GeoJSON.Feature }).feature;
     const bounds = (layer as { getBounds?: () => import("leaflet").LatLngBounds }).getBounds?.();
     if (!bounds?.isValid()) return;
+    const properties = feature?.properties as Record<string, any> | null | undefined;
+    const category = input.showYieldGap ? readComparisonBudgetCategory(properties) : "";
+    const compared = Boolean(category);
+    const color = category && input.budgetColors[category] !== false ? BUDGET_GAP_COLOR[category] ?? null : null;
+    let center = bounds.getCenter();
+    try {
+      center = (layer as { getCenter?: () => import("leaflet").LatLng }).getCenter?.() ?? center;
+    } catch {
+      /* Pusat poligon belum siap. */
+    }
+    const kode = escapeHtml(feature?.properties?.kode_blok);
+    if (color) {
+      Lf.circleMarker(center, {
+        pane: "bp-labels",
+        radius: 7,
+        color: "#ffffff",
+        weight: 2,
+        opacity: 1,
+        fillColor: color,
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(markers);
+    }
+    if (compared) {
+      Lf.marker(center, {
+        pane: "bp-labels",
+        interactive: false,
+        icon: Lf.divIcon({
+          className: "bp-block-label",
+          html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
+          iconSize: [0, 0],
+        }),
+      }).addTo(labels);
+      return;
+    }
     Lf.marker(bounds.getNorthWest(), {
       pane: "bp-labels",
       interactive: false,
       icon: Lf.divIcon({
         className: "bp-block-label",
-        html: escapeHtml(feature?.properties?.kode_blok),
+        html: kode,
         iconAnchor: [-8, -8],
       }),
     }).addTo(labels);
   });
+  markers.addTo(map);
   labels.addTo(map);
 }
 

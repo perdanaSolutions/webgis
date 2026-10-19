@@ -174,6 +174,18 @@ function pickField(record: Record<string, any> | null, name: string) {
   return key ? record[key] : undefined;
 }
 
+function normalizeBudgetCategory(raw: unknown): string {
+  const text = String(raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+  if (text === "OPTIMUM") return "OPTIMUM";
+  if (text === "GAP I" || text === "GAP 1") return "GAP I";
+  if (text === "GAP II" || text === "GAP 2") return "GAP II";
+  if (text === "GAP III" || text === "GAP 3") return "GAP III";
+  return "";
+}
+
 /** Nilai properties.produksi_tbs.kategori_budget, termasuk bila tersimpan sebagai JSON string. */
 export function readBudgetCategory(
   properties: Record<string, any> | null | undefined,
@@ -184,15 +196,15 @@ export function readBudgetCategory(
     pickField(produksi, "kategori_budget") ??
     pickField(props, "kategori_budget") ??
     pickField(asRecord(produksi?.tbs), "kategori_budget");
-  const text = String(raw ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, " ");
-  if (text === "OPTIMUM") return "OPTIMUM";
-  if (text === "GAP I" || text === "GAP 1") return "GAP I";
-  if (text === "GAP II" || text === "GAP 2") return "GAP II";
-  if (text === "GAP III" || text === "GAP 3") return "GAP III";
-  return "";
+  return normalizeBudgetCategory(raw);
+}
+
+/** Kategori budget periode pembanding (`produksi_tbs_comparison.kategori_budget`). */
+export function readComparisonBudgetCategory(
+  properties: Record<string, any> | null | undefined,
+): string {
+  const comparison = asRecord(properties?.produksi_tbs_comparison);
+  return normalizeBudgetCategory(pickField(comparison, "kategori_budget"));
 }
 
 // ---------------------------------------------------------------------------

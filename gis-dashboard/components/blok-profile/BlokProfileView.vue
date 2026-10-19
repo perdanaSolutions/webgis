@@ -54,6 +54,7 @@ const basemap = ref<BasemapKey>("satellite");
 const opacity = ref(80);
 const showBlocks = ref(true);
 const showYieldGap = ref(false);
+const yieldComparisonOn = computed(() => Boolean(store.bulanComparison && store.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
   OPTIMUM: true,
   "GAP I": true,
@@ -170,7 +171,12 @@ async function onResetFilters() {
 const pdfFilterLine = computed(() => {
   const filter = store.summary.filter;
   const ownership = store.ownershipOptions.find((item) => item.value === store.ownership)?.label || "Semua";
-  const month = store.bulan ? MONTHS[Number(store.bulan) - 1] ?? store.bulan : "Semua bulan";
+  const ytdEnd = store.tahun === String(new Date().getFullYear()) ? new Date().getMonth() : 11;
+  const month = store.bulan
+    ? MONTHS[Number(store.bulan) - 1] ?? store.bulan
+    : store.yearToDate
+      ? `Jan s/d ${MONTHS[ytdEnd]}`
+      : "Semua bulan";
   const year = store.tahun || String(new Date().getFullYear());
   return `Grup ${filter.grup} · PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
 });
@@ -384,6 +390,9 @@ onBeforeUnmount(() => {
           class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:items-end">
           <div v-if="showYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
+            <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
+              Isi blok mengikuti periode. Titik di tengah mengikuti pembanding.
+            </p>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
               <span v-for="item in BUDGET_GAP_LAYERS" :key="item.key"
                 class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
@@ -473,7 +482,7 @@ onBeforeUnmount(() => {
             @update:blok="store.setBlok" @update:ownership="store.setOwnership"
             @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
-            @apply="store.applyFilters" @reset="onResetFilters"
+            @reset="onResetFilters"
             @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
             @toggle-yield-gap="showYieldGap = !showYieldGap" @update:basemap="basemap = $event"
             @update:opacity="opacity = $event" />
@@ -535,11 +544,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
           <ProductionChartCard :years="store.productionYears" :loading="store.loadingProduction" />
-          <ProductionGapCard title="Gap terhadap Budget"
-            caption="Varians produksi aktual dibanding budget pada periode terakhir." :data="store.productionGapBudget"
-            :loading="store.loadingProduction" />
-          <ProductionGapCard title="Gap terhadap Sensus"
-            caption="Varians produksi aktual dibanding sensus pada periode terakhir." :data="store.productionGapSensus"
+          <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
             :loading="store.loadingProduction" />
         </div>
         <div v-else-if="activeRight === 'slope' && slopeLayerOn" id="bp-panel-slope" class="bp-collapse-panel">

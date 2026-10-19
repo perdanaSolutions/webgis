@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { BlockCollection } from "~/stores/blokProfileStore";
-import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -47,6 +47,7 @@ let map: import("leaflet").Map | null = null;
 let basemapLayers: import("leaflet").TileLayer[] = [];
 let blockLayer: import("leaflet").GeoJSON | null = null;
 let labelLayer: import("leaflet").LayerGroup | null = null;
+let comparisonLayer: import("leaflet").LayerGroup | null = null;
 let selectedTag: import("leaflet").Marker | null = null;
 let pointRenderer: import("leaflet").Canvas | null = null;
 const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
@@ -318,6 +319,28 @@ function budgetFill(properties: Record<string, any> | null | undefined) {
   return BUDGET_GAP_COLOR[category] ?? null;
 }
 
+/** Warna titik pembanding. Kosong bila yield gap mati atau kategori itu disembunyikan. */
+function comparisonMarkerColor(properties: Record<string, any> | null | undefined) {
+  if (!props.showYieldGap) return null;
+  const category = readComparisonBudgetCategory(properties);
+  if (!category || props.budgetColors?.[category] === false) return null;
+  return BUDGET_GAP_COLOR[category] ?? null;
+}
+
+function blockAnchor(layer: any): import("leaflet").LatLng | null {
+  const bounds = layer.getBounds?.() as import("leaflet").LatLngBounds | undefined;
+  if (!bounds?.isValid()) return null;
+  if (layer._map) {
+    try {
+      const center = layer.getCenter?.() as import("leaflet").LatLng | undefined;
+      if (center) return center;
+    } catch {
+      /* Pusat poligon butuh layer yang sudah tergambar di peta. */
+    }
+  }
+  return bounds.getCenter();
+}
+
 function blockStyle(feature: { properties?: Record<string, any> | null } | null | undefined) {
   const properties = featureProperties(feature);
   const selected = String(properties.blok_id ?? "") === props.selectedId;
@@ -384,8 +407,10 @@ function renderBlocks(fit: boolean) {
   try {
     blockLayer?.removeFrom(map);
     labelLayer?.removeFrom(map);
+    comparisonLayer?.removeFrom(map);
     blockLayer = null;
     labelLayer = null;
+    comparisonLayer = null;
     const features = props.blocks?.features ?? [];
     if (!features.length) {
       renderSelected();
@@ -407,23 +432,8 @@ function renderBlocks(fit: boolean) {
       },
     });
 
-    // Label kode di pojok kiri atas setiap blok (seperti peta kerja kebun).
-    labelLayer = Lf.layerGroup();
-    blockLayer.eachLayer((layer) => {
-      const feature = (layer as any).feature as GeoJSON.Feature;
-      const bounds = (layer as any).getBounds?.() as import("leaflet").LatLngBounds | undefined;
-      if (!bounds) return;
-      Lf!.marker(bounds.getNorthWest(), {
-        pane: "bp-labels",
-        interactive: false,
-        icon: Lf!.divIcon({ className: "bp-block-label", html: escapeHtml(feature.properties?.kode_blok), iconSize: undefined as any, iconAnchor: [-8, -8] }),
-      }).addTo(labelLayer!);
-    });
-
-    if (props.showBlocks) {
-      blockLayer.addTo(map);
-      updateLabelVisibility();
-    }
+    if (props.showBlocks) blockLayer.addTo(map);
+    renderBlockMarks();
     if (fit) fitVisibleBlocks();
     renderSelected();
   } finally {
@@ -431,11 +441,76 @@ function renderBlocks(fit: boolean) {
   }
 }
 
+function renderBlockMarks() {
+  if (!Lf || !map || !blockLayer) return;
+  labelLayer?.removeFrom(map);
+  comparisonLayer?.removeFrom(map);
+  labelLayer = Lf.layerGroup();
+  comparisonLayer = Lf.layerGroup();
+
+  blockLayer.eachLayer((layer) => {
+    const feature = (layer as any).feature as GeoJSON.Feature;
+    const bounds = (layer as any).getBounds?.() as import("leaflet").LatLngBounds | undefined;
+    if (!bounds?.isValid()) return;
+    const properties = featureProperties(feature);
+    const compared = props.showYieldGap && Boolean(readComparisonBudgetCategory(properties));
+    const color = comparisonMarkerColor(properties);
+    const center = blockAnchor(layer) ?? bounds.getCenter();
+    const kode = escapeHtml(feature.properties?.kode_blok);
+
+    if (color) {
+      Lf!.circleMarker(center, {
+        pane: "bp-labels",
+        radius: 7,
+        color: "#ffffff",
+        weight: 2,
+        opacity: 1,
+        fillColor: color,
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(comparisonLayer!);
+    }
+
+    if (compared) {
+      Lf!.marker(center, {
+        pane: "bp-labels",
+        interactive: false,
+        icon: Lf!.divIcon({
+          className: "bp-block-label",
+          html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
+          iconSize: [0, 0],
+        }),
+      }).addTo(labelLayer!);
+      return;
+    }
+
+    Lf!.marker(bounds.getNorthWest(), {
+      pane: "bp-labels",
+      interactive: false,
+      icon: Lf!.divIcon({
+        className: "bp-block-label",
+        html: kode,
+        iconSize: undefined as any,
+        iconAnchor: [-8, -8],
+      }),
+    }).addTo(labelLayer!);
+  });
+
+  updateLabelVisibility();
+}
+
+function syncMarkLayer(layer: import("leaflet").LayerGroup | null, visible: boolean) {
+  if (!map || !layer) return;
+  if (visible && !map.hasLayer(layer)) layer.addTo(map);
+  if (!visible && map.hasLayer(layer)) layer.removeFrom(map);
+}
+
 function updateLabelVisibility() {
   if (!map || !labelLayer) return;
-  const visible = props.showBlocks && map.getZoom() >= LABEL_MIN_ZOOM && (props.blocks?.features.length ?? 0) <= 600;
-  if (visible && !map.hasLayer(labelLayer)) labelLayer.addTo(map);
-  if (!visible && map.hasLayer(labelLayer)) labelLayer.removeFrom(map);
+  const fewEnough = (props.blocks?.features.length ?? 0) <= 600;
+  const labelsVisible = props.showBlocks && map.getZoom() >= LABEL_MIN_ZOOM && fewEnough;
+  syncMarkLayer(labelLayer, labelsVisible);
+  syncMarkLayer(comparisonLayer, props.showBlocks && props.showYieldGap && fewEnough);
 }
 
 function renderSelected(pan = false) {
@@ -722,8 +797,14 @@ watch(() => props.opacity, () => {
   });
   renderSelected();
 });
-watch(() => props.budgetColors, () => renderSelected(), { deep: true });
-watch(() => props.showYieldGap, () => renderSelected());
+watch(() => props.budgetColors, () => {
+  renderBlockMarks();
+  renderSelected();
+}, { deep: true });
+watch(() => props.showYieldGap, () => {
+  renderBlockMarks();
+  renderSelected();
+});
 watch(() => props.basemap, applyBasemap);
 watch(() => props.insets, applyInsets, { deep: true });
 </script>
@@ -737,6 +818,8 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-map .leaflet-bp-blocks-pane path { pointer-events: all !important; }
 
 .bp-block-label {
+  background: none;
+  border: none;
   white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
@@ -744,6 +827,12 @@ watch(() => props.insets, applyInsets, { deep: true });
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75), 0 0 6px rgba(0, 0, 0, 0.35);
 }
+.bp-block-label-text.is-center,
+.bp-block-label-text.is-below {
+  display: block;
+}
+.bp-block-label-text.is-center { transform: translate(-50%, -50%); }
+.bp-block-label-text.is-below { transform: translate(-50%, 10px); }
 
 .bp-slope-label {
   background: none;

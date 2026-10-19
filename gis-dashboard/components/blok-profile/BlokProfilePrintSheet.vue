@@ -70,14 +70,7 @@ defineExpose({ sections });
         <ProductionChartCard :years="productionYears" :loading="productionLoading" expanded />
       </div>
       <div class="bp-print-section">
-        <ProductionGapCard title="Gap terhadap Budget"
-          caption="Varians produksi aktual dibanding budget pada periode terakhir." :data="productionGapBudget"
-          :loading="productionLoading" />
-      </div>
-      <div class="bp-print-section">
-        <ProductionGapCard title="Gap terhadap Sensus"
-          caption="Varians produksi aktual dibanding sensus pada periode terakhir." :data="productionGapSensus"
-          :loading="productionLoading" />
+        <ProductionGapCard :budget="productionGapBudget" :sensus="productionGapSensus" :loading="productionLoading" />
       </div>
     </template>
 

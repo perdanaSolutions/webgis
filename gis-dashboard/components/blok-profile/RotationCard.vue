@@ -52,14 +52,17 @@ function num(value: number, digits = 1) {
 <template>
   <section class="bp-card p-5">
     <div class="mb-3 flex items-baseline justify-between">
-      <h2 class="text-18 font-bold text-[#1f2a18]">Rotasi Pusingan</h2>
+      <h2 class="text-18 font-bold text-[#1f2a18]">Rotasi</h2>
       <span class="text-12 text-[#6e7866]">hari</span>
     </div>
 
-    <div v-if="loading && !bars.length && !kegiatan?.length" class="flex h-[180px] items-center justify-center text-13 text-[#6e7866]">Memuat…</div>
-    <p v-else-if="kegiatan && !kegiatan.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk periode ini.</p>
+    <div v-if="loading && !bars.length && !kegiatan?.length"
+      class="flex h-[180px] items-center justify-center text-13 text-[#6e7866]">Memuat…</div>
+    <p v-else-if="kegiatan && !kegiatan.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi
+      untuk periode ini.</p>
     <ul v-else-if="kegiatan" class="space-y-0 pr-1" :class="expanded ? '' : 'max-h-[320px] overflow-y-auto'">
-      <li v-for="(row, index) in kegiatan" :key="`${row.tanggal}-${row.rotasi}-${index}`" class="border-t border-[#e4e8de] py-2 first:border-t-0">
+      <li v-for="(row, index) in kegiatan" :key="`${row.tanggal}-${row.rotasi}-${index}`"
+        class="border-t border-[#e4e8de] py-2 first:border-t-0">
         <div class="flex items-baseline justify-between gap-3">
           <p class="text-14 font-semibold text-[#1f2a18]">{{ formatTanggal(row.tanggal) }}</p>
           <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(row.hari) }} hari</p>
@@ -67,13 +70,15 @@ function num(value: number, digits = 1) {
         <TruncatedText tag="p" class="text-12 font-medium text-[#6e7866]" :text="activityLine(row)" />
       </li>
     </ul>
-    <p v-else-if="!bars.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk scope ini.</p>
+    <p v-else-if="!bars.length" class="py-10 text-center text-13 text-[#6e7866]">Belum ada data rotasi untuk scope ini.
+    </p>
 
     <template v-else>
       <div class="relative" role="img"
         :aria-label="`Rata-rata pusingan: ${bars.map((bar) => `${bar.tahun} ${num(bar.hari)} hari`).join(', ')}`">
         <div class="flex h-[140px] items-end gap-1.5 border-b border-[#d5dcc8]">
-          <div v-for="bar in bars" :key="bar.tahun" class="group relative flex h-full flex-1 flex-col items-center justify-end"
+          <div v-for="bar in bars" :key="bar.tahun"
+            class="group relative flex h-full flex-1 flex-col items-center justify-end"
             @mouseenter="hovered = bar.tahun" @mouseleave="hovered = null">
             <span class="mb-1 text-11 tabular-nums"
               :class="bar.latest || hovered === bar.tahun ? 'font-semibold text-[#1f2a18]' : 'text-transparent'">
