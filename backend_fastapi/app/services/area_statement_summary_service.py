@@ -140,11 +140,12 @@ def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None) ->
             "luas": _ha(max(land - planted, 0.0)),
             "keterangan": "Luas tanah blok dikurangi luas tanam (jalan, parit, dan areal tidak tertanam di dalam blok).",
         },
-        "non_tanam": _non_tanam(db, blocks_sql, params, as_of, planted),
+        "non_tanam": non_tanam_summary(db, blocks_sql, params, as_of, planted),
     }
 
 
-def _non_tanam(db: Session, blocks_sql: str, params: dict, as_of: date | None, planted: float) -> dict | None:
+def non_tanam_summary(db: Session, blocks_sql: str, params: dict, as_of: date | None, planted: float) -> dict | None:
+    """`blocks_sql` = subquery id blok (seperti BlockFilter.block_ids_subquery); `planted` = luas tanam untuk grand total."""
     period_sql = "AND l.period <= :as_of" if as_of else ""
     rows = db.execute(text(f"""
         WITH scoped AS (

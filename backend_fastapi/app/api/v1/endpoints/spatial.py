@@ -316,7 +316,10 @@ def get_area_statement_summary(
         blok=blok_id or kode_blok, ownership=ownership,
     )
     user_access.apply_data_scope(db, current_user, flt)
-    return area_statement_summary_service.area_statement_summary(db, flt, as_of_period(bulan, tahun))
+    summary = area_statement_summary_service.area_statement_summary(db, flt, as_of_period(bulan, tahun))
+    if not user_access.layer_allowed(db, current_user, "landuse"):
+        summary["non_tanam"] = None
+    return summary
 
 
 @router.get("/history", summary="Histori transaksi per wilayah")

@@ -688,3 +688,27 @@ def test_population_class_boundaries():
 
     assert [_population_class(v) for v in (140, 136, 135.9, 130, 129.99, None)] == [
         "ATAS_136", "ATAS_136", "ANTARA_130_135", "ANTARA_130_135", "BAWAH_130", None]
+
+
+def test_block_detail_non_tanam_matches_landuse(client, auth):
+    import pytest
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT block_id, max(period) AS period FROM spatial.landuse_polygons
+            WHERE lower(landuse) NOT IN ('sawit', 'perkampungan') GROUP BY block_id ORDER BY count(*) DESC LIMIT 1
+        """)).first()
+    if row is None:
+        pytest.skip("belum ada data landuse")
+    detail = client.get("/api/v1/spatial/blok/detail", headers=auth, params={
+        "blok_id": row.block_id, "bulan": row.period.month, "tahun": row.period.year}).json()
+    non_tanam = detail["non_tanam"]
+    assert non_tanam is not None and non_tanam["per_baris"]
+    assert round(sum(r["luas"] for r in non_tanam["per_baris"]), 1) == round(non_tanam["total_luas"], 1)
+    assert abs(non_tanam["grand_total_areal"] - (detail["informasi_blok"]["luas_tanam"] + non_tanam["total_luas"])) < 0.02
+    only = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params={
+        "blok_id": row.block_id, "bulan": row.period.month, "tahun": row.period.year}).json()
+    assert only["non_tanam"]["total_luas"] == non_tanam["total_luas"]

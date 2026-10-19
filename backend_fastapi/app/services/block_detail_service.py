@@ -6,6 +6,7 @@ Luas, pokok, dan SPH diambil dari satu baris areal statement periode itu.
 TBS, janjang, dan BJR diambil dari produksi periode yang sama; dengan year_to_date dari produksi
 Januari s/d bulan periode (TBS & janjang dijumlah, BJR dirata-rata), sama dengan GeoJSON blok.
 Yield (ton/ha) = tbs / 1000 / luas_tanam.
+`non_tanam` = landuse blok (snapshot terakhir s/d periode) per baris laporan areal statement.
 Gap = IFERROR((yield_aktual - yield_pembanding) / yield_pembanding%; 0),
 yaitu ((aktual - pembanding) / pembanding) * 100, atau 0 bila pembanding 0.
 """
@@ -15,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request, not_found
+from app.services.area_statement_summary_service import non_tanam_summary
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
 from app.utils.parsing import MONTH_ABBR, num, whole
 from app.utils.period import as_of_period, period_label, to_period
@@ -213,4 +215,6 @@ def get_block_detail(
                 "kode_afd": master["division_code"], "nama_afd": master["division_code"],
             },
         },
+        # Areal non-tanam blok dari layer landuse (baris laporan sama dengan /areal-statement/ringkasan); null bila tanpa data landuse.
+        "non_tanam": non_tanam_summary(db, "SELECT CAST(:bid AS bigint)", {"bid": block_id}, period, luas),
     }
