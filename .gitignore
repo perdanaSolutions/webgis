@@ -93,6 +93,8 @@ gis-dashboard/coverage/
 gis-dashboard/.eslintcache
 gis-dashboard/*.log
 
+qa/node_modules/
+
 # =========================
 # QA tooling (local)
 # =========================
