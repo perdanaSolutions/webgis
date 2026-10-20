@@ -1,5 +1,5 @@
 """
-Audit per baris tidak menyimpan isi kolom geometri (migrasi 013).
+Audit per baris tidak menyimpan isi kolom geometri (migrasi 015).
 
 Semua perubahan dijalankan di dalam satu transaksi yang selalu di-rollback, jadi database test tidak berubah.
 """
