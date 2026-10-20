@@ -317,6 +317,22 @@ def test_history_tables(client, auth, sample_block):
     assert monthly["mode_akumulasi"] == "BULANAN"
     assert all(row["tahun"] == 2025 for row in monthly["data_histori"])
 
+    if monthly["data_histori"]:
+        bulan = monthly["data_histori"][0]["bulan"]
+        one = client.get("/api/v1/spatial/history", headers=auth,
+                         params={"table": "trx_produksi_tbs", "tahun": 2025, "bulan": bulan,
+                                 "kode_est": sample_block["estate"]}).json()
+        assert one["mode_akumulasi"] == "BULANAN" and one["filter_applied"]["bulan"] == bulan
+        assert [(r["tahun"], r["bulan"]) for r in one["data_histori"]] == [(2025, bulan)]
+        any_year = client.get("/api/v1/spatial/history", headers=auth,
+                              params={"table": "trx_produksi_tbs", "bulan": bulan,
+                                      "kode_est": sample_block["estate"]}).json()
+        assert all(r["bulan"] == bulan for r in any_year["data_histori"])
+        areal_month = client.get("/api/v1/spatial/history", headers=auth,
+                                 params={"table": "trx_areal_statement", "tahun": 2025, "bulan": bulan}).json()
+        assert areal_month["status"] == "success"
+    assert client.get("/api/v1/spatial/history", headers=auth, params={"bulan": 13}).status_code == 422
+
     areal = client.get("/api/v1/spatial/history", headers=auth, params={"table": "trx_areal_statement"}).json()
     assert areal["status"] == "success"
     assert set(areal["data"]) == {"group_tahun_tanam", "group_divisi"}

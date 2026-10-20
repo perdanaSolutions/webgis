@@ -1,0 +1,143 @@
+{
+  "ts": "2026-10-20T03:55:36.281Z",
+  "results": [
+    {
+      "id": "A1",
+      "status": "[x] PASS",
+      "actual": "HTTP 200; form+logo OK",
+      "note": ""
+    },
+    {
+      "id": "A2",
+      "status": "[F] FAIL",
+      "actual": "url=http://localhost:3000/login apiStatus=200 hasErr=true",
+      "note": "apiBase sample=http://144.91.90.112:8083/api/v1/auth/login"
+    },
+    {
+      "id": "A3",
+      "status": "[x] PASS",
+      "actual": "redirect /dashboard; login HTTP 200",
+      "note": "API host=http://144.91.90.112:8083"
+    },
+    {
+      "id": "A4",
+      "status": "[x] PASS",
+      "actual": "cookie auth_token,auth_token_type,auth_user + LS auth_user",
+      "note": ""
+    },
+    {
+      "id": "A5",
+      "status": "[x] PASS",
+      "actual": "Authorization Bearer pada http://144.91.90.112:8083/api/v1/menus/",
+      "note": ""
+    },
+    {
+      "id": "A7",
+      "status": "[x] PASS",
+      "actual": "Sesi protected tetap /dashboard setelah reload",
+      "note": ""
+    },
+    {
+      "id": "A10",
+      "status": "[x] PASS",
+      "actual": "Auto redirect /dashboard saat sesi valid",
+      "note": ""
+    },
+    {
+      "id": "C1",
+      "status": "[x] PASS",
+      "actual": "Banner + menu modul tampil",
+      "note": ""
+    },
+    {
+      "id": "C2",
+      "status": "[x] PASS",
+      "actual": "Indikator loading menu terlihat saat delay",
+      "note": ""
+    },
+    {
+      "id": "C5",
+      "status": "[F] FAIL",
+      "actual": "UI search modul tidak ter-render di /dashboard",
+      "note": "Script punya menuKeyword/filterMenus tapi template tidak punya input cari"
+    },
+    {
+      "id": "C6",
+      "status": "[x] PASS",
+      "actual": "Rute /map dari menu Blok Profile valid (navigasi langsung OK; klik UI partial)",
+      "note": "Menu API to=/map"
+    },
+    {
+      "id": "C7",
+      "status": "[x] PASS",
+      "actual": "Sidebar buka/tutup layout OK",
+      "note": ""
+    },
+    {
+      "id": "C8",
+      "status": "[x] PASS",
+      "actual": "UI favorit ada & bisa dibuka",
+      "note": ""
+    },
+    {
+      "id": "B1",
+      "status": "[F] FAIL",
+      "actual": "Modal ganti password tidak terbuka",
+      "note": ""
+    },
+    {
+      "id": "B2",
+      "status": "[F] FAIL",
+      "actual": "err=false apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B3",
+      "status": "[F] FAIL",
+      "actual": "err=false apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B5",
+      "status": "[F] FAIL",
+      "actual": "api=undefined err=false authed=true",
+      "note": ""
+    },
+    {
+      "id": "B4",
+      "status": "[F] FAIL",
+      "actual": "status=undefined suksesUI=false",
+      "note": ""
+    },
+    {
+      "id": "A9",
+      "status": "[x] PASS",
+      "actual": "Logout → /login; token hilang",
+      "note": ""
+    },
+    {
+      "id": "A6",
+      "status": "[x] PASS",
+      "actual": "Tanpa token → redirect /login",
+      "note": ""
+    },
+    {
+      "id": "A8",
+      "status": "[F] FAIL",
+      "actual": "url=http://localhost:3000/dashboard hasToken=true",
+      "note": "Handler 401 di plugins/api.ts; mungkin /me tidak terpanggil di reload"
+    },
+    {
+      "id": "C3",
+      "status": "[B] BLOCKED",
+      "actual": "Akun tanpa menu belum tersedia",
+      "note": "[PERLU KONFIRMASI] akun terbatas"
+    },
+    {
+      "id": "RUNNER",
+      "status": "[F] FAIL",
+      "actual": "No element found for selector: #email",
+      "note": ""
+    }
+  ]
+}

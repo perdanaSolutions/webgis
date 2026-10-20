@@ -121,8 +121,12 @@ def get_history(
     *,
     period_year: int | None = None,
     gap_as_of: date | None = None,
+    bulan: int | None = None,
 ) -> dict:
     """Histori satu tabel trx.
+
+    `bulan` (1-12) menyempit ke bulan itu: produksi/rotasi hanya periode bulan tsb (dengan `tahun` = satu periode,
+    tanpa `tahun` = bulan yang sama di tiap tahun), areal statement = snapshot s/d bulan itu. Baris selalu per bulan.
 
     `gap_as_of` (periode pilihan user) membatasi periode ringkasan GAP produksi; kosong = terbaru.
 
@@ -135,7 +139,7 @@ def get_history(
     blocks_sql, params = flt.block_ids_subquery()
     params = {**params, "gap_as_of": gap_as_of}
     if key == "trx_areal_statement":
-        return _area_statement(db, blocks_sql, params, tahun=tahun, tahun_tanam=period_year)
+        return _area_statement(db, blocks_sql, params, tahun=tahun, tahun_tanam=period_year, bulan=bulan)
 
     year_column = _trx_year_columns(db).get(physical.split(".")[-1], "period")
 
@@ -143,17 +147,18 @@ def get_history(
         "area_id": flt.area, "kode_pt": flt.kode_pt, "kode_est": flt.kode_est, "kode_afd": flt.kode_afd,
         "blok_id": flt.blok, "ownership": flt.ownership,
         "tahun_tanam": str(period_year) if period_year is not None else flt.tahun_tanam,
+        "bulan": bulan,
     }
     if year_column == "planting_year":
         if key == "trx_produksi_tbs":
-            return _production(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
+            return _production(db, blocks_sql, params, tahun, filter_info, planting_year=period_year, bulan=bulan)
         if key == "trx_rotasi_pusingan":
-            return _rotation(db, blocks_sql, params, tahun, filter_info, planting_year=period_year)
+            return _rotation(db, blocks_sql, params, tahun, filter_info, planting_year=period_year, bulan=bulan)
 
     year, monthly = _period_filter(tahun, period_year)
     if key == "trx_produksi_tbs":
-        return _production(db, blocks_sql, params, year, filter_info, monthly=monthly)
-    return _rotation(db, blocks_sql, params, year, filter_info, monthly=monthly)
+        return _production(db, blocks_sql, params, year, filter_info, monthly=monthly, bulan=bulan)
+    return _rotation(db, blocks_sql, params, year, filter_info, monthly=monthly, bulan=bulan)
 
 
 def _period_filter(tahun: int | None, period_year: int | None) -> tuple[int | None, bool]:
@@ -261,14 +266,18 @@ def _production(
     *,
     monthly: bool | None = None,
     planting_year: int | None = None,
+    bulan: int | None = None,
 ) -> dict:
     if monthly is None:
         monthly = tahun is not None
-    params = {**params, "tahun": tahun, "planting_year": planting_year}
+    monthly = monthly or bulan is not None
+    params = {**params, "tahun": tahun, "planting_year": planting_year, "bulan": bulan}
     year_filter = "AND extract(year FROM p.period) = :tahun" if tahun is not None else ""
+    if bulan is not None:
+        year_filter += " AND extract(month FROM p.period) = :bulan"
     if planting_year is not None:
         year_filter += " AND COALESCE(p.planting_year, 0) = :planting_year"
-    as_of_filter = "AND a.period <= make_date(:tahun, 12, 1)" if tahun is not None else ""
+    as_of_filter = "AND a.period <= make_date(:tahun, COALESCE(:bulan, 12), 1)" if tahun is not None else ""
 
     slope = db.execute(text(f"""
         WITH st AS (
@@ -358,13 +367,17 @@ def _rotation(
     *,
     monthly: bool | None = None,
     planting_year: int | None = None,
+    bulan: int | None = None,
 ) -> dict:
     if monthly is None:
         monthly = tahun is not None
+    monthly = monthly or bulan is not None
     time_cols = "extract(year FROM h.period)::int AS tahun, " + (
         "extract(month FROM h.period)::int AS bulan" if monthly else "NULL::int AS bulan")
     planting_sql = "AND COALESCE(h.planting_year, 0) = :planting_year" if planting_year is not None else ""
     period_sql = "AND extract(year FROM h.period) = :tahun" if tahun is not None else ""
+    if bulan is not None:
+        period_sql += " AND extract(month FROM h.period) = :bulan"
     rows = db.execute(text(f"""
         SELECT {time_cols},
                COUNT(*) AS total_rotasi,
@@ -375,7 +388,7 @@ def _rotation(
         FROM trx.harvest_rotations h
         WHERE h.block_id IN ({blocks_sql}) {period_sql} {planting_sql}
         GROUP BY 1, 2 ORDER BY 1, 2
-    """), {**params, "tahun": tahun, "planting_year": planting_year}).mappings().all()
+    """), {**params, "tahun": tahun, "planting_year": planting_year, "bulan": bulan}).mappings().all()
 
     return {
         "table": "trx_rotasi_pusingan",
@@ -403,6 +416,7 @@ def _area_statement(
     *,
     tahun: int | None = None,
     tahun_tanam: int | None = None,
+    bulan: int | None = None,
 ) -> dict:
     """Luas tanam dikelompokkan per tahun tanam dan per divisi.
 
@@ -412,6 +426,12 @@ def _area_statement(
     Tahun tanam kosong (belum ditanam) dilaporkan sebagai 0.
     """
     period_sql = "AND a.period < make_date(:tahun + 1, 1, 1)" if tahun is not None else ""
+    if bulan is not None:
+        # snapshot s/d bulan itu (dengan tahun), atau bulan yang sama pada semua tahun (tanpa tahun)
+        period_sql = (
+            "AND a.period < (make_date(:tahun, :bulan, 1) + interval '1 month')" if tahun is not None
+            else "AND extract(month FROM a.period) = :bulan"
+        )
     planting_sql = "WHERE COALESCE(st.planting_year, 0) = :tahun_tanam" if tahun_tanam is not None else ""
     rows = db.execute(text(f"""
         WITH scoped AS (
@@ -428,7 +448,7 @@ def _area_statement(
         LEFT JOIN master.areas ar ON ar.id = st.area_id
         {planting_sql}
         GROUP BY 1, 2, 3
-    """), {**params, "tahun": tahun, "tahun_tanam": tahun_tanam}).mappings().all()
+    """), {**params, "tahun": tahun, "tahun_tanam": tahun_tanam, "bulan": bulan}).mappings().all()
 
     area_codes = {r["area_code"] for r in rows}
     area_code = next(iter(area_codes)) if len(area_codes) == 1 else None

@@ -32,18 +32,28 @@ const SUMMARY_SKIP = new Set(["status_analisis", "kesimpulan", "peringatan", "ri
 
 const SECTION_TITLES: Record<string, string> = {
   per_estate: "Ringkasan per Estate",
-  data_ditolak: "Data yang Ditolak",
+  per_periode: "Jumlah Data per Periode",
+  data_ditolak: "Baris yang Ditolak",
   data_tidak_valid: "Data dengan Atribut Tidak Lengkap",
   data_geometri_invalid: "Data dengan Geometri Tidak Valid",
   blok_terpecah: "Blok Terpecah (satu blok di beberapa data)",
   blok_akan_ditimpa: "Blok yang Batasnya Akan Ditimpa",
   blok_baru_di_master: "Blok Baru di Master",
+  blok_tidak_ditemukan: "Blok yang Tidak Ditemukan",
+  ringkasan_penyebab_blok_tidak_ditemukan: "Penyebab Blok Tidak Ditemukan",
   grup_pt: "Penyesuaian Grup PT",
   area_estate: "Penyesuaian Area Estate",
   nama_pendek_pt: "Penyesuaian Nama Pendek PT",
   koreksi_label_blok: "Koreksi Label Blok (dicocokkan dari posisi geometri)",
   contoh_blok_tidak_ditemukan: "Contoh Blok Tidak Ditemukan",
   kolom_tersimpan: "Kolom Atribut yang Disimpan",
+  kolom_dibaca: "Kolom yang Dibaca",
+  kolom_tidak_dibaca: "Kolom yang Tidak Dibaca",
+  nilai_referensi_baru: "Nilai Referensi Baru",
+  peringatan_company_code: "Peringatan Company Code",
+  peringatan_grup: "Peringatan Grup",
+  peringatan_area: "Peringatan Area",
+  peringatan_afdeling: "Peringatan Afdeling",
 };
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -117,7 +127,71 @@ type Section = {
   items: string[];
 };
 
-// Daftar rincian: array objek -> tabel, array nilai -> daftar chip.
+function sectionFromArray(key: string, value: unknown[]): Section | null {
+  if (!value.length) return null;
+  const objects = value.filter(isPlainObject);
+  const columns = objects.length ? Array.from(new Set(objects.flatMap((row) => Object.keys(row)))) : [];
+  return {
+    key,
+    title: SECTION_TITLES[key] ?? humanize(key),
+    count: value.length,
+    columns,
+    rows: objects,
+    items: objects.length ? [] : value.map((item) => asDataWord(formatValue(item))),
+  };
+}
+
+function sectionFromObject(key: string, value: Record<string, unknown>): Section | null {
+  if (Array.isArray(value.contoh)) {
+    const contoh = value.contoh;
+    const jumlah = typeof value.jumlah === "number" ? value.jumlah : contoh.length;
+    if (!jumlah && !contoh.length) return null;
+    const listed = sectionFromArray(key, contoh);
+    if (!listed) {
+      return {
+        key,
+        title: SECTION_TITLES[key] ?? humanize(key),
+        count: jumlah,
+        columns: [],
+        rows: [],
+        items: [],
+      };
+    }
+    return { ...listed, count: jumlah };
+  }
+
+  const entries = Object.entries(value).filter(([, entry]) => entry != null && entry !== "");
+  if (!entries.length) return null;
+
+  if (entries.every(([, entry]) => Array.isArray(entry))) {
+    return {
+      key,
+      title: SECTION_TITLES[key] ?? humanize(key),
+      count: entries.length,
+      columns: ["nilai", "isi"],
+      rows: entries.map(([name, list]) => ({
+        nilai: name,
+        isi: (list as unknown[]).map((item) => formatValue(item)).join(", ") || "-",
+      })),
+      items: [],
+    };
+  }
+
+  if (entries.every(([, entry]) => typeof entry !== "object")) {
+    return {
+      key,
+      title: SECTION_TITLES[key] ?? humanize(key),
+      count: entries.length,
+      columns: ["kolom", "nilai"],
+      rows: entries.map(([name, entry]) => ({ kolom: humanize(name), nilai: formatValue(entry) })),
+      items: [],
+    };
+  }
+
+  return null;
+}
+
+// Daftar rincian: array objek -> tabel, array nilai -> daftar chip, objek peringatan -> tabel.
 const sections = computed<Section[]>(() => {
   const sources: Record<string, unknown> = {
     ...(isPlainObject(props.analysis.rincian) ? props.analysis.rincian : {}),
@@ -127,17 +201,12 @@ const sections = computed<Section[]>(() => {
   };
   const result: Section[] = [];
   for (const [key, value] of Object.entries(sources)) {
-    if (!Array.isArray(value) || value.length === 0) continue;
-    const objects = value.filter(isPlainObject);
-    const columns = objects.length ? Array.from(new Set(objects.flatMap((row) => Object.keys(row)))) : [];
-    result.push({
-      key,
-      title: SECTION_TITLES[key] ?? humanize(key),
-      count: value.length,
-      columns,
-      rows: objects,
-      items: objects.length ? [] : value.map((v) => asDataWord(formatValue(v))),
-    });
+    const section = Array.isArray(value)
+      ? sectionFromArray(key, value)
+      : isPlainObject(value)
+        ? sectionFromObject(key, value)
+        : null;
+    if (section && (section.rows.length || section.items.length || section.count)) result.push(section);
   }
   return result;
 });

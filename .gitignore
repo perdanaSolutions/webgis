@@ -96,6 +96,13 @@ gis-dashboard/*.log
 qa/node_modules/
 
 # =========================
+# QA tooling (local)
+# =========================
+qa/node_modules/
+qa/package-lock.json
+qa/~$*
+
+# =========================
 # Markdown rules
 # =========================
 **/*.md
