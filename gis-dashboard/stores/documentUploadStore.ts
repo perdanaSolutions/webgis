@@ -1,5 +1,14 @@
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
+import {
+  GEOJSON_FEATURES_PER_PART,
+  chunkFeatureCollection,
+  featureCollectionToFile,
+  mergeAnalyzeResults,
+  mergeExecuteResults,
+  type GeoJsonCollection as PartGeoJsonCollection,
+  type GeoJsonFeature as PartGeoJsonFeature,
+} from "~/utils/geojsonFeatureParts";
 
 type GeoCatalogEndpoints = {
   upload_analyze: string;
@@ -65,6 +74,7 @@ export type UploadJob = {
   bulan: number;
   tahun: number;
   filename: string | null;
+  file_size?: number | null;
   stage: string | null;
   message: string | null;
   current: number | null;
@@ -74,7 +84,17 @@ export type UploadJob = {
   cancel_requested: boolean;
   error_message: string | null;
   batch_id: string | null;
+  upload_group_id?: string | null;
+  part_index?: number | null;
+  part_total?: number | null;
   result?: Record<string, any> | null;
+};
+
+export type MultipartUploadProgress = {
+  groupId: string;
+  kind: "analyze" | "execute";
+  partIndex: number;
+  partTotal: number;
 };
 
 const JOB_STORAGE_KEY = "document-upload-job-id";
@@ -105,15 +125,8 @@ function mapCatalogToCategory(item: GeoCatalogItem): UploadCategory {
   };
 }
 
-type GeoJsonFeature = GeoJSON.Feature<
-  GeoJSON.Geometry,
-  Record<string, string | number | boolean | null | undefined>
->;
-
-type GeoJsonCollection = GeoJSON.FeatureCollection<
-  GeoJSON.Geometry,
-  Record<string, string | number | boolean | null | undefined>
->;
+type GeoJsonFeature = PartGeoJsonFeature;
+type GeoJsonCollection = PartGeoJsonCollection;
 
 function getAuthHeaders() {
   return {
@@ -139,6 +152,17 @@ function readUploadError(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function newUploadGroupId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `grp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export const useDocumentUploadStore = defineStore("document-upload", {
   state: () => ({
     categories: [] as UploadCategory[],
@@ -160,6 +184,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     activeJob: null as UploadJob | null,
     isCancellingJob: false,
     jobPollErrors: 0,
+    /** Progress part Feature (1.000/feature) saat analyze/execute beruntun. */
+    multipart: null as MultipartUploadProgress | null,
+    multipartAbort: false,
   }),
 
   getters: {
@@ -311,6 +338,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
 
     async submitUpload() {
       const isAnalyze = Object.keys(this.summaryAnalyze).length === 0;
+      const kind = isAnalyze ? "analyze" : "execute";
       if (isAnalyze) {
         this.resetMessages();
       } else {
@@ -359,31 +387,144 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         return;
       }
 
+      const parts = chunkFeatureCollection(this.parsedGeoJson, GEOJSON_FEATURES_PER_PART);
+      if (!parts.length) {
+        this.errorMessage = "File GeoJSON tidak berisi data Feature.";
+        return;
+      }
+
+      const groupId = newUploadGroupId();
+      const partResults: Array<Record<string, any> | null | undefined> = [];
       this.isUploading = true;
+      this.multipartAbort = false;
+      this.stopJobPolling();
 
       try {
-        const formData = new FormData();
-        formData.append("file", this.selectedFile);
-        formData.append("kind", isAnalyze ? "analyze" : "execute");
-        formData.append("layer", dataFindOneCategory.value);
-        formData.append("bulan", String(Number(this.month)));
-        formData.append("tahun", String(Number(this.year)));
+        for (let i = 0; i < parts.length; i++) {
+          if (this.multipartAbort) {
+            const message = isAnalyze
+              ? "Analisis dibatalkan."
+              : "Penyimpanan dibatalkan. Part yang belum dijalankan tidak dikirim.";
+            if (isAnalyze) this.errorMessage = message;
+            else this.executeError = message;
+            return;
+          }
 
-        // Server membalas 202 begitu file tersimpan di antrian; prosesnya dipantau lewat polling.
-        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs`, {
-          method: "POST",
-          body: formData,
-        });
-        this.trackJob(job);
+          const partIndex = i + 1;
+          const partTotal = parts.length;
+          this.multipart = { groupId, kind, partIndex, partTotal };
+
+          const partFile = featureCollectionToFile(
+            parts[i]!,
+            this.selectedFile.name,
+            partIndex,
+            partTotal,
+          );
+
+          const formData = new FormData();
+          formData.append("file", partFile);
+          formData.append("kind", kind);
+          formData.append("layer", dataFindOneCategory.value);
+          formData.append("bulan", String(Number(this.month)));
+          formData.append("tahun", String(Number(this.year)));
+          formData.append("upload_group_id", groupId);
+          formData.append("part_index", String(partIndex));
+          formData.append("part_total", String(partTotal));
+
+          const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs`, {
+            method: "POST",
+            body: formData,
+          });
+
+          const finished = await this.runJobToCompletion(job);
+          if (finished.status === "cancelled" || this.multipartAbort) {
+            const message = isAnalyze
+              ? "Analisis dibatalkan."
+              : "Penyimpanan dibatalkan. Part yang belum dijalankan tidak dikirim.";
+            if (isAnalyze) this.errorMessage = message;
+            else this.executeError = message;
+            return;
+          }
+          if (finished.status !== "succeeded") {
+            const message =
+              finished.error_message ||
+              (isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.") +
+                ` (part ${partIndex}/${partTotal})`;
+            if (isAnalyze) this.errorMessage = message;
+            else this.executeError = message;
+            return;
+          }
+          partResults.push(finished.result);
+        }
+
+        if (isAnalyze) {
+          this.summaryAnalyze = mergeAnalyzeResults(partResults);
+          if (!this.selectedFile) {
+            this.errorMessage =
+              "Halaman sempat dimuat ulang, jadi file perlu dipilih ulang sebelum data bisa disimpan.";
+          }
+        } else {
+          this.executeResponse = mergeExecuteResults(partResults);
+        }
       } catch (error) {
-        const fallback = isAnalyze
-          ? "Analisis GeoJSON gagal."
-          : "Submit analisis gagal.";
+        const fallback = isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.";
         const message = readUploadError(error, fallback);
         if (isAnalyze) this.errorMessage = message;
         else this.executeError = message;
+      } finally {
         this.isUploading = false;
+        this.isCancellingJob = false;
+        this.multipart = null;
+        this.multipartAbort = false;
+        this.activeJob = null;
+        rememberJob(null);
       }
+    },
+
+    /** Poll satu job sampai selesai (dipakai loop part Feature). */
+    async runJobToCompletion(job: UploadJob): Promise<UploadJob> {
+      const { $api } = useNuxtApp();
+      this.activeJob = job;
+      this.jobPollErrors = 0;
+      rememberJob(job.job_id);
+      if (FINISHED_STATUSES.includes(job.status)) return job;
+
+      let current = job;
+      while (!FINISHED_STATUSES.includes(current.status)) {
+        if (this.multipartAbort) {
+          try {
+            current = await $api<UploadJob>(
+              `${getApiBaseUrl()}/v1/upload-jobs/${current.job_id}/cancel`,
+              { method: "POST" },
+            );
+            this.activeJob = current;
+          } catch {
+            // 409 = sudah selesai; lanjut baca status akhir.
+          }
+        }
+
+        await sleep(JOB_POLL_MS);
+        try {
+          current = await $api<UploadJob>(
+            `${getApiBaseUrl()}/v1/upload-jobs/${current.job_id}`,
+          );
+          this.jobPollErrors = 0;
+          this.activeJob = current;
+        } catch (error) {
+          const status = (error as { response?: { status?: number } } | null)?.response
+            ?.status;
+          this.jobPollErrors += 1;
+          if (status === 404 || this.jobPollErrors >= JOB_POLL_MAX_ERRORS) {
+            throw new Error(
+              readUploadError(
+                error,
+                "Status proses tidak bisa dibaca. Cek Riwayat Upload untuk melihat hasilnya.",
+              ),
+            );
+          }
+        }
+      }
+      return current;
     },
 
     trackJob(job: UploadJob) {
@@ -444,6 +585,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.activeJob = null;
       this.isUploading = false;
       this.isCancellingJob = false;
+      this.multipart = null;
 
       const isAnalyze = job.kind === "analyze";
       if (job.status === "succeeded") {
@@ -475,11 +617,13 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.activeJob = null;
       this.isUploading = false;
       this.isCancellingJob = false;
+      this.multipart = null;
       if (isAnalyze) this.errorMessage = message;
       else this.executeError = message;
     },
 
     async cancelJob() {
+      this.multipartAbort = true;
       const jobId = this.activeJob?.job_id;
       if (!jobId || this.isCancellingJob) return;
       const { $api } = useNuxtApp();
@@ -492,7 +636,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
           },
         );
         this.activeJob = job;
-        if (FINISHED_STATUSES.includes(job.status)) this.finishJob(job);
+        // Multipart: loop submitUpload yang menunggu runJobToCompletion akan menutup UI.
+        if (!this.multipart && FINISHED_STATUSES.includes(job.status)) this.finishJob(job);
       } catch {
         // 409 = proses sudah selesai lebih dulu; hasil akhirnya tetap diambil oleh polling.
         this.isCancellingJob = false;

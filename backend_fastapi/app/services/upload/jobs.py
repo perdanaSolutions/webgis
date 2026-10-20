@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import conflict, not_found
+from app.core.exceptions import bad_request, conflict, not_found
 from app.services.upload.progress import Progress, UploadCancelled, stage_message
 
 QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED = "queued", "running", "succeeded", "failed", "cancelled"
@@ -27,6 +27,7 @@ CANCELLED_MESSAGE = "Dibatalkan oleh pengguna. Tidak ada data yang disimpan."
 _VIEW = """
     SELECT j.id, j.status, j.kind, j.layer, j.bulan, j.tahun, j.filename, j.file_size, j.stage, j.message,
            j.progress_current, j.progress_total, j.error_message, j.batch_id, j.cancel_requested,
+           j.upload_group_id, j.part_index, j.part_total,
            j.created_at, j.started_at, j.finished_at,
            EXTRACT(EPOCH FROM COALESCE(j.finished_at, now()) - COALESCE(j.started_at, j.created_at))::int AS elapsed,
            CASE WHEN j.status = 'queued' THEN (
@@ -56,6 +57,9 @@ def _view(row, with_result: bool = False) -> dict:
         "cancel_requested": row["cancel_requested"],
         "error_message": row["error_message"],
         "batch_id": str(row["batch_id"]) if row["batch_id"] else None,
+        "upload_group_id": str(row["upload_group_id"]) if row["upload_group_id"] else None,
+        "part_index": row["part_index"],
+        "part_total": row["part_total"],
         "created_at": row["created_at"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
@@ -78,13 +82,38 @@ def _fetch(db: Session, job_id: UUID, user_id: UUID, with_result: bool = False) 
 # =====================================================================
 
 def create(db: Session, *, user_id: UUID, kind: str, layer: str, bulan: int, tahun: int, filename: str | None,
-           content: bytes) -> dict:
+           content: bytes, upload_group_id: UUID | None = None, part_index: int | None = None,
+           part_total: int | None = None) -> dict:
+    """Antrekan satu file GeoJSON. FE boleh mengirim beberapa part Feature (≤1000/part) dengan
+    `upload_group_id` + `part_index`/`part_total`; tiap part = satu job worker terpisah."""
+    if (part_index is None) ^ (part_total is None):
+        raise bad_request("part_index dan part_total harus diisi bersamaan.", field="part_index")
+    if part_total is not None and part_total < 1:
+        raise bad_request("part_total minimal 1.", field="part_total")
+    if part_index is not None and not (1 <= part_index <= part_total):
+        raise bad_request("part_index harus antara 1 dan part_total.", field="part_index")
+    if part_total is not None and part_total > 1 and upload_group_id is None:
+        raise bad_request("upload_group_id wajib bila part_total > 1.", field="upload_group_id")
+
+    message = "Menunggu giliran diproses"
+    if part_index is not None and part_total is not None and part_total > 1:
+        message = f"Menunggu giliran diproses (part {part_index}/{part_total})"
+
     job_id = db.execute(text("""
-        INSERT INTO audit.upload_jobs (user_id, kind, layer, bulan, tahun, filename, file_size, content, message)
-        VALUES (:u, :kind, :layer, :bulan, :tahun, :filename, :size, :content, 'Menunggu giliran diproses')
+        INSERT INTO audit.upload_jobs (
+            user_id, kind, layer, bulan, tahun, filename, file_size, content, message,
+            upload_group_id, part_index, part_total
+        )
+        VALUES (
+            :u, :kind, :layer, :bulan, :tahun, :filename, :size, :content, :message,
+            :group_id, :part_index, :part_total
+        )
         RETURNING id
     """), {"u": str(user_id), "kind": kind, "layer": layer, "bulan": bulan, "tahun": tahun,
-           "filename": (filename or "")[:255] or None, "size": len(content), "content": content}).scalar_one()
+           "filename": (filename or "")[:255] or None, "size": len(content), "content": content,
+           "message": message,
+           "group_id": str(upload_group_id) if upload_group_id else None,
+           "part_index": part_index, "part_total": part_total}).scalar_one()
     db.commit()
     return _fetch(db, job_id, user_id)
 

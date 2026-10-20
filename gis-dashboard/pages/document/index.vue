@@ -74,14 +74,34 @@ onMounted(async () => {
 const QUEUE_WARNING_SECONDS = 60;
 const activeJob = computed(() => documentUploadStore.activeJob);
 
-const jobTitle = computed(() =>
-  activeJob.value?.kind === "execute" ? "Menyimpan data ke database" : "Menganalisa file GeoJSON",
-);
+const multipart = computed(() => documentUploadStore.multipart);
+
+const jobTitle = computed(() => {
+  const base =
+    activeJob.value?.kind === "execute" || multipart.value?.kind === "execute"
+      ? "Menyimpan data ke database"
+      : "Menganalisa file GeoJSON";
+  const part = multipart.value;
+  if (part && part.partTotal > 1) {
+    return `${base} (part ${part.partIndex}/${part.partTotal})`;
+  }
+  const job = activeJob.value;
+  if (job?.part_total && job.part_total > 1 && job.part_index) {
+    return `${base} (part ${job.part_index}/${job.part_total})`;
+  }
+  return base;
+});
 
 const jobStatusText = computed(() => {
   const job = activeJob.value;
-  if (!job) return "";
-  if (job.cancel_requested) return "Membatalkan proses...";
+  if (!job) {
+    const part = multipart.value;
+    if (part && part.partTotal > 1) {
+      return `Menyiapkan part ${part.partIndex} dari ${part.partTotal} (max 1.000 Feature/part)`;
+    }
+    return "";
+  }
+  if (job.cancel_requested || documentUploadStore.multipartAbort) return "Membatalkan proses...";
   if (job.status === "queued") {
     return job.queue_ahead
       ? `Menunggu giliran (${job.queue_ahead} proses di depan)`
@@ -473,8 +493,9 @@ const executeFinished = computed(
             <div v-else class="h-full w-full animate-pulse rounded-full bg-gradient-to-r gradient-brand-alt" />
           </div>
           <p class="mt-3 text-size-sm text-muted">
-            Data berjumlah ribuan bisa memakan waktu beberapa menit. Halaman ini boleh ditinggal: proses tetap
-            berjalan di server dan hasilnya muncul lagi saat Anda kembali ke halaman ini.
+            File besar dipecah otomatis per 1.000 Feature lalu dianalisis/disimpan beruntun. Data berjumlah
+            ribuan bisa memakan waktu beberapa menit. Halaman ini boleh ditinggal saat satu part sedang
+            diproses; bila Anda membatalkan di tengah jalan, part berikutnya tidak dikirim.
           </p>
           <p v-if="jobQueuedTooLong" class="mt-2 rounded-lg bg-warning-light px-3 py-2 text-size-sm text-warning">
             Proses belum diambil server. Bila tetap menunggu, hubungi admin: worker upload mungkin belum berjalan.

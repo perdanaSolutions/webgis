@@ -2,6 +2,9 @@
 Upload GeoJSON lewat antrian: POST membalas 202 + job_id setelah file disimpan, worker
 mengerjakan analisis/simpan, FE membaca status tiap 1-2 detik.
 
+FE boleh memecah FeatureCollection menjadi beberapa part (mis. 1.000 feature/part) dan
+mengirim beruntun dengan upload_group_id + part_index/part_total. Tiap part = satu job.
+
 Sengaja TIDAK di bawah /spatial: semua GET /spatial/... di-cache Redis per user
 (app/core/map_cache.py), sehingga status job yang di-poll akan terbaca basi.
 """
@@ -26,11 +29,34 @@ def create_job(
     layer: Annotated[str, Form(description="Kode jenis dari GET /spatial/geo/catalog (blok, sawit, jalan, ...)")],
     bulan: Annotated[int, Form(ge=1, le=12)],
     tahun: Annotated[int, Form(ge=1900, le=2100)],
+    upload_group_id: Annotated[
+        UUID | None,
+        Form(description="ID grup bila FE memecah file jadi beberapa part Feature"),
+    ] = None,
+    part_index: Annotated[
+        int | None,
+        Form(ge=1, description="Nomor part (1-based). Wajib bersama part_total."),
+    ] = None,
+    part_total: Annotated[
+        int | None,
+        Form(ge=1, description="Jumlah total part Feature untuk grup ini."),
+    ] = None,
 ):
     content = read_upload(file)
     runner.check_layer(db, layer)
-    return jobs.create(db, user_id=user.id, kind=kind, layer=layer, bulan=bulan, tahun=tahun,
-                       filename=file.filename, content=content)
+    return jobs.create(
+        db,
+        user_id=user.id,
+        kind=kind,
+        layer=layer,
+        bulan=bulan,
+        tahun=tahun,
+        filename=file.filename,
+        content=content,
+        upload_group_id=upload_group_id,
+        part_index=part_index,
+        part_total=part_total,
+    )
 
 
 @router.get("/active", summary="Job antre/berjalan milik user (untuk melanjutkan setelah pindah halaman)")
