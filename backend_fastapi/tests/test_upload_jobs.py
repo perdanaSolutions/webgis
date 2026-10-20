@@ -125,3 +125,27 @@ def test_stale_running_job_is_failed(client, auth, jembatan):
     assert jobs.fail_stale(engine, 120) >= 1
     done = client.get(f"{URL}/{job_id}", headers=auth).json()
     assert done["status"] == "failed" and done["error_message"] == jobs.STALE_MESSAGE
+
+
+def test_feature_part_metadata_is_stored(client, auth, jembatan):
+    group_id = str(uuid.uuid4())
+    created = client.post(
+        URL,
+        headers=auth,
+        data={
+            "kind": "analyze",
+            "layer": "jembatan",
+            "bulan": BULAN,
+            "tahun": TAHUN,
+            "upload_group_id": group_id,
+            "part_index": 2,
+            "part_total": 5,
+        },
+        files={"file": ("jembatan.part2of5.geojson", jembatan, "application/geo+json")},
+    )
+    assert created.status_code == 202, created.text
+    job = created.json()
+    assert job["upload_group_id"] == group_id
+    assert job["part_index"] == 2 and job["part_total"] == 5
+    assert "part 2/5" in (job["message"] or "")
+    assert worker.run_once() == jobs.SUCCEEDED

@@ -110,12 +110,19 @@ watch(divisionPageCount, (count) => {
         <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
           <span>{{ rangeLabel(years.length, yearPage, "tahun") }}</span>
           <div class="flex items-center gap-1">
-            <button type="button" class="as-page" :disabled="yearPage <= 1" aria-label="Halaman tahun tanam sebelumnya" @click="goYear(yearPage - 1)">
-              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 6-6 6 6 6" /></svg>
+            <button type="button" class="as-page" :disabled="yearPage <= 1" aria-label="Halaman tahun tanam sebelumnya"
+              @click="goYear(yearPage - 1)">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m15 6-6 6 6 6" />
+              </svg>
             </button>
-            <span class="min-w-[4.5rem] text-center font-semibold text-[#1f2a18]">{{ yearPage }} / {{ yearPageCount }}</span>
-            <button type="button" class="as-page" :disabled="yearPage >= yearPageCount" aria-label="Halaman tahun tanam berikutnya" @click="goYear(yearPage + 1)">
-              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6" /></svg>
+            <span class="min-w-[4.5rem] text-center font-semibold text-[#1f2a18]">{{ yearPage }} / {{ yearPageCount
+              }}</span>
+            <button type="button" class="as-page" :disabled="yearPage >= yearPageCount"
+              aria-label="Halaman tahun tanam berikutnya" @click="goYear(yearPage + 1)">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m9 6 6 6-6 6" />
+              </svg>
             </button>
           </div>
         </div>
@@ -124,17 +131,17 @@ watch(divisionPageCount, (count) => {
 
     <section class="bp-card flex flex-col gap-3 p-4">
       <div class="flex items-baseline justify-between gap-3">
-        <h2 class="text-16 font-bold text-[#1f2a18]">Divisi</h2>
+        <h2 class="text-16 font-bold text-[#1f2a18]">Afdeling</h2>
         <span v-if="areaCode" class="shrink-0 text-12 text-[#6e7866]">{{ areaCode }}</span>
       </div>
 
-      <p v-if="!divisions.length" class="py-6 text-center text-13 text-[#6e7866]">Belum ada data divisi.</p>
+      <p v-if="!divisions.length" class="py-6 text-center text-13 text-[#6e7866]">Belum ada data Afdeling.</p>
       <template v-else>
         <div class="overflow-x-auto rounded-xl border border-[#d5dcc8]">
           <table class="w-full border-collapse text-left text-12">
             <thead class="bg-[#e7ecdf] text-[#3d4a34]">
               <tr>
-                <th class="px-2.5 py-2 font-semibold">Kode Divisi</th>
+                <th class="px-2.5 py-2 font-semibold">Kode Afdeling</th>
                 <th class="px-2.5 py-2 text-right font-semibold">Luas Tanam</th>
               </tr>
             </thead>
@@ -156,12 +163,19 @@ watch(divisionPageCount, (count) => {
         <div v-if="!expanded" class="flex items-center justify-between gap-2 text-12 text-[#55604c]">
           <span>{{ rangeLabel(divisions.length, divisionPage, "divisi") }}</span>
           <div class="flex items-center gap-1">
-            <button type="button" class="as-page" :disabled="divisionPage <= 1" aria-label="Halaman divisi sebelumnya" @click="goDivision(divisionPage - 1)">
-              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 6-6 6 6 6" /></svg>
+            <button type="button" class="as-page" :disabled="divisionPage <= 1" aria-label="Halaman divisi sebelumnya"
+              @click="goDivision(divisionPage - 1)">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m15 6-6 6 6 6" />
+              </svg>
             </button>
-            <span class="min-w-[4.5rem] text-center font-semibold text-[#1f2a18]">{{ divisionPage }} / {{ divisionPageCount }}</span>
-            <button type="button" class="as-page" :disabled="divisionPage >= divisionPageCount" aria-label="Halaman divisi berikutnya" @click="goDivision(divisionPage + 1)">
-              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6" /></svg>
+            <span class="min-w-[4.5rem] text-center font-semibold text-[#1f2a18]">{{ divisionPage }} / {{
+              divisionPageCount }}</span>
+            <button type="button" class="as-page" :disabled="divisionPage >= divisionPageCount"
+              aria-label="Halaman divisi berikutnya" @click="goDivision(divisionPage + 1)">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m9 6 6 6-6 6" />
+              </svg>
             </button>
           </div>
         </div>
