@@ -1,0 +1,143 @@
+{
+  "ts": "2026-10-20",
+  "results": [
+    {
+      "id": "A1",
+      "status": "[x] PASS",
+      "actual": "HTTP 200; form+logo OK",
+      "note": ""
+    },
+    {
+      "id": "A2",
+      "status": "[x] PASS",
+      "actual": "UI error; tetap /login; API 401",
+      "note": "Email atau Password yang Anda masukkan salahsalah"
+    },
+    {
+      "id": "A3",
+      "status": "[x] PASS",
+      "actual": "redirect /dashboard; login HTTP 200",
+      "note": "API host=http://144.91.90.112:8083"
+    },
+    {
+      "id": "A4",
+      "status": "[x] PASS",
+      "actual": "cookie auth_token,auth_token_type,auth_user + LS auth_user",
+      "note": ""
+    },
+    {
+      "id": "A5",
+      "status": "[x] PASS",
+      "actual": "Authorization Bearer pada http://144.91.90.112:8083/api/v1/menus/",
+      "note": ""
+    },
+    {
+      "id": "A6",
+      "status": "[x] PASS",
+      "actual": "Tanpa token → redirect /login",
+      "note": ""
+    },
+    {
+      "id": "A7",
+      "status": "[x] PASS",
+      "actual": "Sesi protected tetap /dashboard setelah reload",
+      "note": ""
+    },
+    {
+      "id": "A8",
+      "status": "[x] PASS",
+      "actual": "Token invalid → clear + /login (/me 401 path)",
+      "note": ""
+    },
+    {
+      "id": "A9",
+      "status": "[x] PASS",
+      "actual": "Logout → /login; token hilang",
+      "note": ""
+    },
+    {
+      "id": "A10",
+      "status": "[x] PASS",
+      "actual": "Auto redirect /dashboard saat sesi valid",
+      "note": ""
+    },
+    {
+      "id": "B1",
+      "status": "[x] PASS",
+      "actual": "Modal Profil Saya / ganti password tampil",
+      "note": ""
+    },
+    {
+      "id": "B2",
+      "status": "[x] PASS",
+      "actual": "err=true apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B3",
+      "status": "[x] PASS",
+      "actual": "err=true apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B4",
+      "status": "[x] PASS",
+      "actual": "Update 2xx + revert ke seed OK",
+      "note": "UI sukses=true"
+    },
+    {
+      "id": "B5",
+      "status": "[x] PASS",
+      "actual": "API 400; pesan password_lama tidak sesuai; sesi tetap login",
+      "note": "Retest terisolasi 2026-10-20"
+    },
+    {
+      "id": "C1",
+      "status": "[x] PASS",
+      "actual": "Banner + menu modul tampil",
+      "note": ""
+    },
+    {
+      "id": "C2",
+      "status": "[x] PASS",
+      "actual": "Indikator loading menu terlihat saat delay",
+      "note": ""
+    },
+    {
+      "id": "C3",
+      "status": "[B] BLOCKED",
+      "actual": "Akun tanpa menu belum tersedia",
+      "note": "[PERLU KONFIRMASI] akun terbatas"
+    },
+    {
+      "id": "C4",
+      "status": "[x] PASS",
+      "actual": "Menus 500 tidak crash Nuxt",
+      "note": "Home Teladan Productivity Technology Science Super Administrator superadmin Home Halaman utama Belum"
+    },
+    {
+      "id": "C5",
+      "status": "[F] FAIL",
+      "actual": "UI search modul tidak ter-render di /dashboard",
+      "note": "Script punya menuKeyword/filterMenus tapi template tidak punya input cari"
+    },
+    {
+      "id": "C6",
+      "status": "[x] PASS",
+      "actual": "Rute /map dari menu Blok Profile valid (navigasi langsung OK; klik UI partial)",
+      "note": "Menu API to=/map"
+    },
+    {
+      "id": "C7",
+      "status": "[x] PASS",
+      "actual": "Sidebar buka/tutup layout OK",
+      "note": ""
+    },
+    {
+      "id": "C8",
+      "status": "[x] PASS",
+      "actual": "UI favorit ada & bisa dibuka",
+      "note": ""
+    }
+  ]
+}

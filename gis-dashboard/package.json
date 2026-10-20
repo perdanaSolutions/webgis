@@ -23,7 +23,7 @@
     "dist"
   ],
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --port 3100",
     "build": "nuxt build",
     "prepare": "nuxt prepare",
     "release": "npm run lint && npm run test && npm run build && changelogen --release && npm publish && git push --follow-tags",

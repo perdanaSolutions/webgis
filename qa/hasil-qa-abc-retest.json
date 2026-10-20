@@ -1,0 +1,53 @@
+{
+  "ts": "2026-10-20T03:57:18.076Z",
+  "results": [
+    {
+      "id": "A2",
+      "status": "[x] PASS",
+      "actual": "UI error; tetap /login; API 401",
+      "note": "Email atau Password yang Anda masukkan salahsalah"
+    },
+    {
+      "id": "B1",
+      "status": "[x] PASS",
+      "actual": "Modal Profil Saya / ganti password tampil",
+      "note": ""
+    },
+    {
+      "id": "B2",
+      "status": "[x] PASS",
+      "actual": "err=true apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B3",
+      "status": "[x] PASS",
+      "actual": "err=true apiHit=false",
+      "note": ""
+    },
+    {
+      "id": "B5",
+      "status": "[F] FAIL",
+      "actual": "API 200; UI=true; tokenTetap=true",
+      "note": ""
+    },
+    {
+      "id": "B4",
+      "status": "[x] PASS",
+      "actual": "Update 2xx + revert ke seed OK",
+      "note": "UI sukses=true"
+    },
+    {
+      "id": "A8",
+      "status": "[x] PASS",
+      "actual": "Token invalid → clear + /login (/me 401 path)",
+      "note": ""
+    },
+    {
+      "id": "C4",
+      "status": "[x] PASS",
+      "actual": "Menus 500 tidak crash Nuxt",
+      "note": "Home Teladan Productivity Technology Science Super Administrator superadmin Home Halaman utama Belum"
+    }
+  ]
+}
