@@ -18,6 +18,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Env files
+.cursorignore
 .env
 .env.*
 !.env.example
@@ -91,6 +92,8 @@ gis-dashboard/dist/
 gis-dashboard/coverage/
 gis-dashboard/.eslintcache
 gis-dashboard/*.log
+
+qa/node_modules/
 
 # =========================
 # Markdown rules
