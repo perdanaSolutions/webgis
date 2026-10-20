@@ -768,8 +768,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   /** Parameter GET /spatial/history: hierarki Filter Kebun yang terapan, plus blok yang sedang dipilih. */
-  function historyParams() {
+  function historyParams(overrides?: { tahun?: string }) {
     const kodeBlok = String(selectedFeature.value?.properties?.kode_blok ?? "").trim();
+    // Sementara hanya `tahun` yang dikirim; `bulan` di-hide dulu.
+    const tahun = String(overrides?.tahun ?? applied.value.tahun ?? "").trim();
     return {
       kode_grup: applied.value.grup || undefined,
       area_id: applied.value.area || undefined,
@@ -779,17 +781,20 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       blok_id: applied.value.blokId || undefined,
       kode_blok: kodeBlok || undefined,
       ownership: applied.value.ownership || undefined,
+      tahun: tahun || undefined,
     };
   }
 
   /**
    * Histori produksi, areal statement, dan rotasi.
    * `patchSaved` false saat klik peta: kartu mengikuti blok, snapshot Filter Kebun tidak ditimpa.
+   * `tahun` mengikuti periode popup bila dikirim; selain itu memakai tahun Filter Kebun terapan.
+   * Param `bulan` sengaja tidak dikirim untuk sementara.
    */
-  async function loadHistories(options?: { patchSaved?: boolean }) {
+  async function loadHistories(options?: { patchSaved?: boolean; tahun?: string }) {
     const seq = ++historySeq;
     const patchSaved = options?.patchSaved !== false;
-    const params = historyParams();
+    const params = historyParams({ tahun: options?.tahun });
     const jobs: Array<Promise<void>> = [];
 
     function track<T>(
@@ -875,7 +880,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
           loadSelectedDetail(blokId.value, period.bulan, period.tahun).catch(() => {
             detail.value = null;
           }),
-          loadHistories(),
+          loadHistories({ tahun: period.tahun }),
         ]);
       } else {
         detail.value = null;
@@ -1055,8 +1060,20 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
         detail.value = null;
       }),
-      loadHistories({ patchSaved: false }),
+      loadHistories({ patchSaved: false, tahun: period.tahun }),
     ]);
+  }
+
+  /**
+   * Detail popup + 3 history. Dipakai saat buka/apply periode di popup agar `tahun`
+   * history mengikuti pilihan di dalam popup. Param `bulan` di-hide sementara.
+   */
+  async function loadPopupDetail(id: string, bulan: string, tahun: string) {
+    const [next] = await Promise.all([
+      loadSelectedDetail(id, bulan, tahun),
+      loadHistories({ patchSaved: false, tahun }),
+    ]);
+    return next;
   }
 
   /** Tutup popup peta: kembalikan Filter Kebun dan kartu kanan ke pencarian terakhir, tanpa menggeser peta. */
@@ -1367,6 +1384,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     filterGeneration,
     init, reset, resetFilters: clearMap, setGrup, setArea, setPt, setEstate, setAfdeling, setBlok, setOwnership, setBulan, setTahun,
     setYearToDate, setBulanComparison, setTahunComparison, popupPeriod,
-    applyFilters, selectBlock, loadSelectedDetail, clearBlockSelection, restoreLastSearch, refreshScope,
+    applyFilters, selectBlock, loadSelectedDetail, loadPopupDetail, loadHistories,
+    clearBlockSelection, restoreLastSearch, refreshScope,
   };
 });

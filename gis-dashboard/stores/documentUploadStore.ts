@@ -50,7 +50,12 @@ export type CreateThemePayload = {
   kolom: ThemeColumn[];
 };
 
-export type UploadJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type UploadJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 export type UploadJob = {
   job_id: string;
@@ -75,7 +80,11 @@ export type UploadJob = {
 const JOB_STORAGE_KEY = "document-upload-job-id";
 const JOB_POLL_MS = 1500;
 const JOB_POLL_MAX_ERRORS = 5;
-const FINISHED_STATUSES: UploadJobStatus[] = ["succeeded", "failed", "cancelled"];
+const FINISHED_STATUSES: UploadJobStatus[] = [
+  "succeeded",
+  "failed",
+  "cancelled",
+];
 
 // Di luar state Pinia: timer tetap jalan saat pengguna pindah halaman di dalam SPA.
 let jobPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -367,7 +376,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         });
         this.trackJob(job);
       } catch (error) {
-        const fallback = isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.";
+        const fallback = isAnalyze
+          ? "Analisis GeoJSON gagal."
+          : "Submit analisis gagal.";
         const message = readUploadError(error, fallback);
         if (isAnalyze) this.errorMessage = message;
         else this.executeError = message;
@@ -402,7 +413,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       if (!jobId) return;
       const { $api } = useNuxtApp();
       try {
-        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${jobId}`);
+        const job = await $api<UploadJob>(
+          `${getApiBaseUrl()}/v1/upload-jobs/${jobId}`,
+        );
         this.jobPollErrors = 0;
         this.activeJob = job;
         if (FINISHED_STATUSES.includes(job.status)) {
@@ -410,7 +423,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
           return;
         }
       } catch (error) {
-        const status = (error as { response?: { status?: number } } | null)?.response?.status;
+        const status = (error as { response?: { status?: number } } | null)
+          ?.response?.status;
         this.jobPollErrors += 1;
         if (status === 404 || this.jobPollErrors >= JOB_POLL_MAX_ERRORS) {
           const message = readUploadError(
@@ -447,7 +461,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
           : "Penyimpanan dibatalkan. Tidak ada data yang disimpan.";
         return;
       }
-      const message = job.error_message || (isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.");
+      const message =
+        job.error_message ||
+        (isAnalyze ? "Analisis GeoJSON gagal." : "Submit analisis gagal.");
       if (isAnalyze) this.errorMessage = message;
       else this.executeError = message;
     },
@@ -469,9 +485,12 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       const { $api } = useNuxtApp();
       this.isCancellingJob = true;
       try {
-        const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${jobId}/cancel`, {
-          method: "POST",
-        });
+        const job = await $api<UploadJob>(
+          `${getApiBaseUrl()}/v1/upload-jobs/${jobId}/cancel`,
+          {
+            method: "POST",
+          },
+        );
         this.activeJob = job;
         if (FINISHED_STATUSES.includes(job.status)) this.finishJob(job);
       } catch {
@@ -488,14 +507,20 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       }
       const { $api } = useNuxtApp();
       const baseUrl = getApiBaseUrl();
-      const savedId = import.meta.client ? sessionStorage.getItem(JOB_STORAGE_KEY) : null;
+      const savedId = import.meta.client
+        ? sessionStorage.getItem(JOB_STORAGE_KEY)
+        : null;
       try {
         let job: UploadJob | null = null;
         if (savedId) {
-          job = await $api<UploadJob>(`${baseUrl}/v1/upload-jobs/${savedId}`).catch(() => null);
+          job = await $api<UploadJob>(
+            `${baseUrl}/v1/upload-jobs/${savedId}`,
+          ).catch(() => null);
         }
         if (!job) {
-          const active = await $api<UploadJob[]>(`${baseUrl}/v1/upload-jobs/active`);
+          const active = await $api<UploadJob[]>(
+            `${baseUrl}/v1/upload-jobs/active`,
+          );
           job = active.at(-1) ?? null;
         }
         if (!job) {

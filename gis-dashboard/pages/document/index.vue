@@ -250,12 +250,12 @@ type ExecuteDetailRow =
   | { key: string; label: string; kind: "scalar"; value: string }
   | { key: string; label: string; kind: "object"; entries: Array<{ key: string; label: string; value: string }> }
   | {
-      key: string;
-      label: string;
-      kind: "table";
-      columns: string[];
-      rows: Record<string, unknown>[];
-    }
+    key: string;
+    label: string;
+    kind: "table";
+    columns: string[];
+    rows: Record<string, unknown>[];
+  }
   | { key: string; label: string; kind: "list"; items: string[] };
 
 function buildExecuteDetail(value: unknown, key: string): ExecuteDetailRow {
@@ -312,8 +312,8 @@ const executeView = computed(() => {
   const detail: ExecuteDetailRow[] =
     detailSource && typeof detailSource === "object" && !Array.isArray(detailSource)
       ? Object.entries(detailSource as Record<string, unknown>).map(([key, value]) =>
-          buildExecuteDetail(value, key),
-        )
+        buildExecuteDetail(value, key),
+      )
       : [];
 
   const scalarDetail = detail.filter((row) => row.kind === "scalar");
@@ -631,7 +631,8 @@ const executeFinished = computed(
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="(tableRow, index) in row.rows" :key="`${row.key}-${index}`" class="border-t border-row">
+                      <tr v-for="(tableRow, index) in row.rows" :key="`${row.key}-${index}`"
+                        class="border-t border-row">
                         <td v-for="column in row.columns" :key="`${row.key}-${index}-${column}`"
                           class="px-3 py-2 align-top">
                           {{ formatScalarValue(tableRow[column]) }}

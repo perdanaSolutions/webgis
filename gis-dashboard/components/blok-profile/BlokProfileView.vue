@@ -447,7 +447,7 @@ onBeforeUnmount(() => {
       <section class="absolute inset-0 z-0">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
           :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
-          :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadSelectedDetail"
+          :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
           :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock" />
 
         <div v-if="store.statusNotice"
