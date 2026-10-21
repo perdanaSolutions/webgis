@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, watch } from "vue";
 
 defineOptions({
   name: "UploadAnalysisResult",
@@ -217,10 +217,17 @@ const footnote = computed(() =>
     : "",
 );
 
+const PAGE_SIZE = 5;
 const sectionQueries = reactive<Record<string, string>>({});
+const sectionPages = reactive<Record<string, number>>({});
 
 function sectionQuery(key: string) {
   return sectionQueries[key] ?? "";
+}
+
+function onSectionSearch(key: string, event: Event) {
+  sectionQueries[key] = (event.target as HTMLInputElement).value;
+  sectionPages[key] = 1;
 }
 
 function filteredRows(section: Section) {
@@ -243,6 +250,45 @@ function filteredItems(section: Section) {
     return haystack.includes(query);
   });
 }
+
+function pageCount(total: number) {
+  return Math.max(1, Math.ceil(total / PAGE_SIZE));
+}
+
+function visiblePage(key: string, total: number) {
+  return Math.min(Math.max(1, sectionPages[key] ?? 1), pageCount(total));
+}
+
+function pagedItems<T>(key: string, items: T[]) {
+  const page = visiblePage(key, items.length);
+  const start = (page - 1) * PAGE_SIZE;
+  return items.slice(start, start + PAGE_SIZE);
+}
+
+function pageRange(key: string, total: number) {
+  const page = visiblePage(key, total);
+  const pages = pageCount(total);
+  if (!total) return { start: 0, end: 0, page, pages, total };
+  return {
+    start: (page - 1) * PAGE_SIZE + 1,
+    end: Math.min(page * PAGE_SIZE, total),
+    page,
+    pages,
+    total,
+  };
+}
+
+function goSectionPage(key: string, page: number, total: number) {
+  sectionPages[key] = Math.min(Math.max(1, page), pageCount(total));
+}
+
+watch(
+  () => props.analysis,
+  () => {
+    for (const key of Object.keys(sectionPages)) delete sectionPages[key];
+    for (const key of Object.keys(sectionQueries)) delete sectionQueries[key];
+  },
+);
 </script>
 
 <template>
@@ -293,8 +339,9 @@ function filteredItems(section: Section) {
         </summary>
         <div class="border-t border-default p-3">
           <div class="mb-3">
-            <input v-model="sectionQueries[section.key]" type="text" placeholder="Cari di semua kolom..."
-              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]" />
+            <input :value="sectionQuery(section.key)" type="text" placeholder="Cari di semua kolom..."
+              class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:max-w-[320px]"
+              @input="onSectionSearch(section.key, $event)" />
             <p v-if="sectionQuery(section.key).trim()" class="mt-1 text-size-xs text-muted">
               Menampilkan
               {{ (section.rows.length ? filteredRows(section).length :
@@ -302,35 +349,91 @@ function filteredItems(section: Section) {
               dari {{ section.count.toLocaleString("id-ID") }} data
             </p>
           </div>
-          <div v-if="section.rows.length" class="max-h-80 overflow-auto rounded-lg border border-default">
-            <table class="min-w-full text-size-sm">
-              <thead class="sticky top-0 bg-surface-warm text-left text-brand">
-                <tr>
-                  <th v-for="column in section.columns" :key="column" class="whitespace-nowrap px-3 py-2 font-bold">
-                    {{ humanize(column) }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="filteredRows(section).length === 0">
-                  <td :colspan="section.columns.length" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
-                </tr>
-                <tr v-for="(row, index) in filteredRows(section)" :key="index" class="border-t border-row">
-                  <td v-for="column in section.columns" :key="column" class="px-3 py-2 align-top">
-                    {{ formatValue(row[column]) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <template v-if="section.rows.length">
+            <div class="overflow-x-auto rounded-lg border border-default">
+              <table class="min-w-full text-size-sm">
+                <thead class="bg-surface-warm text-left text-brand">
+                  <tr>
+                    <th v-for="column in section.columns" :key="column" class="whitespace-nowrap px-3 py-2 font-bold">
+                      {{ humanize(column) }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="filteredRows(section).length === 0">
+                    <td :colspan="section.columns.length" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                  </tr>
+                  <tr v-for="(row, index) in pagedItems(section.key, filteredRows(section))"
+                    :key="`${section.key}-${pageRange(section.key, filteredRows(section).length).start + index}`"
+                    class="border-t border-row">
+                    <td v-for="column in section.columns" :key="column" class="px-3 py-2 align-top">
+                      {{ formatValue(row[column]) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-size-sm text-muted">
+                Menampilkan {{ pageRange(section.key, filteredRows(section).length).start }} -
+                {{ pageRange(section.key, filteredRows(section).length).end }} dari
+                {{ filteredRows(section).length.toLocaleString("id-ID") }} data
+              </p>
+              <div class="flex items-center gap-2">
+                <button type="button"
+                  class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                  :disabled="pageRange(section.key, filteredRows(section).length).page === 1"
+                  @click="goSectionPage(section.key, pageRange(section.key, filteredRows(section).length).page - 1, filteredRows(section).length)">
+                  Sebelumnya
+                </button>
+                <span class="text-size-sm text-label">
+                  Halaman {{ pageRange(section.key, filteredRows(section).length).page }} /
+                  {{ pageRange(section.key, filteredRows(section).length).pages }}
+                </span>
+                <button type="button"
+                  class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                  :disabled="pageRange(section.key, filteredRows(section).length).page === pageRange(section.key, filteredRows(section).length).pages"
+                  @click="goSectionPage(section.key, pageRange(section.key, filteredRows(section).length).page + 1, filteredRows(section).length)">
+                  Berikutnya
+                </button>
+              </div>
+            </div>
+          </template>
           <div v-else>
             <p v-if="filteredItems(section).length === 0" class="text-size-sm text-muted">Tidak ada data yang cocok.</p>
-            <div v-else class="flex flex-wrap gap-2">
-              <span v-for="item in filteredItems(section)" :key="item"
-                class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
-                {{ item }}
-              </span>
-            </div>
+            <template v-else>
+              <div class="flex flex-wrap gap-2">
+                <span v-for="item in pagedItems(section.key, filteredItems(section))" :key="item"
+                  class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
+                  {{ item }}
+                </span>
+              </div>
+              <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-size-sm text-muted">
+                  Menampilkan {{ pageRange(section.key, filteredItems(section).length).start }} -
+                  {{ pageRange(section.key, filteredItems(section).length).end }} dari
+                  {{ filteredItems(section).length.toLocaleString("id-ID") }} data
+                </p>
+                <div class="flex items-center gap-2">
+                  <button type="button"
+                    class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                    :disabled="pageRange(section.key, filteredItems(section).length).page === 1"
+                    @click="goSectionPage(section.key, pageRange(section.key, filteredItems(section).length).page - 1, filteredItems(section).length)">
+                    Sebelumnya
+                  </button>
+                  <span class="text-size-sm text-label">
+                    Halaman {{ pageRange(section.key, filteredItems(section).length).page }} /
+                    {{ pageRange(section.key, filteredItems(section).length).pages }}
+                  </span>
+                  <button type="button"
+                    class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                    :disabled="pageRange(section.key, filteredItems(section).length).page === pageRange(section.key, filteredItems(section).length).pages"
+                    @click="goSectionPage(section.key, pageRange(section.key, filteredItems(section).length).page + 1, filteredItems(section).length)">
+                    Berikutnya
+                  </button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </details>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from "vue";
+import { computed, reactive, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
@@ -365,6 +365,47 @@ const executeFinished = computed(
   () => Boolean(documentUploadStore.executeResponse) || Boolean(documentUploadStore.executeError),
 );
 
+const EXECUTE_PAGE_SIZE = 5;
+const executePages = reactive<Record<string, number>>({});
+
+function executePageCount(total: number) {
+  return Math.max(1, Math.ceil(total / EXECUTE_PAGE_SIZE));
+}
+
+function executeVisiblePage(key: string, total: number) {
+  return Math.min(Math.max(1, executePages[key] ?? 1), executePageCount(total));
+}
+
+function executePaged<T>(key: string, items: T[]) {
+  const page = executeVisiblePage(key, items.length);
+  const start = (page - 1) * EXECUTE_PAGE_SIZE;
+  return items.slice(start, start + EXECUTE_PAGE_SIZE);
+}
+
+function executeRange(key: string, total: number) {
+  const page = executeVisiblePage(key, total);
+  const pages = executePageCount(total);
+  if (!total) return { start: 0, end: 0, page, pages, total };
+  return {
+    start: (page - 1) * EXECUTE_PAGE_SIZE + 1,
+    end: Math.min(page * EXECUTE_PAGE_SIZE, total),
+    page,
+    pages,
+    total,
+  };
+}
+
+function goExecutePage(key: string, page: number, total: number) {
+  executePages[key] = Math.min(Math.max(1, page), executePageCount(total));
+}
+
+watch(
+  () => documentUploadStore.executeResponse,
+  () => {
+    for (const key of Object.keys(executePages)) delete executePages[key];
+  },
+);
+
 </script>
 
 <template>
@@ -642,25 +683,56 @@ const executeFinished = computed(
                 class="rounded-xl border border-default-60 bg-surface p-3">
                 <p class="mb-2 text-size-sm font-semibold text-brand">{{ row.label }}</p>
 
-                <div v-if="row.kind === 'table'" class="overflow-x-auto rounded-lg border border-default">
-                  <table class="min-w-full bg-surface text-size-sm">
-                    <thead class="bg-surface-warm text-left text-brand">
-                      <tr>
-                        <th v-for="column in row.columns" :key="column" class="whitespace-nowrap px-3 py-2 font-bold">
-                          {{ humanizeLabel(column) }}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(tableRow, index) in row.rows" :key="`${row.key}-${index}`"
-                        class="border-t border-row">
-                        <td v-for="column in row.columns" :key="`${row.key}-${index}-${column}`"
-                          class="px-3 py-2 align-top">
-                          {{ formatScalarValue(tableRow[column]) }}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <div v-if="row.kind === 'table'">
+                  <div class="overflow-x-auto rounded-lg border border-default">
+                    <table class="min-w-full bg-surface text-size-sm">
+                      <thead class="bg-surface-warm text-left text-brand">
+                        <tr>
+                          <th v-for="column in row.columns" :key="column" class="whitespace-nowrap px-3 py-2 font-bold">
+                            {{ humanizeLabel(column) }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="row.rows.length === 0">
+                          <td :colspan="row.columns.length" class="px-3 py-3 text-muted">Tidak ada data.</td>
+                        </tr>
+                        <tr v-for="(tableRow, index) in executePaged(row.key, row.rows)"
+                          :key="`${row.key}-${executeRange(row.key, row.rows.length).start + index}`"
+                          class="border-t border-row">
+                          <td v-for="column in row.columns" :key="`${row.key}-${index}-${column}`"
+                            class="px-3 py-2 align-top">
+                            {{ formatScalarValue(tableRow[column]) }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="text-size-sm text-muted">
+                      Menampilkan {{ executeRange(row.key, row.rows.length).start }} -
+                      {{ executeRange(row.key, row.rows.length).end }} dari
+                      {{ row.rows.length.toLocaleString("id-ID") }} data
+                    </p>
+                    <div class="flex items-center gap-2">
+                      <button type="button"
+                        class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                        :disabled="executeRange(row.key, row.rows.length).page === 1"
+                        @click="goExecutePage(row.key, executeRange(row.key, row.rows.length).page - 1, row.rows.length)">
+                        Sebelumnya
+                      </button>
+                      <span class="text-size-sm text-label">
+                        Halaman {{ executeRange(row.key, row.rows.length).page }} /
+                        {{ executeRange(row.key, row.rows.length).pages }}
+                      </span>
+                      <button type="button"
+                        class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                        :disabled="executeRange(row.key, row.rows.length).page === executeRange(row.key, row.rows.length).pages"
+                        @click="goExecutePage(row.key, executeRange(row.key, row.rows.length).page + 1, row.rows.length)">
+                        Berikutnya
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div v-else-if="row.kind === 'object'" class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -671,11 +743,38 @@ const executeFinished = computed(
                   </div>
                 </div>
 
-                <div v-else-if="row.kind === 'list'" class="flex flex-wrap gap-2">
-                  <span v-for="item in row.items" :key="`${row.key}-${item}`"
-                    class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
-                    {{ item }}
-                  </span>
+                <div v-else-if="row.kind === 'list'">
+                  <div class="flex flex-wrap gap-2">
+                    <span v-for="item in executePaged(`${row.key}-list`, row.items)" :key="`${row.key}-${item}`"
+                      class="rounded-lg border border-default bg-surface-neutral px-2 py-1 text-size-xs text-label">
+                      {{ item }}
+                    </span>
+                  </div>
+                  <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="text-size-sm text-muted">
+                      Menampilkan {{ executeRange(`${row.key}-list`, row.items.length).start }} -
+                      {{ executeRange(`${row.key}-list`, row.items.length).end }} dari
+                      {{ row.items.length.toLocaleString("id-ID") }} data
+                    </p>
+                    <div class="flex items-center gap-2">
+                      <button type="button"
+                        class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                        :disabled="executeRange(`${row.key}-list`, row.items.length).page === 1"
+                        @click="goExecutePage(`${row.key}-list`, executeRange(`${row.key}-list`, row.items.length).page - 1, row.items.length)">
+                        Sebelumnya
+                      </button>
+                      <span class="text-size-sm text-label">
+                        Halaman {{ executeRange(`${row.key}-list`, row.items.length).page }} /
+                        {{ executeRange(`${row.key}-list`, row.items.length).pages }}
+                      </span>
+                      <button type="button"
+                        class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
+                        :disabled="executeRange(`${row.key}-list`, row.items.length).page === executeRange(`${row.key}-list`, row.items.length).pages"
+                        @click="goExecutePage(`${row.key}-list`, executeRange(`${row.key}-list`, row.items.length).page + 1, row.items.length)">
+                        Berikutnya
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
