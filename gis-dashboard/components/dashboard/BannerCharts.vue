@@ -28,6 +28,15 @@ type StatusSlice = {
 
 type Point = { x: number; y: number }
 
+type ChartTip = {
+  chart: string
+  id: string
+  title: string
+  value: string
+  x: number
+  y: number
+}
+
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGU', 'SEP', 'OKT', 'NOV', 'DES']
 
 const GREEN_BAR = { front: '#3cba4c', side: '#2b9338', top: '#8ee08a' }
@@ -46,6 +55,8 @@ const productionAccess = ref(true)
 const yieldAccess = ref(true)
 const statusAccess = ref(true)
 const rotationAccess = ref(true)
+const hoverTip = ref<ChartTip | null>(null)
+const pinnedTip = ref<ChartTip | null>(null)
 
 function num(value: number, digits = 1) {
   return value.toLocaleString('id-ID', {
@@ -67,6 +78,49 @@ function monthOf(value: unknown) {
 function periodLabel(row: { tahun: number; bulan: number | null }) {
   if (row.bulan) return MONTHS[row.bulan - 1] ?? String(row.bulan)
   return String(row.tahun)
+}
+
+function periodTitle(row: { tahun: number; bulan: number | null }) {
+  if (row.bulan) return `${periodLabel(row)} ${row.tahun}`
+  return String(row.tahun)
+}
+
+function enterTip(tip: ChartTip) {
+  hoverTip.value = tip
+}
+
+function leaveChart(chart: string) {
+  if (hoverTip.value?.chart === chart) hoverTip.value = null
+}
+
+function toggleTip(tip: ChartTip) {
+  pinnedTip.value = pinnedTip.value?.id === tip.id ? null : tip
+}
+
+function clearPin(chart: string, event?: MouseEvent) {
+  const target = event?.target
+  if (target instanceof Element && target.closest('.kpi__hit')) return
+  if (pinnedTip.value?.chart === chart) pinnedTip.value = null
+}
+
+function chartTip(chart: string) {
+  if (hoverTip.value?.chart === chart) return hoverTip.value
+  if (pinnedTip.value?.chart === chart) return pinnedTip.value
+  return null
+}
+
+function tipOn(id: string) {
+  return hoverTip.value?.id === id || pinnedTip.value?.id === id
+}
+
+function tipFrame(tip: ChartTip | null, viewWidth: number, viewHeight: number) {
+  if (!tip) return null
+  const width = Math.min(viewWidth - 8, Math.max(88, Math.max(tip.title.length, tip.value.length) * 6.5 + 18))
+  const height = 36
+  const x = Math.max(4, Math.min(viewWidth - width - 4, tip.x - width / 2))
+  const above = tip.y - height - 10
+  const y = above >= 2 ? above : Math.min(viewHeight - height - 2, tip.y + 12)
+  return { x, y, width, height, title: tip.title, value: tip.value }
 }
 
 function periodKey(row: { tahun: number; bulan: number | null }) {
@@ -219,6 +273,14 @@ const productionBars = computed(() => {
       top: `${x},${y} ${x + depthX},${y - depthY} ${x + barWidth + depthX},${y - depthY} ${x + barWidth},${y}`,
       side: `${x + barWidth},${y} ${x + barWidth + depthX},${y - depthY} ${x + barWidth + depthX},${base - depthY} ${x + barWidth},${base}`,
       labelX: x + barWidth / 2 + depthX * 0.25,
+      tip: {
+        chart: 'produksi',
+        id: `produksi-${periodKey(row)}`,
+        title: periodTitle(row),
+        value: `${num(row.ton)} TON`,
+        x: x + barWidth / 2 + depthX * 0.35,
+        y: y - depthY,
+      } satisfies ChartTip,
     }
   })
 })
@@ -239,23 +301,61 @@ const productionArrow = computed(() => {
 const yieldPoints = computed(() => plotPoints(yieldSeries.value.map((row) => row.ton_ha), 300, 132, 18, 16))
 const yieldLine = computed(() => smoothPath(yieldPoints.value))
 const yieldArea = computed(() => areaPath(yieldPoints.value, 126))
+const yieldMarkers = computed(() => yieldSeries.value.flatMap((row, index) => {
+  const point = yieldPoints.value[index]
+  if (!point) return []
+  return [{
+    ...point,
+    tip: {
+      chart: 'yield',
+      id: `yield-${periodKey(row)}`,
+      title: periodTitle(row),
+      value: `${num(row.ton_ha, 2)} TON/HA`,
+      x: point.x,
+      y: point.y,
+    } satisfies ChartTip,
+  }]
+}))
 
 const rotationPoints = computed(() => plotPoints(rotation.value.map((row) => row.hari), 300, 132, 18, 18))
 const rotationLine = computed(() => smoothPath(rotationPoints.value))
+const rotationMarkers = computed(() => rotation.value.flatMap((row, index) => {
+  const point = rotationPoints.value[index]
+  if (!point) return []
+  return [{
+    ...point,
+    tip: {
+      chart: 'rotasi',
+      id: `rotasi-${periodKey(row)}`,
+      title: periodTitle(row),
+      value: `${num(row.hari, 1)} HARI`,
+      x: point.x,
+      y: point.y,
+    } satisfies ChartTip,
+  }]
+}))
 
 const slopeDots = computed(() => {
   if (!statusSlices.value.length) return []
-  const dots: Point[] = []
+  const dots: Array<Point & { tip: ChartTip }> = []
   statusSlices.value.forEach((item, index) => {
     const count = Math.min(7, Math.max(3, Math.round(item.pct / 7)))
     for (let dot = 0; dot < count; dot += 1) {
       const seed = index * 20 + dot + 1
       const progress = (index + jitter(seed)) / statusSlices.value.length
-      const x = 52 + progress * 214 + (jitter(seed + 3) - 0.5) * 20
-      const y = 24 + progress * 86 + (jitter(seed + 8) - 0.5) * 16
+      const x = Math.min(276, Math.max(46, 52 + progress * 214 + (jitter(seed + 3) - 0.5) * 20))
+      const y = Math.min(112, Math.max(18, 24 + progress * 86 + (jitter(seed + 8) - 0.5) * 16))
       dots.push({
-        x: Math.min(276, Math.max(46, x)),
-        y: Math.min(112, Math.max(18, y)),
+        x,
+        y,
+        tip: {
+          chart: 'status',
+          id: `status-${item.key}`,
+          title: item.label,
+          value: `${Math.round(item.pct)}% · ${num(item.ha)} HA`,
+          x,
+          y,
+        },
       })
     }
   })
@@ -275,7 +375,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   <div class="kpi-grid">
     <article class="kpi">
       <h2>Produksi TBS</h2>
-      <div class="kpi__chart">
+      <div class="kpi__chart" @mouseleave="leaveChart('produksi')" @click="clearPin('produksi', $event)">
         <p v-if="latestProduction" class="kpi__metric is-left is-green">
           {{ num(latestProduction.ton) }} TON
         </p>
@@ -289,12 +389,21 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
             </marker>
           </defs>
           <path v-if="productionArrow" :d="productionArrow" class="kpi__arrow" marker-end="url(#kpi-prod-arrow)" />
-          <g v-for="bar in productionBars" :key="periodKey(bar.row)">
+          <g v-for="bar in productionBars" :key="periodKey(bar.row)" class="kpi__series" :class="{ 'is-hot': tipOn(bar.tip.id) }">
             <polygon :points="bar.side" :fill="bar.color.side" />
             <polygon :points="bar.front" :fill="bar.color.front" />
             <polygon :points="bar.top" :fill="bar.color.top" />
             <text :x="bar.labelX" y="156" text-anchor="middle" class="kpi__axis">{{ periodLabel(bar.row) }}</text>
+            <rect class="kpi__hit" :x="bar.x - 2" :y="bar.y - 18" :width="bar.barWidth + 20" :height="bar.base - bar.y + 48"
+              @pointerenter="enterTip(bar.tip)" @click.stop="toggleTip(bar.tip)" />
           </g>
+          <template v-for="frame in [tipFrame(chartTip('produksi'), 320, 168)]" :key="frame?.title ?? 'produksi'">
+            <g v-if="frame" class="kpi__tip">
+              <rect :x="frame.x" :y="frame.y" :width="frame.width" :height="frame.height" rx="7" />
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 14" text-anchor="middle" class="kpi__tip-label">{{ frame.title }}</text>
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 28" text-anchor="middle" class="kpi__tip-value">{{ frame.value }}</text>
+            </g>
+          </template>
         </svg>
       </div>
       <div class="kpi__foot">
@@ -305,7 +414,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
 
     <article class="kpi">
       <h2>Yield</h2>
-      <div class="kpi__chart">
+      <div class="kpi__chart" @mouseleave="leaveChart('yield')" @click="clearPin('yield', $event)">
         <p v-if="latestYield" class="kpi__metric is-right is-red">
           {{ num(latestYield.ton_ha, 2) }} TON/HA
         </p>
@@ -318,6 +427,18 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
           </g>
           <path :d="yieldArea" class="kpi__area" />
           <path :d="yieldLine" class="kpi__line" />
+          <g v-for="marker in yieldMarkers" :key="marker.tip.id">
+            <circle class="kpi__node" :cx="marker.x" :cy="marker.y" :r="tipOn(marker.tip.id) ? 5.2 : 3.4" />
+            <circle class="kpi__hit" :cx="marker.x" :cy="marker.y" r="14"
+              @pointerenter="enterTip(marker.tip)" @click.stop="toggleTip(marker.tip)" />
+          </g>
+          <template v-for="frame in [tipFrame(chartTip('yield'), 300, 140)]" :key="frame?.title ?? 'yield'">
+            <g v-if="frame" class="kpi__tip">
+              <rect :x="frame.x" :y="frame.y" :width="frame.width" :height="frame.height" rx="7" />
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 14" text-anchor="middle" class="kpi__tip-label">{{ frame.title }}</text>
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 28" text-anchor="middle" class="kpi__tip-value">{{ frame.value }}</text>
+            </g>
+          </template>
         </svg>
       </div>
       <div class="kpi__foot">
@@ -328,7 +449,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
 
     <article class="kpi">
       <h2>Status Tanam</h2>
-      <div class="kpi__chart">
+      <div class="kpi__chart" @mouseleave="leaveChart('status')" @click="clearPin('status', $event)">
         <p v-if="leadStatus" class="kpi__metric is-right is-ink">
           {{ Math.round(leadStatus.pct) }} % AREA {{ leadStatus.key }}
         </p>
@@ -343,7 +464,18 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
           </defs>
           <line x1="34" y1="122" x2="34" y2="16" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
           <line x1="34" y1="122" x2="286" y2="122" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
-          <circle v-for="(dot, index) in slopeDots" :key="index" :cx="dot.x" :cy="dot.y" r="4.1" class="kpi__dot" />
+          <g v-for="(dot, index) in slopeDots" :key="index">
+            <circle :cx="dot.x" :cy="dot.y" :r="tipOn(dot.tip.id) ? 5.4 : 4.1" class="kpi__dot" :class="{ 'is-hot': tipOn(dot.tip.id) }" />
+            <circle class="kpi__hit" :cx="dot.x" :cy="dot.y" r="9"
+              @pointerenter="enterTip(dot.tip)" @click.stop="toggleTip(dot.tip)" />
+          </g>
+          <template v-for="frame in [tipFrame(chartTip('status'), 300, 148)]" :key="frame?.title ?? 'status'">
+            <g v-if="frame" class="kpi__tip">
+              <rect :x="frame.x" :y="frame.y" :width="frame.width" :height="frame.height" rx="7" />
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 14" text-anchor="middle" class="kpi__tip-label">{{ frame.title }}</text>
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 28" text-anchor="middle" class="kpi__tip-value">{{ frame.value }}</text>
+            </g>
+          </template>
         </svg>
       </div>
       <div class="kpi__foot">
@@ -354,7 +486,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
 
     <article class="kpi">
       <h2>Rotasi</h2>
-      <div class="kpi__chart">
+      <div class="kpi__chart" @mouseleave="leaveChart('rotasi')" @click="clearPin('rotasi', $event)">
         <p v-if="latestRotation" class="kpi__metric is-right is-red">SD BULAN INI</p>
         <p v-if="loading" class="kpi__empty">Memuat…</p>
         <p v-else-if="!rotation.length" class="kpi__empty">{{ rotationAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
@@ -365,7 +497,18 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
             <line v-for="index in 7" :key="`v-${index}`" :x1="12 + (index - 1) * 46" y1="14" :x2="12 + (index - 1) * 46" y2="126" />
           </g>
           <path :d="rotationLine" class="kpi__line" />
-          <circle v-for="(point, index) in rotationPoints" :key="index" :cx="point.x" :cy="point.y" r="3.3" class="kpi__node" />
+          <g v-for="marker in rotationMarkers" :key="marker.tip.id">
+            <circle class="kpi__node" :cx="marker.x" :cy="marker.y" :r="tipOn(marker.tip.id) ? 5.2 : 3.4" />
+            <circle class="kpi__hit" :cx="marker.x" :cy="marker.y" r="14"
+              @pointerenter="enterTip(marker.tip)" @click.stop="toggleTip(marker.tip)" />
+          </g>
+          <template v-for="frame in [tipFrame(chartTip('rotasi'), 300, 140)]" :key="frame?.title ?? 'rotasi'">
+            <g v-if="frame" class="kpi__tip">
+              <rect :x="frame.x" :y="frame.y" :width="frame.width" :height="frame.height" rx="7" />
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 14" text-anchor="middle" class="kpi__tip-label">{{ frame.title }}</text>
+              <text :x="frame.x + frame.width / 2" :y="frame.y + 28" text-anchor="middle" class="kpi__tip-value">{{ frame.value }}</text>
+            </g>
+          </template>
         </svg>
       </div>
       <div class="kpi__foot">
@@ -477,6 +620,41 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   display: block;
   width: 100%;
   height: 9.2rem;
+  overflow: visible;
+}
+
+.kpi__hit {
+  fill: transparent;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+.kpi__series.is-hot polygon {
+  stroke: #102416;
+  stroke-width: 0.8;
+}
+
+.kpi__tip {
+  pointer-events: none;
+}
+
+.kpi__tip rect {
+  fill: #172117;
+  stroke: rgb(255 255 255 / 72%);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 28%));
+}
+
+.kpi__tip-label {
+  fill: #d7e4d4;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.kpi__tip-value {
+  fill: #fff;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .kpi__arrow {
@@ -484,6 +662,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   stroke: #1c9a38;
   stroke-width: 7;
   stroke-linecap: round;
+  pointer-events: none;
 }
 
 .kpi__axis {
@@ -495,10 +674,12 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
 .kpi__grid line {
   stroke: #ececec;
   stroke-width: 1;
+  pointer-events: none;
 }
 
 .kpi__area {
   fill: rgb(226 59 59 / 16%);
+  pointer-events: none;
 }
 
 .kpi__line {
@@ -507,6 +688,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .kpi__axis-line {
@@ -517,12 +699,18 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
 
 .kpi__dot {
   fill: #161616;
+  pointer-events: none;
+}
+
+.kpi__dot.is-hot {
+  fill: #1c9a38;
 }
 
 .kpi__node {
   fill: #e23b3b;
   stroke: #fff;
   stroke-width: 1;
+  pointer-events: none;
 }
 
 .kpi__foot {
