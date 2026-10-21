@@ -1,3 +1,4 @@
+import { createBasemapTileLayer } from "~/utils/mapBasemap";
 import type { BasemapKey } from "~/utils/mapLayers";
 import {
   BASEMAPS,
@@ -119,7 +120,7 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   const cssW = 1500;
   const cssH = Math.max(520, Math.round(cssW * (mapH / mapW)));
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
-  const satellite = input.basemap === "satellite" || input.basemap === "hybrid";
+  const satellite = input.basemap === "satellite" || input.basemap === "hybrid" || input.basemap === "tpa-sga";
   const background = satellite ? "#243028" : "#e7efe0";
   const host = document.createElement("div");
   host.className = "bp-map bp-print-map";
@@ -145,11 +146,8 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   north.innerHTML = "<span>U</span>";
   host.appendChild(north);
 
-  const basemapLayers = option.tiles.map((tile) => Lf.tileLayer(tile.url, {
-    attribution: tile.attribution,
-    maxZoom: tile.maxZoom ?? 19,
+  const basemapLayers = option.tiles.map((tile) => createBasemapTileLayer(Lf, tile, {
     crossOrigin: "anonymous",
-    ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
   }).addTo(map));
 
   const drawn: import("leaflet").Layer[] = [];

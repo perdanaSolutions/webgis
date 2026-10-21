@@ -4,6 +4,13 @@ import "leaflet/dist/leaflet.css";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { BlockCollection } from "~/stores/blokProfileStore";
+import {
+  applyBasemapZoom,
+  createBasemapTileLayer,
+  observeBasemapTiles,
+  probeWmsReachable,
+  type BasemapStatus,
+} from "~/utils/mapBasemap";
 import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
@@ -39,12 +46,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "select", blokId: string): void;
   (e: "deselect"): void;
+  (e: "basemap-status", status: BasemapStatus): void;
 }>();
 
 const container = shallowRef<HTMLElement | null>(null);
 let Lf: L | null = null;
 let map: import("leaflet").Map | null = null;
 let basemapLayers: import("leaflet").TileLayer[] = [];
+let basemapToken = 0;
+let stopBasemapWatch: (() => void) | null = null;
 let blockLayer: import("leaflet").GeoJSON | null = null;
 let labelLayer: import("leaflet").LayerGroup | null = null;
 let comparisonLayer: import("leaflet").LayerGroup | null = null;
@@ -151,13 +161,37 @@ function errorStatus(error: unknown) {
 }
 
 // ------------------------------------------------------------------ basemap
-function applyBasemap() {
+function mountBasemap(option: (typeof BASEMAPS)[number]) {
   if (!Lf || !map) return;
-  const option = BASEMAPS.find((b) => b.key === props.basemap) ?? BASEMAPS[0]!;
+  stopBasemapWatch?.();
+  stopBasemapWatch = null;
   basemapLayers.forEach((layer) => layer.removeFrom(map!));
-  basemapLayers = option.tiles.map((tile) => Lf!.tileLayer(tile.url, {
-    attribution: tile.attribution, maxZoom: tile.maxZoom ?? 19, ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
-  }).addTo(map!));
+  applyBasemapZoom(map, option);
+  basemapLayers = option.tiles.map((tile) => createBasemapTileLayer(Lf!, tile).addTo(map!));
+}
+
+async function applyBasemap() {
+  if (!Lf || !map) return;
+  const token = ++basemapToken;
+  stopBasemapWatch?.();
+  stopBasemapWatch = null;
+  const option = BASEMAPS.find((b) => b.key === props.basemap) ?? BASEMAPS[0]!;
+  const gated = option.tiles.some((tile) => tile.service === "wms");
+  if (gated) {
+    emit("basemap-status", "checking");
+    const reachable = await probeWmsReachable(option);
+    if (token !== basemapToken || !map) return;
+    if (!reachable) {
+      emit("basemap-status", "blocked");
+      return;
+    }
+  }
+  mountBasemap(option);
+  emit("basemap-status", "ready");
+  if (!gated) return;
+  stopBasemapWatch = observeBasemapTiles(basemapLayers, () => {
+    if (token === basemapToken) emit("basemap-status", "unavailable");
+  });
 }
 
 // ------------------------------------------------------------------ popup blok
@@ -773,6 +807,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   rebuilding = true;
+  basemapToken += 1;
+  stopBasemapWatch?.();
   map?.remove();
   map = null;
   overlayLayers.clear();

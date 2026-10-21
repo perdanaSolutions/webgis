@@ -9,6 +9,7 @@ export type BasemapKey =
   | "satellite"
   | "hybrid"
   | "topo"
+  | "tpa-sga"
   | "light"
   | "dark";
 
@@ -17,6 +18,13 @@ export type BasemapTile = {
   attribution: string;
   maxZoom?: number;
   subdomains?: string;
+  /** `wms` = GeoServer/MapServer. Kosong = ubin XYZ. */
+  service?: "xyz" | "wms";
+  /** Nama layer WMS, persis seperti tag `<Name>` di GetCapabilities. */
+  layers?: string;
+  format?: string;
+  version?: string;
+  transparent?: boolean;
 };
 
 export type BasemapOption = {
@@ -82,6 +90,23 @@ export const BASEMAPS: BasemapOption[] = [
         url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
         attribution: `${OSM_ATTRIBUTION}, SRTM | &copy; OpenTopoMap (CC-BY-SA)`,
         maxZoom: 17,
+      },
+    ],
+  },
+  {
+    key: "tpa-sga",
+    label: "TPA-SGA",
+    preview: "linear-gradient(135deg,#1f3b24 0%,#6d8a45 55%,#c4b48a 100%)",
+    tiles: [
+      {
+        service: "wms",
+        url: "http://192.168.1.17:8081/geoserver/tpgis/wms",
+        layers: "tpgis:TPA-SGA",
+        format: "image/png",
+        version: "1.1.1",
+        transparent: false,
+        attribution: "Foto udara TPA-SGA",
+        maxZoom: 22,
       },
     ],
   },

@@ -16,6 +16,8 @@ import { useMapOverlays } from "~/composables/useMapOverlays";
 import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
+import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
+import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
 import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
@@ -51,6 +53,41 @@ const pageTitle = computed(() => activeModule.value?.title || "Blok Profile");
 // ------------------------------------------------------------------ preferensi tampilan
 const BASEMAP_KEY = "blok-profile-basemap";
 const basemap = ref<BasemapKey>("satellite");
+let acceptedBasemap: BasemapKey = "satellite";
+let basemapRevert = false;
+const basemapNotice = ref<{ title: string; body: string; pending: boolean } | null>(null);
+
+function onBasemapStatus(status: BasemapStatus) {
+  const option = BASEMAPS.find((item) => item.key === basemap.value);
+  if (status === "ready") {
+    acceptedBasemap = basemap.value;
+    if (basemapRevert) {
+      basemapRevert = false;
+      return;
+    }
+    basemapNotice.value = null;
+    return;
+  }
+  if (!option) return;
+  if (status === "checking") {
+    basemapNotice.value = {
+      title: "Memeriksa foto udara",
+      body: `Sedang memeriksa apakah jaringan mengizinkan akses ke server ${option.label} (${basemapHost(option)}).`,
+      pending: true,
+    };
+    return;
+  }
+  if (status === "blocked") {
+    basemapNotice.value = { ...basemapAccessMessage("blocked", option), pending: false };
+    if (basemap.value !== acceptedBasemap) {
+      basemapRevert = true;
+      basemap.value = acceptedBasemap;
+    }
+    return;
+  }
+  basemapNotice.value = { ...basemapAccessMessage("unavailable", option), pending: false };
+  acceptedBasemap = basemap.value;
+}
 const opacity = ref(80);
 const showBlocks = ref(true);
 const showYieldGap = ref(false);
@@ -448,7 +485,8 @@ onBeforeUnmount(() => {
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
           :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
           :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
-          :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock" />
+          :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock"
+          @basemap-status="onBasemapStatus" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -665,6 +703,8 @@ onBeforeUnmount(() => {
     </div>
 
     <Teleport to="body">
+      <BasemapAccessDialog :open="Boolean(basemapNotice)" :title="basemapNotice?.title ?? ''"
+        :body="basemapNotice?.body ?? ''" :pending="basemapNotice?.pending" @close="basemapNotice = null" />
       <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel"
         :filter-line="pdfFilterLine" :summary="store.summary" :detail="store.detail"
         :loading-detail="store.loadingDetail" :can-view-production="store.canViewProduction"

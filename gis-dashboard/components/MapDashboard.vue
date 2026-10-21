@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import 'leaflet/dist/leaflet.css'
 
+import BasemapAccessDialog from '~/components/map/BasemapAccessDialog.vue'
 import MapLayerPanel, { type OverlayListItem } from '~/components/map/MapLayerPanel.vue'
+import { applyBasemapZoom, basemapAccessMessage, basemapHost, createBasemapTileLayer, observeBasemapTiles, probeWmsReachable } from '~/utils/mapBasemap'
 import { useMapStore } from '~/stores/mapStore'
 import {
   BASEMAPS,
@@ -489,7 +491,10 @@ function updateGeoJSONLayer(L: LeafletModule) {
 
 const BASEMAP_STORAGE_KEY = 'map-basemap'
 const basemap = shallowRef<BasemapKey>(DEFAULT_BASEMAP)
+const basemapNotice = ref<{ title: string; body: string; pending: boolean } | null>(null)
 let basemapLayers: import('leaflet').TileLayer[] = []
+let basemapToken = 0
+let stopBasemapWatch: (() => void) | null = null
 
 function readSavedBasemap(): BasemapKey {
   try {
@@ -501,24 +506,53 @@ function readSavedBasemap(): BasemapKey {
   }
 }
 
-function applyBasemap(key: BasemapKey) {
-  const L = leafletModule.value
-  if (!L || !map.value)
-    return
-  const option = BASEMAPS.find(item => item.key === key) ?? BASEMAPS[0]!
-  basemapLayers.forEach(layer => layer.removeFrom(map.value!))
-  basemapLayers = option.tiles.map(tile => L.tileLayer(tile.url, {
-    attribution: tile.attribution,
-    maxZoom: tile.maxZoom ?? 19,
-    ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
-  }).addTo(map.value!))
-  basemap.value = option.key
+function rememberBasemap(key: BasemapKey) {
+  basemap.value = key
   try {
-    localStorage.setItem(BASEMAP_STORAGE_KEY, option.key)
+    localStorage.setItem(BASEMAP_STORAGE_KEY, key)
   }
   catch {
     // penyimpanan lokal tidak tersedia (mode privat) -> abaikan
   }
+}
+
+async function applyBasemap(key: BasemapKey) {
+  const L = leafletModule.value
+  if (!L || !map.value)
+    return
+  const token = ++basemapToken
+  stopBasemapWatch?.()
+  stopBasemapWatch = null
+  const option = BASEMAPS.find(item => item.key === key) ?? BASEMAPS[0]!
+  const gated = option.tiles.some(tile => tile.service === 'wms')
+  if (gated) {
+    basemapNotice.value = {
+      title: 'Memeriksa foto udara',
+      body: `Sedang memeriksa apakah jaringan mengizinkan akses ke server ${option.label} (${basemapHost(option)}).`,
+      pending: true,
+    }
+    const reachable = await probeWmsReachable(option)
+    if (token !== basemapToken || !map.value)
+      return
+    if (!reachable) {
+      basemapNotice.value = { ...basemapAccessMessage('blocked', option), pending: false }
+      return
+    }
+    basemapNotice.value = null
+  }
+  else {
+    basemapNotice.value = null
+  }
+  basemapLayers.forEach(layer => layer.removeFrom(map.value!))
+  applyBasemapZoom(map.value, option)
+  basemapLayers = option.tiles.map(tile => createBasemapTileLayer(L, tile).addTo(map.value!))
+  rememberBasemap(option.key)
+  if (!gated)
+    return
+  stopBasemapWatch = observeBasemapTiles(basemapLayers, () => {
+    if (token === basemapToken)
+      basemapNotice.value = { ...basemapAccessMessage('unavailable', option), pending: false }
+  })
 }
 
 // ===========================================================================
@@ -785,6 +819,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  basemapToken += 1
+  stopBasemapWatch?.()
   if (geoJsonLayer.value && map.value) {
     geoJsonLayer.value.removeFrom(map.value)
     geoJsonLayer.value = null
@@ -821,6 +857,9 @@ watch(() => props.insets, () => applyInsets(), { deep: true })
 <template>
   <div class="relative h-full w-full">
     <div ref="mapContainer" class="h-full w-full" />
+
+    <BasemapAccessDialog :open="Boolean(basemapNotice)" :title="basemapNotice?.title ?? ''"
+      :body="basemapNotice?.body ?? ''" :pending="basemapNotice?.pending" @close="basemapNotice = null" />
 
     <div class="pointer-events-none absolute top-3 z-[1000]" :style="{ right: `${insets.right + 12}px` }">
       <MapLayerPanel :basemap="basemap" :overlays="overlayPanelItems" :block-count="featureCount"

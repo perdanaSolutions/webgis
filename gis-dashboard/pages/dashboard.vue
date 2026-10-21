@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import palmImage from '~/assets/image/Palm.jpeg'
+import skyImage from '~/assets/image/3.png'
+import sloganImage from '~/assets/image/slogan-palm.png'
+import handsImage from '~/assets/image/hands-tldn.png'
+import estateImage from '~/assets/image/4.png'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import BannerCharts from '~/components/dashboard/BannerCharts.vue'
@@ -62,124 +65,142 @@ onMounted(async () => {
     <Header :brand-title="dashboardService.dashboardConfig.brandTitle"
       :brand-subtitle="dashboardService.dashboardConfig.brandSubtitle" />
     <MenuDashboardNav id="menu-modul" :items="visibleMenus" :loading="dashboardService.loading" />
-    <section class="palm-banner" aria-label="Every Palm Matters">
-      <img :src="palmImage" alt="" class="palm-banner__photo">
-      <div class="palm-banner__veil" aria-hidden="true" />
-      <div class="palm-banner__stage">
+    <section class="dash-home" aria-label="Ringkasan perkebunan">
+      <img :src="skyImage" alt="" class="dash-home__sky">
+      <div class="dash-home__panel">
         <BannerCharts />
-        <div class="palm-banner__card">
-          <p class="palm-banner__kicker">When</p>
-          <h2 class="palm-banner__title">EVERY PALM MATTERS</h2>
-          <p class="palm-banner__lead">
-            <span>Optimalisasi produktivitas</span>
-            <span>dan sumber daya dengan pendekatan</span>
-            <span>teknologi dan ilmu pengetahuan terkini</span>
-            <span>yang terhubung dengan tata kelola dan teknis</span>
-            <span>budidaya perkebunan sawit terbaik dan berkelanjutan.</span>
+      </div>
+      <div class="dash-home__hero">
+        <img :src="estateImage" alt="" class="dash-home__estate">
+        <div class="dash-home__story">
+          <img :src="sloganImage" alt="When Every Palm Matters" class="dash-home__slogan">
+          <p class="dash-home__lead">
+            Optimalisasi produktivitas dan sumber daya
+            dengan pendekatan teknologi dan ilmu pengetahuan terkini
+            yang terhubung dengan tata kelola dan teknis budidaya
+            perkebunan kelapa sawit terbaik dan berkelanjutan.
           </p>
         </div>
+        <img :src="handsImage" alt="Teknologi perkebunan di atas telapak tangan" class="dash-home__hands">
       </div>
     </section>
   </main>
 </template>
 
 <style scoped>
-.palm-banner {
-  position: relative;
+.dash-home {
   display: flex;
   flex: 1 0 auto;
+  flex-direction: column;
+  background: #fff;
+}
+
+.dash-home__sky {
+  display: block;
   width: 100%;
-  min-height: calc(100dvh - 7.5rem);
+  height: auto;
+}
+
+.dash-home__panel {
+  padding: 0.85rem 1.15rem 0.35rem;
+}
+
+.dash-home__hero {
+  position: relative;
+  height: clamp(460px, 52vw, 680px);
+  margin-top: 0.55rem;
   overflow: hidden;
 }
 
-.palm-banner__photo {
+.dash-home__estate {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 42%;
+  object-position: center 78%;
 }
 
-.palm-banner__veil {
+.dash-home__story {
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgb(18 36 10 / 18%) 0%, rgb(18 36 10 / 4%) 34%, rgb(12 24 8 / 22%) 100%);
-}
-
-.palm-banner__stage {
-  position: relative;
   z-index: 1;
+  top: 34%;
+  left: 4.5%;
   display: flex;
-  flex: 1;
+  width: min(34rem, 40%);
   flex-direction: column;
-  width: 100%;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.15rem 1.25rem 1.15rem;
-}
-
-.palm-banner__card {
-  width: min(500px, 100%);
-  border-radius: 14px;
-  background: rgb(255 255 255 / 94%);
-  padding: 0.65rem 0.85rem 0.7rem;
-  text-align: left;
-  box-shadow:
-    0 14px 32px rgb(16 32 8 / 18%),
-    0 0 0 1px rgb(255 255 255 / 70%);
-  backdrop-filter: blur(10px);
-}
-
-.palm-banner__kicker {
-  margin: 0;
-  color: #3a9a32;
-  font-size: clamp(0.78rem, 1vw, 0.95rem);
-  font-style: italic;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.palm-banner__title {
-  margin: 0.08rem 0 0;
-  color: #111111;
-  font-size: clamp(1.05rem, 1.8vw, 1.55rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  text-transform: uppercase;
-  text-wrap: balance;
-}
-
-.palm-banner__lead {
-  margin: 0.4rem auto 0;
-  max-width: 26rem;
-  color: #161616;
-  font-size: clamp(0.62rem, 0.8vw, 0.72rem);
-  font-weight: 600;
-  line-height: 1.35;
   text-align: center;
 }
 
-.palm-banner__lead span {
+.dash-home__slogan {
   display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 6px 16px rgb(255 255 255 / 28%));
 }
 
-@media (max-width: 640px) {
-  .palm-banner__card {
-    padding: 0.6rem 0.75rem 0.65rem;
-    border-radius: 12px;
+.dash-home__lead {
+  margin: 0.45rem 0 0;
+  max-width: 34rem;
+  color: #f4e7a4;
+  font-size: clamp(0.72rem, 1.05vw, 0.98rem);
+  font-weight: 600;
+  line-height: 1.45;
+  text-shadow: 0 1px 2px rgb(20 40 8 / 35%);
+}
+
+.dash-home__hands {
+  position: absolute;
+  z-index: 1;
+  right: 1%;
+  bottom: 0;
+  width: auto;
+  max-width: 46%;
+  height: 92%;
+  object-fit: contain;
+  object-position: right bottom;
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (max-width: 900px) {
+  .dash-home__panel {
+    padding: 0.75rem 0.75rem 0.2rem;
   }
 
-  .palm-banner__lead span {
-    display: inline;
+  .dash-home__hero {
+    display: flex;
+    height: auto;
+    min-height: 520px;
+    flex-direction: column;
+    justify-content: flex-end;
   }
 
-  .palm-banner__lead span:not(:last-child)::after {
-    content: " ";
+  .dash-home__estate {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .dash-home__story {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: min(100% - 1.5rem, 28rem);
+    margin: 0 auto 0.5rem;
+    padding-top: 4.5rem;
+  }
+
+  .dash-home__hands {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: min(100%, 420px);
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
   }
 }
 </style>

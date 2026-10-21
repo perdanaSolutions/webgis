@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     activity_log,
     announcement,
     auth,
+    dashboard,
     database,
     geo_catalog,
     layers,
@@ -45,6 +46,7 @@ api_router.include_router(access.router, prefix="/akses-data", tags=["Akses Data
 # api_router.include_router(permission.router, prefix="/permissions", tags=["Permission Management"])
 
 # Route literal (/area, /geojson, /blok/detail) didaftarkan sebelum /{kode}.
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 api_router.include_router(spatial.router, prefix="/spatial", tags=["Spatial Data & Maps"])
 api_router.include_router(layers.router, prefix="/spatial")
 api_router.include_router(geo_catalog.router, prefix="/spatial", tags=["Katalog & Layer Dinamis"])

@@ -3,41 +3,55 @@ import { computed, onMounted, ref } from 'vue'
 
 type ProductionRow = {
   tahun: number
+  bulan: number | null
   ton: number
+}
+
+type YieldRow = {
+  tahun: number
+  bulan: number | null
   ton_ha: number
-  ton_ha_budget: number | null
 }
 
 type RotationRow = {
   tahun: number
+  bulan: number | null
   hari: number
 }
 
-type SlopeSlice = {
+type StatusSlice = {
   key: string
   label: string
-  color: string
   ha: number
   pct: number
 }
 
-const SLOPE = [
-  { key: '0-3%', label: 'Datar', color: '#d7e4c8' },
-  { key: '3-8%', label: 'Gelombang', color: '#a3c07e' },
-  { key: '8-15%', label: 'Berbukit', color: '#638840' },
-  { key: '15-25%', label: 'Curam', color: '#3d5528' },
-  { key: '>25%', label: 'Sangat', color: '#243618' },
+type Point = { x: number; y: number }
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGU', 'SEP', 'OKT', 'NOV', 'DES']
+
+const GREEN_BAR = { front: '#3cba4c', side: '#2b9338', top: '#8ee08a' }
+const BAR_COLORS = [
+  { front: '#f0a31c', side: '#c98412', top: '#ffd06a' },
+  { front: '#f6c516', side: '#d4a40c', top: '#ffe38a' },
+  GREEN_BAR,
 ]
 
 const loading = ref(true)
 const production = ref<ProductionRow[]>([])
+const yieldSeries = ref<YieldRow[]>([])
 const rotation = ref<RotationRow[]>([])
-const slope = ref<SlopeSlice[]>([])
-
-const hasBudget = computed(() => production.value.some((row) => row.ton_ha_budget != null))
+const statusSlices = ref<StatusSlice[]>([])
+const productionAccess = ref(true)
+const yieldAccess = ref(true)
+const statusAccess = ref(true)
+const rotationAccess = ref(true)
 
 function num(value: number, digits = 1) {
-  return value.toLocaleString('id-ID', { maximumFractionDigits: value >= 100 ? 0 : digits })
+  return value.toLocaleString('id-ID', {
+    minimumFractionDigits: value >= 100 ? 0 : digits,
+    maximumFractionDigits: value >= 100 ? 0 : digits,
+  })
 }
 
 function yearOf(value: unknown) {
@@ -45,429 +59,493 @@ function yearOf(value: unknown) {
   return Number.isFinite(year) ? year : null
 }
 
-function takeRecent<T extends { tahun: number }>(rows: T[]) {
-  return [...rows].sort((a, b) => a.tahun - b.tahun).slice(-6)
+function monthOf(value: unknown) {
+  const month = Number(value)
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : null
 }
 
-function barHeight(value: number, max: number) {
-  if (max <= 0 || value <= 0) return 0
-  return Math.max((value / max) * 100, 8)
+function periodLabel(row: { tahun: number; bulan: number | null }) {
+  if (row.bulan) return MONTHS[row.bulan - 1] ?? String(row.bulan)
+  return String(row.tahun)
 }
 
-function lineX(index: number) {
-  const count = production.value.length
-  if (count <= 1) return 50
-  return 4 + (index / (count - 1)) * 92
+function periodKey(row: { tahun: number; bulan: number | null }) {
+  return `${row.tahun}-${row.bulan ?? 0}`
 }
 
-function pointY(value: number) {
-  const values = production.value.flatMap((row) => [
-    row.ton_ha,
-    ...(row.ton_ha_budget == null ? [] : [row.ton_ha_budget]),
-  ])
-  const max = Math.max(...values, 0)
-  const min = Math.min(...values, max)
-  const pad = Math.max((max - min) * 0.35, 0.15)
-  const low = Math.max(min - pad, 0)
-  const high = max + pad
-  return 34 - ((value - low) / Math.max(high - low, 0.1)) * 30
+function summary(values: number[], subject: string) {
+  const latest = values.at(-1)
+  const previous = values.at(-2)
+  if (latest == null || previous == null) {
+    return 'Ringkasan periode ini disusun dari data transaksi perkebunan yang sudah tercatat.'
+  }
+  const rising = latest >= previous
+  return rising
+    ? `TPA & SGA mengalami kenaikan ${subject} pada periode terakhir, dan tren beberapa bulan ke depan menunjukkan peningkatan.`
+    : `TPA & SGA mencatat penurunan ${subject} pada periode terakhir. Tren beberapa bulan ke depan perlu dipantau agar produksi TBS tetap terjaga.`
 }
 
-function linePoints(pick: (row: ProductionRow) => number | null) {
-  const rows = production.value
-    .map((row, index) => ({ index, value: pick(row) }))
-    .filter((row): row is { index: number; value: number } => row.value != null)
-  if (!rows.length) return ''
-  return rows.map((row) => `${lineX(row.index)},${pointY(row.value)}`).join(' ')
+function plotPoints(values: number[], width: number, height: number, padX: number, padY: number): Point[] {
+  if (!values.length) return []
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = Math.max(max - min, Math.abs(max) * 0.35, 0.01)
+  const low = min - span * 0.2
+  const high = max + span * 0.35
+  return values.map((value, index) => ({
+    x: values.length === 1 ? width / 2 : padX + (index / (values.length - 1)) * (width - padX * 2),
+    y: padY + (1 - (value - low) / (high - low)) * (height - padY * 2),
+  }))
 }
 
-async function loadTable(table: string) {
-  const { $api } = useNuxtApp()
-  const base = useRuntimeConfig().public.apiBaseUrlPython as string
-  return $api<Record<string, any>>(`${base}/v1/spatial/history?table=${table}`)
+function smoothPath(points: Point[]) {
+  const start = points[0]
+  if (!start) return ''
+  if (points.length === 1) return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)}`
+  let path = `M ${start.x.toFixed(1)} ${start.y.toFixed(1)}`
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index]
+    const next = points[index + 1]
+    if (!current || !next) continue
+    const prev = points[index - 1] ?? current
+    const after = points[index + 2] ?? next
+    const c1x = current.x + (next.x - prev.x) / 6
+    const c1y = current.y + (next.y - prev.y) / 6
+    const c2x = next.x - (after.x - current.x) / 6
+    const c2y = next.y - (after.y - current.y) / 6
+    path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${next.x.toFixed(1)} ${next.y.toFixed(1)}`
+  }
+  return path
+}
+
+function areaPath(points: Point[], baseline: number) {
+  const line = smoothPath(points)
+  const first = points[0]
+  const last = points[points.length - 1]
+  if (!line || !first || !last || points.length < 2) return ''
+  return `${line} L ${last.x.toFixed(1)} ${baseline} L ${first.x.toFixed(1)} ${baseline} Z`
+}
+
+function jitter(seed: number) {
+  const value = Math.sin(seed * 127.1) * 43758.5453
+  return value - Math.floor(value)
 }
 
 onMounted(async () => {
-  const [produksiResult, rotasiResult] = await Promise.allSettled([
-    loadTable('trx_produksi_tbs'),
-    loadTable('trx_rotasi_pusingan'),
-  ])
+  try {
+    const { $api } = useNuxtApp()
+    const base = useRuntimeConfig().public.apiBaseUrlPython as string
+    const payload = await $api<Record<string, any>>(`${base}/v1/dashboard/laporan`)
+    const produksi = payload.produksi_tbs ?? {}
+    const yieldReport = payload.yield ?? {}
+    const statusReport = payload.status_tanam ?? {}
+    const rotasi = payload.rotasi ?? {}
 
-  if (produksiResult.status === 'fulfilled') {
-    const payload = produksiResult.value
-    production.value = takeRecent(
-      ((payload.data_histori ?? []) as Array<Record<string, any>>)
-        .map((row) => {
-          const tahun = yearOf(row.tahun)
-          if (tahun == null) return null
-          const budget = row.ton_ha_budget == null ? null : Number(row.ton_ha_budget)
-          return {
-            tahun,
-            ton: Number(row.ton ?? 0),
-            ton_ha: Number(row.ton_ha ?? 0),
-            ton_ha_budget: budget != null && Number.isFinite(budget) ? budget : null,
-          }
-        })
-        .filter((row): row is ProductionRow => row != null),
-    )
+    productionAccess.value = produksi.akses !== false
+    yieldAccess.value = yieldReport.akses !== false
+    statusAccess.value = statusReport.akses !== false
+    rotationAccess.value = rotasi.akses !== false
 
-    const hectares = (payload.slope_kemiringan_lereng_ha ?? {}) as Record<string, number>
-    const slices = SLOPE.map((item) => ({
-      ...item,
-      ha: Number(hectares[item.key] ?? 0),
-    })).filter((item) => item.ha > 0)
-    const total = slices.reduce((sum, item) => sum + item.ha, 0)
-    slope.value = total
-      ? slices.map((item) => ({ ...item, pct: (item.ha / total) * 100 }))
-      : []
+    production.value = ((produksi.periode ?? []) as Array<Record<string, any>>)
+      .map((row) => {
+        const tahun = yearOf(row.tahun)
+        if (tahun == null) return null
+        return { tahun, bulan: monthOf(row.bulan), ton: Number(row.ton ?? 0) }
+      })
+      .filter((row): row is ProductionRow => row != null)
+
+    yieldSeries.value = ((yieldReport.periode ?? []) as Array<Record<string, any>>)
+      .map((row) => {
+        const tahun = yearOf(row.tahun)
+        const tonHa = Number(row.ton_ha)
+        if (tahun == null || !Number.isFinite(tonHa)) return null
+        return { tahun, bulan: monthOf(row.bulan), ton_ha: tonHa }
+      })
+      .filter((row): row is YieldRow => row != null)
+
+    statusSlices.value = ((statusReport.per_status ?? []) as Array<Record<string, any>>)
+      .map((row) => ({
+        key: String(row.status ?? ''),
+        label: String(row.label ?? row.status ?? ''),
+        ha: Number(row.luas_tanam ?? 0),
+        pct: Number(row.persen ?? 0),
+      }))
+      .filter((row) => row.key && row.ha > 0)
+
+    rotation.value = ((rotasi.periode ?? []) as Array<Record<string, any>>)
+      .map((row) => {
+        const tahun = yearOf(row.tahun)
+        if (tahun == null) return null
+        return { tahun, bulan: monthOf(row.bulan), hari: Number(row.avg_pusingan_hari ?? 0) }
+      })
+      .filter((row): row is RotationRow => row != null)
+  } finally {
+    loading.value = false
   }
-
-  if (rotasiResult.status === 'fulfilled') {
-    rotation.value = takeRecent(
-      ((rotasiResult.value.data ?? []) as Array<Record<string, any>>)
-        .map((row) => {
-          const tahun = yearOf(row.tahun)
-          if (tahun == null) return null
-          return { tahun, hari: Number(row.avg_pusingan_hari ?? 0) }
-        })
-        .filter((row): row is RotationRow => row != null),
-    )
-  }
-
-  loading.value = false
 })
 
-const productionMax = computed(() => Math.max(...production.value.map((row) => row.ton), 1))
-const rotationMax = computed(() => Math.max(...rotation.value.map((row) => row.hari), 1))
 const latestProduction = computed(() => production.value.at(-1) ?? null)
+const latestYield = computed(() => yieldSeries.value.at(-1) ?? null)
 const latestRotation = computed(() => rotation.value.at(-1) ?? null)
-const leadSlope = computed(() =>
-  [...slope.value].sort((a, b) => b.pct - a.pct)[0] ?? null,
-)
+const leadStatus = computed(() => [...statusSlices.value].sort((a, b) => b.pct - a.pct)[0] ?? null)
+const reportYear = computed(() => latestProduction.value?.tahun ?? latestYield.value?.tahun ?? latestRotation.value?.tahun ?? new Date().getFullYear())
+
+const productionBars = computed(() => {
+  const rows = production.value.slice(-3)
+  if (!rows.length) return []
+  const max = Math.max(...rows.map((row) => row.ton), 1)
+  const colors = BAR_COLORS.slice(-rows.length)
+  const barWidth = 50
+  const gap = rows.length === 1 ? 0 : 34
+  const depthX = 16
+  const depthY = 11
+  const base = 126
+  const maxHeight = 86
+  const total = rows.length * barWidth + (rows.length - 1) * gap
+  const origin = (320 - total - depthX) / 2
+
+  return rows.map((row, index) => {
+    const height = Math.max((row.ton / max) * maxHeight, row.ton > 0 ? 20 : 8)
+    const x = origin + index * (barWidth + gap)
+    const y = base - height
+    return {
+      row,
+      color: colors[index] ?? GREEN_BAR,
+      x,
+      y,
+      base,
+      barWidth,
+      front: `${x},${y} ${x + barWidth},${y} ${x + barWidth},${base} ${x},${base}`,
+      top: `${x},${y} ${x + depthX},${y - depthY} ${x + barWidth + depthX},${y - depthY} ${x + barWidth},${y}`,
+      side: `${x + barWidth},${y} ${x + barWidth + depthX},${y - depthY} ${x + barWidth + depthX},${base - depthY} ${x + barWidth},${base}`,
+      labelX: x + barWidth / 2 + depthX * 0.25,
+    }
+  })
+})
+
+const productionArrow = computed(() => {
+  const bars = productionBars.value
+  const first = bars[0]
+  const last = bars[bars.length - 1]
+  if (!first || !last || bars.length < 2) return ''
+  if (last.row.ton < first.row.ton) return ''
+  const x1 = first.x + 6
+  const y1 = first.base - 18
+  const x2 = last.x + last.barWidth + 22
+  const y2 = last.y - 24
+  return `M ${x1} ${y1} C ${x1 + 54} ${y1 - 6}, ${x2 - 40} ${y2 + 16}, ${x2} ${y2}`
+})
+
+const yieldPoints = computed(() => plotPoints(yieldSeries.value.map((row) => row.ton_ha), 300, 132, 18, 16))
+const yieldLine = computed(() => smoothPath(yieldPoints.value))
+const yieldArea = computed(() => areaPath(yieldPoints.value, 126))
+
+const rotationPoints = computed(() => plotPoints(rotation.value.map((row) => row.hari), 300, 132, 18, 18))
+const rotationLine = computed(() => smoothPath(rotationPoints.value))
+
+const slopeDots = computed(() => {
+  if (!statusSlices.value.length) return []
+  const dots: Point[] = []
+  statusSlices.value.forEach((item, index) => {
+    const count = Math.min(7, Math.max(3, Math.round(item.pct / 7)))
+    for (let dot = 0; dot < count; dot += 1) {
+      const seed = index * 20 + dot + 1
+      const progress = (index + jitter(seed)) / statusSlices.value.length
+      const x = 52 + progress * 214 + (jitter(seed + 3) - 0.5) * 20
+      const y = 24 + progress * 86 + (jitter(seed + 8) - 0.5) * 16
+      dots.push({
+        x: Math.min(276, Math.max(46, x)),
+        y: Math.min(112, Math.max(18, y)),
+      })
+    }
+  })
+  return dots
+})
+
+const productionNote = computed(() => summary(production.value.map((row) => row.ton), 'produksi'))
+const yieldNote = computed(() => summary(yieldSeries.value.map((row) => row.ton_ha), 'yield'))
+const statusNote = computed(() => {
+  if (!leadStatus.value) return 'Belum ada sebaran status tanam pada periode ini.'
+  return `Area ${leadStatus.value.key} mencakup ${Math.round(leadStatus.value.pct)}% lahan, dan menjadi gambaran status tanam pada periode ${reportYear.value}.`
+})
+const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari), 'rotasi panen'))
 </script>
 
 <template>
-  <div class="container">
-    <div class="banner-charts">
-      <article class="banner-charts__card">
-        <header class="banner-charts__head">
-          <h1>Produksi TBS</h1>
-          <span>{{ latestProduction ? `${num(latestProduction.ton)} t` : 'ton' }}</span>
-        </header>
-        <p v-if="loading" class="banner-charts__empty">Memuat…</p>
-        <p v-else-if="!production.length" class="banner-charts__empty">Belum ada data</p>
-        <div v-else class="banner-charts__plot" role="img"
-          :aria-label="`Produksi TBS: ${production.map((row) => `${row.tahun} ${num(row.ton)} ton`).join(', ')}`">
-          <div class="banner-charts__bars">
-            <div v-for="row in production" :key="row.tahun" class="banner-charts__bar">
-              <i :class="row.tahun === latestProduction?.tahun && 'is-latest'"
-                :style="{ height: `${barHeight(row.ton, productionMax)}%` }"
-                :title="`${row.tahun}: ${num(row.ton)} ton`" />
-            </div>
-          </div>
-          <div class="banner-charts__years is-columns">
-            <small v-for="row in production" :key="row.tahun">{{ row.tahun }}</small>
-          </div>
-        </div>
-      </article>
+  <div class="kpi-grid">
+    <article class="kpi">
+      <h2>Produksi TBS</h2>
+      <div class="kpi__chart">
+        <p v-if="latestProduction" class="kpi__metric is-left is-green">
+          {{ num(latestProduction.ton) }} TON
+        </p>
+        <p v-if="loading" class="kpi__empty">Memuat…</p>
+        <p v-else-if="!production.length" class="kpi__empty">{{ productionAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
+        <svg v-else viewBox="0 0 320 168" class="kpi__svg" role="img"
+          :aria-label="`Produksi TBS: ${productionBars.map((bar) => `${periodLabel(bar.row)} ${num(bar.row.ton)} ton`).join(', ')}`">
+          <defs>
+            <marker id="kpi-prod-arrow" markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
+              <path d="M0 0 L7 3.5 L0 7 Z" fill="#1c9a38" />
+            </marker>
+          </defs>
+          <path v-if="productionArrow" :d="productionArrow" class="kpi__arrow" marker-end="url(#kpi-prod-arrow)" />
+          <g v-for="bar in productionBars" :key="periodKey(bar.row)">
+            <polygon :points="bar.side" :fill="bar.color.side" />
+            <polygon :points="bar.front" :fill="bar.color.front" />
+            <polygon :points="bar.top" :fill="bar.color.top" />
+            <text :x="bar.labelX" y="156" text-anchor="middle" class="kpi__axis">{{ periodLabel(bar.row) }}</text>
+          </g>
+        </svg>
+      </div>
+      <div class="kpi__foot">
+        <h3>Ringkasan Produksi {{ reportYear }}</h3>
+        <p>{{ productionAccess ? (production.length ? productionNote : 'Data produksi TBS belum tersedia.') : 'Tidak ada akses untuk data produksi TBS.' }}</p>
+      </div>
+    </article>
 
-      <article class="banner-charts__card">
-        <header class="banner-charts__head">
-          <h1>Yield</h1>
-          <span>{{ latestProduction ? `${num(latestProduction.ton_ha, 2)} t/ha` : 'ton/ha' }}</span>
-        </header>
-        <p v-if="loading" class="banner-charts__empty">Memuat…</p>
-        <p v-else-if="!production.length" class="banner-charts__empty">Belum ada data</p>
-        <div v-else class="banner-charts__plot" role="img"
-          :aria-label="`Yield: ${production.map((row) => `${row.tahun} ${num(row.ton_ha, 2)} ton per hektare`).join(', ')}`">
-          <div class="banner-charts__line-wrap">
-            <svg viewBox="0 0 100 40" class="banner-charts__line" preserveAspectRatio="none">
-              <polyline v-if="hasBudget" :points="linePoints((row) => row.ton_ha_budget)" class="is-budget" />
-              <polyline :points="linePoints((row) => row.ton_ha)" class="is-actual" />
-            </svg>
-            <span v-for="(row, index) in production" :key="row.tahun" class="banner-charts__dot" :style="{
-              left: `${lineX(index)}%`,
-              top: `${(pointY(row.ton_ha) / 40) * 100}%`,
-            }" :title="`${row.tahun}: ${num(row.ton_ha, 2)} t/ha`" />
-          </div>
-          <div class="banner-charts__years">
-            <small v-for="row in production" :key="row.tahun">{{ row.tahun }}</small>
-          </div>
-          <p v-if="hasBudget" class="banner-charts__legend">
-            <span><i class="is-actual" /> Aktual</span>
-            <span><i class="is-budget" /> Budget</span>
-          </p>
-        </div>
-      </article>
+    <article class="kpi">
+      <h2>Yield</h2>
+      <div class="kpi__chart">
+        <p v-if="latestYield" class="kpi__metric is-right is-red">
+          {{ num(latestYield.ton_ha, 2) }} TON/HA
+        </p>
+        <p v-if="loading" class="kpi__empty">Memuat…</p>
+        <p v-else-if="!yieldSeries.length" class="kpi__empty">{{ yieldAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
+        <svg v-else viewBox="0 0 300 140" class="kpi__svg" role="img"
+          :aria-label="`Yield: ${yieldSeries.map((row) => `${periodLabel(row)} ${num(row.ton_ha, 2)} ton per hektare`).join(', ')}`">
+          <g class="kpi__grid">
+            <line v-for="index in 7" :key="index" :x1="12 + (index - 1) * 44" y1="8" :x2="12 + (index - 1) * 44" y2="126" />
+          </g>
+          <path :d="yieldArea" class="kpi__area" />
+          <path :d="yieldLine" class="kpi__line" />
+        </svg>
+      </div>
+      <div class="kpi__foot">
+        <h3>Ringkasan Produksi {{ reportYear }}</h3>
+        <p>{{ yieldAccess ? (yieldSeries.length ? yieldNote : 'Data yield belum tersedia.') : 'Tidak ada akses untuk data yield.' }}</p>
+      </div>
+    </article>
 
-      <article class="banner-charts__card">
-        <header class="banner-charts__head">
-          <h1>Kemiringan</h1>
-          <span>{{ leadSlope ? `${Math.round(leadSlope.pct)}% ${leadSlope.label}` : 'ha' }}</span>
-        </header>
-        <p v-if="loading" class="banner-charts__empty">Memuat…</p>
-        <p v-else-if="!slope.length" class="banner-charts__empty">Belum ada data</p>
-        <div v-else class="banner-charts__plot" role="img"
-          :aria-label="`Kemiringan: ${slope.map((item) => `${item.label} ${Math.round(item.pct)} persen`).join(', ')}`">
-          <div class="banner-charts__stack">
-            <span v-for="item in slope" :key="item.key" :style="{ width: `${item.pct}%`, background: item.color }"
-              :title="`${item.label}: ${num(item.ha, 1)} ha`" />
-          </div>
-          <ul class="banner-charts__slope">
-            <li v-for="item in slope" :key="item.key">
-              <i :style="{ background: item.color }" />
-              <span>{{ item.label }}</span>
-              <strong>{{ Math.round(item.pct) }}%</strong>
-            </li>
-          </ul>
-        </div>
-      </article>
+    <article class="kpi">
+      <h2>Status Tanam</h2>
+      <div class="kpi__chart">
+        <p v-if="leadStatus" class="kpi__metric is-right is-ink">
+          {{ Math.round(leadStatus.pct) }} % AREA {{ leadStatus.key }}
+        </p>
+        <p v-if="loading" class="kpi__empty">Memuat…</p>
+        <p v-else-if="!statusSlices.length" class="kpi__empty">{{ statusAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
+        <svg v-else viewBox="0 0 300 148" class="kpi__svg" role="img"
+          :aria-label="`Status tanam: ${statusSlices.map((item) => `${item.key} ${Math.round(item.pct)} persen`).join(', ')}`">
+          <defs>
+            <marker id="kpi-axis-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+              <path d="M0 0 L7 3.5 L0 7 Z" fill="#1a1a1a" />
+            </marker>
+          </defs>
+          <line x1="34" y1="122" x2="34" y2="16" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
+          <line x1="34" y1="122" x2="286" y2="122" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
+          <circle v-for="(dot, index) in slopeDots" :key="index" :cx="dot.x" :cy="dot.y" r="4.1" class="kpi__dot" />
+        </svg>
+      </div>
+      <div class="kpi__foot">
+        <h3>Ringkasan TM &amp; TBM {{ reportYear }}</h3>
+        <p>{{ statusAccess ? statusNote : 'Tidak ada akses untuk data status tanam.' }}</p>
+      </div>
+    </article>
 
-      <article class="banner-charts__card">
-        <header class="banner-charts__head">
-          <h1>Rotasi</h1>
-          <span>{{ latestRotation ? `${num(latestRotation.hari, 1)} hari` : 'hari' }}</span>
-        </header>
-        <p v-if="loading" class="banner-charts__empty">Memuat…</p>
-        <p v-else-if="!rotation.length" class="banner-charts__empty">Belum ada data</p>
-        <div v-else class="banner-charts__plot" role="img"
-          :aria-label="`Rata-rata pusingan: ${rotation.map((row) => `${row.tahun} ${num(row.hari, 1)} hari`).join(', ')}`">
-          <div class="banner-charts__bars">
-            <div v-for="row in rotation" :key="row.tahun" class="banner-charts__bar">
-              <i class="is-warm" :class="row.tahun === latestRotation?.tahun && 'is-latest'"
-                :style="{ height: `${barHeight(row.hari, rotationMax)}%` }"
-                :title="`${row.tahun}: ${num(row.hari, 1)} hari`" />
-            </div>
-          </div>
-          <div class="banner-charts__years is-columns">
-            <small v-for="row in rotation" :key="row.tahun">{{ row.tahun }}</small>
-          </div>
-        </div>
-      </article>
-    </div>
+    <article class="kpi">
+      <h2>Rotasi</h2>
+      <div class="kpi__chart">
+        <p v-if="latestRotation" class="kpi__metric is-right is-red">SD BULAN INI</p>
+        <p v-if="loading" class="kpi__empty">Memuat…</p>
+        <p v-else-if="!rotation.length" class="kpi__empty">{{ rotationAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
+        <svg v-else viewBox="0 0 300 140" class="kpi__svg" role="img"
+          :aria-label="`Rotasi: ${rotation.map((row) => `${periodLabel(row)} ${num(row.hari, 1)} hari`).join(', ')}`">
+          <g class="kpi__grid">
+            <line v-for="index in 4" :key="`h-${index}`" x1="12" :y1="14 + (index - 1) * 32" x2="288" :y2="14 + (index - 1) * 32" />
+            <line v-for="index in 7" :key="`v-${index}`" :x1="12 + (index - 1) * 46" y1="14" :x2="12 + (index - 1) * 46" y2="126" />
+          </g>
+          <path :d="rotationLine" class="kpi__line" />
+          <circle v-for="(point, index) in rotationPoints" :key="index" :cx="point.x" :cy="point.y" r="3.3" class="kpi__node" />
+        </svg>
+      </div>
+      <div class="kpi__foot">
+        <h3>Trend Rotasi SD.BI {{ reportYear }}</h3>
+        <p>{{ rotationAccess ? (rotation.length ? rotationNote : 'Data rotasi belum tersedia.') : 'Tidak ada akses untuk data rotasi.' }}</p>
+      </div>
+    </article>
   </div>
 </template>
 
 <style scoped>
-.banner-charts {
+.kpi-grid {
   display: grid;
-  width: 100%;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.7rem;
+  gap: 0.9rem;
 }
 
-@media (min-width: 1200px) {
-  .banner-charts {
+@media (min-width: 760px) {
+  .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.banner-charts__card {
-  min-width: 0;
-  border-radius: 14px;
-  background: rgb(255 255 255 / 94%);
-  padding: 2rem;
-  margin: 2rem;
-  box-shadow:
-    0 14px 32px rgb(16 32 8 / 18%),
-    0 0 0 1px rgb(255 255 255 / 70%);
-  backdrop-filter: blur(10px);
+@media (min-width: 1180px) {
+  .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
-.banner-charts__head {
+.kpi {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+  border: 1px solid #ededed;
+  border-radius: 22px;
+  background: #fff;
+  padding: 0.85rem 0.95rem 0.8rem;
+  box-shadow:
+    0 10px 26px rgb(17 24 39 / 7%),
+    0 1px 2px rgb(17 24 39 / 4%);
 }
 
-.banner-charts__head h3 {
+.kpi h2 {
   margin: 0;
-  color: #1f2a18;
-  font-size: 0.72rem;
+  color: #111;
+  font-size: clamp(1rem, 1.25vw, 1.22rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.kpi__chart {
+  position: relative;
+  display: flex;
+  min-height: 9.4rem;
+  flex: 1;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+
+.kpi__metric {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  margin: 0;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.01em;
+  line-height: 1.2;
 }
 
-.banner-charts__head span {
-  color: #638840;
-  font-size: 0.68rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.kpi__metric.is-left {
+  left: 0.1rem;
 }
 
-.banner-charts__empty {
+.kpi__metric.is-right {
+  right: 0.1rem;
+  max-width: 58%;
+  text-align: right;
+}
+
+.kpi__metric.is-green {
+  color: #1c9a38;
+}
+
+.kpi__metric.is-red {
+  color: #e23b3b;
+}
+
+.kpi__metric.is-ink {
+  color: #243024;
+}
+
+.kpi__empty {
   display: flex;
-  height: 4.6rem;
+  width: 100%;
+  height: 8.2rem;
   align-items: center;
   justify-content: center;
   margin: 0;
-  color: #6e7866;
-  font-size: 0.68rem;
+  color: #8b9086;
+  font-size: 0.78rem;
 }
 
-.banner-charts__plot {
-  min-height: 4.6rem;
-}
-
-.banner-charts__bars {
-  display: flex;
-  height: 3.15rem;
-  align-items: flex-end;
-  gap: 0.28rem;
-}
-
-.banner-charts__bar {
-  display: flex;
-  height: 100%;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.banner-charts__bar i {
+.kpi__svg {
   display: block;
   width: 100%;
-  max-width: 1.35rem;
-  border-radius: 3px 3px 0 0;
-  background: #c5d4b4;
+  height: 9.2rem;
 }
 
-.banner-charts__bar i.is-latest {
-  background: #638840;
-}
-
-.banner-charts__bar i.is-warm {
-  background: #ead3bf;
-}
-
-.banner-charts__bar i.is-warm.is-latest {
-  background: #d87633;
-}
-
-.banner-charts__years small {
-  margin-top: 0.18rem;
-  color: #6e7866;
-  font-size: 0.58rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.banner-charts__line-wrap {
-  position: relative;
-  height: 2.7rem;
-}
-
-.banner-charts__line {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.banner-charts__dot {
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border: 1px solid #fff;
-  border-radius: 999px;
-  background: #638840;
-  transform: translate(-50%, -50%);
-}
-
-.banner-charts__line polyline {
+.kpi__arrow {
   fill: none;
-  stroke-width: 1.6;
-  vector-effect: non-scaling-stroke;
+  stroke: #1c9a38;
+  stroke-width: 7;
+  stroke-linecap: round;
 }
 
-.banner-charts__line .is-actual {
-  stroke: #638840;
+.kpi__axis {
+  fill: #6d6d6d;
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.banner-charts__line .is-budget {
-  stroke: #d87633;
-  stroke-dasharray: 3 2;
+.kpi__grid line {
+  stroke: #ececec;
+  stroke-width: 1;
 }
 
-.banner-charts__years {
-  display: flex;
-  justify-content: space-between;
+.kpi__area {
+  fill: rgb(226 59 59 / 16%);
 }
 
-.banner-charts__years.is-columns {
-  justify-content: flex-start;
-  gap: 0.28rem;
+.kpi__line {
+  fill: none;
+  stroke: #e23b3b;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.banner-charts__years.is-columns small {
-  flex: 1;
+.kpi__axis-line {
+  stroke: #1a1a1a;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+.kpi__dot {
+  fill: #161616;
+}
+
+.kpi__node {
+  fill: #e23b3b;
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.kpi__foot {
+  margin-top: auto;
+  padding-top: 0.35rem;
   text-align: center;
 }
 
-.banner-charts__legend {
-  display: flex;
-  gap: 0.65rem;
+.kpi__foot h3 {
+  margin: 0;
+  color: #161616;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.kpi__foot p {
   margin: 0.28rem 0 0;
-  color: #6e7866;
-  font-size: 0.58rem;
+  color: #3f3f3f;
+  font-size: 0.64rem;
+  font-weight: 500;
+  line-height: 1.35;
 }
-
-.banner-charts__legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.banner-charts__legend i {
-  width: 0.7rem;
-  height: 2px;
-  background: #638840;
-}
-
-.banner-charts__legend i.is-budget {
-  background: repeating-linear-gradient(90deg, #d87633 0 3px, transparent 3px 5px);
-}
-
-.banner-charts__stack {
-  display: flex;
-  height: 0.55rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e4e8de;
-}
-
-.banner-charts__slope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.22rem 0.55rem;
-  margin: 0.45rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.banner-charts__slope li {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.22rem;
-  color: #55604c;
-  font-size: 0.58rem;
-}
-
-.banner-charts__slope i {
-  width: 0.42rem;
-  height: 0.42rem;
-  flex: none;
-  border-radius: 2px;
-}
-
-.banner-charts__slope strong {
-  color: #1f2a18;
-  font-variant-numeric: tabular-nums;
-}
-
 </style>
