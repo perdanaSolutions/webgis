@@ -60,6 +60,7 @@ let labelLayer: import("leaflet").LayerGroup | null = null;
 let comparisonLayer: import("leaflet").LayerGroup | null = null;
 let selectedTag: import("leaflet").Marker | null = null;
 let pointRenderer: import("leaflet").Canvas | null = null;
+let polygonRenderer: import("leaflet").Canvas | null = null;
 const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
 let slopeLabelLayer: import("leaflet").LayerGroup | null = null;
 const popupLoadSeq = new Map<string, number>();
@@ -689,6 +690,7 @@ function renderOverlays() {
     const isLine = layer.geometryType.toUpperCase().includes("LINE");
     const geo = Lf.geoJSON(layer.data, {
       pane,
+      renderer: pane === "bp-polygons" ? polygonRenderer ?? undefined : undefined,
       style: (f) => ({
         color: isLine ? getOverlayColor(layer.style, f?.properties) : "#ffffff",
         weight: layer.style.weight ?? 1,
@@ -788,6 +790,7 @@ onMounted(async () => {
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
   pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
+  polygonRenderer = Lf.canvas({ pane: "bp-polygons", padding: 0.5 }); // ribuan poligon landuse/slope: SVG terlalu berat
   map.attributionControl?.setPosition("bottomleft");
   Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: 100 }).addTo(map);
   map.on("zoomend", () => {
