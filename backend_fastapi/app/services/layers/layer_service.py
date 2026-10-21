@@ -286,6 +286,9 @@ def geojson(db: Session, spec: LayerSpec, flt: BlockFilter, bulan: int | None, t
     joins, where_sql, params = flt.sql()
     clauses = [where_sql.removeprefix("WHERE ")] if where_sql else []
     clauses.append("t.period = :p")
+    if spec.geometry_type.endswith("POLYGON"):
+        # Sliver berluas ~0 (mis. segmen Jalan) tidak terlihat di peta, tapi menggemukkan respons; ST_Area planar murah.
+        clauses.append("ST_Area(t.geom) > 1e-12")
     rows = db.execute(text(f"""
         SELECT t.id, t.block_id, bl.code AS kode_blok, dv.code AS kode_afd, es.code AS kode_est,
                {_select_columns(spec)}, ST_AsGeoJSON(t.geom, 6) AS geometry_json

@@ -67,7 +67,7 @@ def _pct(part: float, total: float) -> float:
     return round(part / total * 100, 2) if total else 0.0
 
 
-def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None) -> dict:
+def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None, with_non_tanam: bool = True) -> dict:
     blocks_sql, params = flt.block_ids_subquery()
     period_sql = "AND a.period <= :as_of" if as_of else ""
     rows = db.execute(text(f"""
@@ -140,7 +140,7 @@ def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None) ->
             "luas": _ha(max(land - planted, 0.0)),
             "keterangan": "Luas tanah blok dikurangi luas tanam (jalan, parit, dan areal tidak tertanam di dalam blok).",
         },
-        "non_tanam": non_tanam_summary(db, blocks_sql, params, as_of, planted),
+        "non_tanam": non_tanam_summary(db, blocks_sql, params, as_of, planted) if with_non_tanam else None,
     }
 
 
@@ -175,9 +175,55 @@ def non_tanam_summary(db: Session, blocks_sql: str, params: dict, as_of: date | 
             "rincian": [{"kategori": r["kategori"], "jumlah_polygon": r["jumlah_polygon"], "luas": _ha(r["luas"])}
                         for r in grouped[code]],
         })
+    per_kategori = [
+        {"kategori": r["kategori"], "kode_baris": _ROW_OF.get(r["kategori"].lower(), "LAINNYA"),
+         "jumlah_polygon": r["jumlah_polygon"], "luas": _ha(r["luas"]), "persen": _pct(num(r["luas"]), total)}
+        for r in rows
+    ]
     return {
         "periode": period_label(rows[0]["period"]),
         "total_luas": _ha(total),
         "grand_total_areal": _ha(planted + total),
         "per_baris": items,
+        "per_kategori": per_kategori,
+    }
+
+
+def layer_data_areal(db: Session, flt: BlockFilter, as_of: date | None, tanam_allowed: bool, non_tanam_allowed: bool) -> dict:
+    """
+    Rincian Areal Tanam dan Areal Non-Tanam/Landuse untuk Layer Data (satu scope, satu respons).
+
+    Tanam = snapshot areal statement; non-tanam = snapshot landuse (keduanya terbaru s/d `as_of`, periodenya dilaporkan
+    terpisah). Bagian yang tidak diizinkan -> null. `persen_grand_total` = terhadap grand total areal (tanam + non-tanam);
+    grand total hanya ada bila kedua bagian ada.
+    """
+    summary = area_statement_summary(db, flt, as_of, with_non_tanam=False) if tanam_allowed else None
+    tanam = summary["tanam"] if summary else None
+    planted = tanam["total_luas_tanam"] if tanam else 0.0
+    non_tanam = None
+    if non_tanam_allowed:
+        blocks_sql, params = flt.block_ids_subquery()
+        non_tanam = non_tanam_summary(db, blocks_sql, params, as_of, planted)
+        if non_tanam is not None and tanam is None:
+            non_tanam["grand_total_areal"] = None  # tanpa hak areal statement, luas tanam tidak diketahui
+
+    total = None
+    if tanam is not None and non_tanam is not None:
+        grand = round(planted + non_tanam["total_luas"], 2)
+        total = {
+            "areal_tanam": planted, "areal_non_tanam": non_tanam["total_luas"], "grand_total_areal": grand,
+            "persen_tanam": _pct(planted, grand), "persen_non_tanam": _pct(non_tanam["total_luas"], grand),
+        }
+        for item in (*non_tanam["per_baris"], *non_tanam["per_kategori"]):
+            item["persen_grand_total"] = _pct(item["luas"], grand)
+        for item in (*tanam["per_status"], *tanam["per_tahun_tanam"]):
+            item["persen_grand_total"] = _pct(item["luas_tanam"], grand)
+    return {
+        "periode": {
+            "areal_statement": summary["periode"] if summary else None,
+            "landuse": non_tanam["periode"] if non_tanam else None,
+        },
+        "areal_tanam": tanam,
+        "areal_non_tanam": non_tanam,
+        "total": total,
     }
