@@ -43,6 +43,8 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.utils.geojson import parse_features
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,15 +53,8 @@ logger = logging.getLogger(__name__)
 # =====================================================================
 
 def _parse_features(geojson_content: bytes) -> list:
-    """Parse isi file GeoJSON menjadi list of features. Melempar HTTPException 400 jika format tidak valid."""
-    try:
-        geojson_data = json.loads(geojson_content)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Format file tidak valid atau bukan JSON.") from exc
-
-    if geojson_data.get("type") == "FeatureCollection":
-        return geojson_data.get("features", [])
-    return [geojson_data]
+    """Parse GeoJSON -> list feature, reproject dari `crs` ke 4326 dan tolak koordinat non lon/lat (lihat utils.geojson)."""
+    return parse_features(geojson_content)
 
 
 def _get_existing_blok_ids(db: Session, bulan: int, tahun: int) -> set:

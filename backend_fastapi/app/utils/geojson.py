@@ -42,14 +42,63 @@ def parse_features(content: bytes) -> list[dict]:
         raise bad_request("Isi file bukan objek GeoJSON.", field="file")
     features = ([f for f in data.get("features") or [] if isinstance(f, dict)]
                 if data.get("type") == "FeatureCollection" else [data])
-    return _to_wgs84(features, _source_epsg(data))
+    epsg = _source_epsg(data)
+    if epsg is None:
+        if _looks_projected(features):
+            raise bad_request(
+                "Koordinat file bukan derajat lon/lat (kemungkinan UTM/meter) dan file tidak menyertakan "
+                "member `crs`. Export ulang GeoJSON dalam EPSG:4326 (WGS84) atau sertakan `crs` "
+                "(mis. urn:ogc:def:crs:EPSG::32650).", field="file")
+        epsg = SRID
+    features = _to_wgs84(features, epsg)
+    _ensure_lonlat(features)
+    return features
 
 
-def _source_epsg(data: dict) -> int:
-    """EPSG dari member `crs` (mis. export ArcGIS UTM `urn:ogc:def:crs:EPSG::32650`); tanpa `crs` dianggap 4326."""
-    name = ((data.get("crs") or {}).get("properties") or {}).get("name") or ""
-    match = re.search(r"EPSG:+(\d+)", str(name))
-    return int(match.group(1)) if match else SRID
+def _iter_xy(features: list[dict]):
+    for feature in features:
+        geometry = feature.get("geometry")
+        if not geometry:
+            continue
+        try:
+            coords = shapely.get_coordinates(shape(geometry))
+        except (ShapelyError, ValueError, TypeError, KeyError, AttributeError):
+            continue
+        if len(coords):
+            yield coords
+
+
+def _out_of_lonlat(coords) -> bool:
+    return bool((np.abs(coords[:, 0]) > 180).any() or (np.abs(coords[:, 1]) > 90).any()
+                or not np.isfinite(coords).all())
+
+
+def _looks_projected(features: list[dict]) -> bool:
+    return any(_out_of_lonlat(c) for c in _iter_xy(features))
+
+
+def _ensure_lonlat(features: list[dict]) -> None:
+    """Guard akhir: setelah reproject semua koordinat wajib di rentang lon [-180,180] / lat [-90,90]."""
+    bad = sum(1 for c in _iter_xy(features) if _out_of_lonlat(c))
+    if bad:
+        raise bad_request(
+            f"{bad} feature memiliki koordinat di luar rentang lon/lat WGS84 setelah konversi. "
+            "Periksa sistem koordinat (crs) file.", field="file")
+
+
+def _source_epsg(data: dict) -> int | None:
+    """EPSG dari member `crs` (mis. `urn:ogc:def:crs:EPSG::32650`, `EPSG:32650`, `urn:ogc:def:crs:OGC:1.3:CRS84`).
+    None bila tidak ada `crs` (pemanggil lalu mengecek rentang koordinat)."""
+    crs = data.get("crs") or {}
+    name = str((crs.get("properties") or {}).get("name") or "")
+    if not name:
+        return None
+    if re.search(r"CRS84$", name, re.I):
+        return SRID
+    match = re.search(r"EPSG:+(?:[\d.]*:)?(\d+)$", name) or re.search(r"EPSG:+(\d+)", name)
+    if not match:
+        raise bad_request(f"Sistem koordinat '{name}' tidak dikenali; gunakan kode EPSG.", field="file")
+    return int(match.group(1))
 
 
 def _to_wgs84(features: list[dict], epsg: int) -> list[dict]:
