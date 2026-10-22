@@ -18,12 +18,16 @@ export function chunkFeatureCollection(
 ): GeoJsonCollection[] {
   const features = collection.features ?? [];
   if (!features.length) return [];
+  // Bawa member `crs` (mis. urn:ogc:def:crs:EPSG::32650) ke setiap part; tanpa ini backend
+  // menerima koordinat UTM tanpa keterangan CRS dan menolak part tersebut.
+  const crs = (collection as { crs?: unknown }).crs;
   const parts: GeoJsonCollection[] = [];
   for (let i = 0; i < features.length; i += size) {
     parts.push({
       type: "FeatureCollection",
+      ...(crs ? { crs } : {}),
       features: features.slice(i, i + size) as GeoJsonFeature[],
-    });
+    } as GeoJsonCollection);
   }
   return parts;
 }
