@@ -128,8 +128,13 @@ def test_blocks_geojson_month_matches_block_detail(client, auth, sample_block):
         "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year,
     }).json()["informasi_blok"]
     assert props["areal_statement"]["luas_tanam"] == detail["luas_tanam"]
+    from app.services.map_service import PLANTING_YEAR_COLORS
+    tahun_tanam = props["areal_statement"]["tahun_tanam"]
+    assert props["areal_statement"]["warna_tahun_tanam"] == PLANTING_YEAR_COLORS.get(tahun_tanam)
     assert prod["luas_tanam"] == detail["luas_tanam"]
     assert prod["tbs_aktual"] == detail["tbs"]["aktual"]
+    assert (prod["janjang_budget"], prod["janjang_sensus"]) == (detail["jjg"]["budget"], detail["jjg"]["sensus"])
+    assert (prod["bjr_budget"], prod["bjr_sensus"]) == (detail["bjr"]["budget"], detail["bjr"]["sensus"])
     assert prod["y_aktual"] == detail["yield"]["aktual"]
     assert prod["y_budget"] == detail["yield"]["budget"]
     assert prod["y_sensus"] == detail["yield"]["sensus"]

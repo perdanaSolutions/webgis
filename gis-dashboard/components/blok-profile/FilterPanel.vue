@@ -3,7 +3,7 @@ import { computed } from "vue";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type LegendItem } from "~/utils/mapLayers";
 import { BULAN_POPUP_OPTIONS } from "~/utils/mapBlokPopup";
 
 type FieldKey = "grup" | "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
@@ -35,6 +35,9 @@ const props = defineProps<{
   layers: OverlayLayer[];
   showBlocks: boolean;
   showYieldGap: boolean;
+  showPlantingYear: boolean;
+  /** Tahun tanam yang ada di blok peta beserta warnanya. */
+  plantingYears: LegendItem[];
   basemap: BasemapKey;
   opacity: number; // 0..100
   /** Hanya superadmin@plantation.com. User biasa tidak melihat opsi "semua". */
@@ -53,6 +56,7 @@ const emit = defineEmits<{
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
   (e: "toggle-yield-gap"): void;
+  (e: "toggle-planting-year"): void;
   (e: "update:basemap", value: BasemapKey): void;
   (e: "update:opacity", value: number): void;
 }>();
@@ -109,8 +113,9 @@ const comparisonIncomplete = computed(() => Boolean(props.bulanComparison) !== B
 /** Kedua periode sudah tetap, jadi Year to Date tidak dipakai. */
 const yearToDateLocked = computed(() => Boolean(props.bulan && props.tahun && comparisonComplete.value));
 
-const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0) + (props.showYieldGap ? 1 : 0));
-const totalCount = computed(() => props.layers.length + 2);
+const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0)
+  + (props.showYieldGap ? 1 : 0) + (props.showPlantingYear ? 1 : 0));
+const totalCount = computed(() => props.layers.length + 3);
 
 function unitOf(type: string) {
   const t = type.toUpperCase();
@@ -280,7 +285,7 @@ function onField(key: FieldKey, value: unknown) {
             </span>
             <div class="min-w-0 flex-1" :class="!showYieldGap && 'opacity-60'">
               <p class="bp-layer-name">Yield Gap</p>
-              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield") : "Mati · batas blok tetap garis abu-abu" }}</p>
+              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield") : showPlantingYear ? "Mati · layer Tahun Tanam sedang menyala" : "Mati · batas blok tetap garis abu-abu" }}</p>
             </div>
             <button type="button" role="switch" :aria-checked="showYieldGap" aria-label="Yield Gap" class="bp-switch"
               :class="showYieldGap && 'is-on'" @click="emit('toggle-yield-gap')"><span /></button>
@@ -291,6 +296,30 @@ function onField(key: FieldKey, value: unknown) {
               <span class="font-semibold text-[#1f2a18]">{{ item.label }}</span>
               <span class="truncate">{{ item.hint }}</span>
             </li>
+          </ul>
+        </li>
+
+        <li class="border-t border-[#e4eadc] pt-2">
+          <div class="bp-layer-row">
+            <span class="bp-layer-icon text-[#6e7866]">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="5" width="16" height="15" rx="2" />
+                <path d="M4 10h16M9 3v4M15 3v4" />
+              </svg>
+            </span>
+            <div class="min-w-0 flex-1" :class="!showPlantingYear && 'opacity-60'">
+              <p class="bp-layer-name">Tahun Tanam</p>
+              <p class="bp-layer-sub">{{ showPlantingYear ? "Blok diwarnai menurut tahun tanam" : showYieldGap ? "Mati · layer Yield Gap sedang menyala" : "Mati" }}</p>
+            </div>
+            <button type="button" role="switch" :aria-checked="showPlantingYear" aria-label="Tahun Tanam" class="bp-switch"
+              :class="showPlantingYear && 'is-on'" @click="emit('toggle-planting-year')"><span /></button>
+          </div>
+          <ul v-if="showPlantingYear" class="mb-2 ml-12 space-y-1.5 pr-1">
+            <li v-for="item in plantingYears" :key="item.label" class="flex items-center gap-2 text-12 text-[#55604c]">
+              <span class="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />
+              <span class="font-semibold text-[#1f2a18]">{{ item.label }}</span>
+            </li>
+            <li v-if="!plantingYears.length" class="text-12 text-[#6e7866]">Belum ada tahun tanam berwarna di blok peta.</li>
           </ul>
         </li>
 

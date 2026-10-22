@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blokPopupFromDetail, buildBlokPopupHtml } from "../utils/mapBlokPopup";
+import { blokPopupFromDetail, buildBlokPopupHtml, comparisonFromProperties } from "../utils/mapBlokPopup";
 
 const detail = {
   informasi_blok: {
@@ -73,5 +73,43 @@ describe("popup detail blok", () => {
     expect(html).toContain("Gap Sensus");
     expect(html).toContain("44.681,80");
     expect(html).not.toContain("Kg/pkk");
+  });
+
+  it("menampilkan TBS s/d yield dan persen gap untuk periode pembanding", () => {
+    const comparison = comparisonFromProperties({
+      produksi_tbs_comparison: {
+        periode_awal: "1-2025", periode_akhir: "3-2025",
+        tbs_aktual: 12000, tbs_budget: 10000, tbs_sensus: 11000,
+        janjang_aktual: 800, janjang_budget: 700, janjang_sensus: 750,
+        bjr_aktual: 15, bjr_budget: 14.29, bjr_sensus: 14.67,
+        y_aktual: 1.03, y_budget: 0.86, y_sensus: 0.95,
+        gap_budget_pct: 19.77, kategori_budget: "OPTIMUM",
+        gap_sensus_pct: -25.5, kategori_sensus: "GAP II",
+      },
+    });
+    expect(comparison).toEqual({
+      periode: "1-2025 s/d 3-2025",
+      tbs: { aktual: "12.000", budget: "10.000", sensus: "11.000" },
+      jjg: { aktual: "800", budget: "700", sensus: "750" },
+      bjr: { aktual: "15", budget: "14,29", sensus: "14,67" },
+      yieldHa: { aktual: "1,03", budget: "0,86", sensus: "0,95" },
+      gapBudget: "19,77 %",
+      kategoriBudget: "OPTIMUM",
+      gapSensus: "-25,50 %",
+      kategoriSensus: "GAP II",
+    });
+
+    const html = buildBlokPopupHtml(blokPopupFromDetail(detail), { comparison });
+    const section = html.slice(html.indexOf("data-popup-comparison"));
+    expect(section).toContain("1-2025 s/d 3-2025");
+    expect(section).toContain("12.000");
+    expect(section).toContain("0,95");
+    expect(section).toContain("19,77 %");
+    expect(section).toContain("-25,50 %");
+  });
+
+  it("tanpa filter pembanding tidak ada bagian pembanding", () => {
+    expect(comparisonFromProperties({})).toBeNull();
+    expect(buildBlokPopupHtml(blokPopupFromDetail(detail))).not.toContain("data-popup-comparison");
   });
 });

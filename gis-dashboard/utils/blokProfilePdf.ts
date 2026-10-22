@@ -22,6 +22,8 @@ export function pdfFileName(scope: string) {
 export function buildPdfLegend(input: {
   showBlocks: boolean;
   showYieldGap: boolean;
+  /** Legenda tahun tanam; kosong bila layer Tahun Tanam mati. */
+  plantingYears?: LegendItem[];
   budgetColors: Record<string, boolean>;
   overlays: PdfOverlayLegend[];
 }): PdfSwatch[] {
@@ -33,6 +35,7 @@ export function buildPdfLegend(input: {
       items.push({ label: item.label, color: item.color });
     }
   }
+  for (const item of input.plantingYears ?? []) items.push(item);
   for (const layer of input.overlays) {
     if (layer.legend.length) {
       for (const entry of layer.legend) items.push({ label: `${layer.name} · ${entry.label}`, color: entry.color });

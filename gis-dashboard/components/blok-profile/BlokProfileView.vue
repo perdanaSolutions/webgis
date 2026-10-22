@@ -18,7 +18,7 @@ import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
 import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
 import { isAccessTokenExpired } from "~/utils/authSession";
@@ -91,6 +91,17 @@ function onBasemapStatus(status: BasemapStatus) {
 const opacity = ref(80);
 const showBlocks = ref(true);
 const showYieldGap = ref(false);
+const showPlantingYear = ref(false);
+/** Yield Gap dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala. */
+function toggleYieldGap() {
+  showYieldGap.value = !showYieldGap.value;
+  if (showYieldGap.value) showPlantingYear.value = false;
+}
+function togglePlantingYear() {
+  showPlantingYear.value = !showPlantingYear.value;
+  if (showPlantingYear.value) showYieldGap.value = false;
+}
+const plantingYears = computed(() => plantingYearLegend(store.visibleBlocks?.features ?? []));
 const yieldComparisonOn = computed(() => Boolean(store.bulanComparison && store.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
   OPTIMUM: true,
@@ -277,6 +288,7 @@ function onDeselectBlock() {
 function resetMapLayers() {
   showBlocks.value = true;
   showYieldGap.value = false;
+  showPlantingYear.value = false;
   overlays.disableAll();
 }
 
@@ -358,6 +370,8 @@ async function downloadPdf() {
       basemap: basemap.value,
       showBlocks: showBlocks.value,
       showYieldGap: showYieldGap.value,
+      showPlantingYear: showPlantingYear.value,
+      plantingYears: plantingYears.value,
       budgetColors: { ...budgetColors.value },
       selectedId: store.blokId,
       blocks: showBlocks.value ? store.visibleBlocks : null,
@@ -483,7 +497,8 @@ onBeforeUnmount(() => {
       <!-- PETA -->
       <section class="absolute inset-0 z-0">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
-          :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
+          :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear" :overlays="layers" :basemap="basemap"
+          :opacity="opacity / 100"
           :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
           :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock"
           @basemap-status="onBasemapStatus" />
@@ -523,6 +538,16 @@ onBeforeUnmount(() => {
                 class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
                 <span class="h-3 w-3 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />{{
                   item.label }}
+              </span>
+            </div>
+          </div>
+          <div v-if="showPlantingYear && plantingYears.length" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Tahun Tanam</p>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <span v-for="item in plantingYears" :key="item.label"
+                class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
+                <span class="h-3 w-3 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />{{
+                  item.label.replace("Tahun Tanam ", "") }}
               </span>
             </div>
           </div>
@@ -619,14 +644,16 @@ onBeforeUnmount(() => {
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
-            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :basemap="basemap" :opacity="opacity"
+            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
+            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity"
             :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
             @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
             @update:afdeling="store.setAfdeling" @update:blok="store.setBlok" @update:ownership="store.setOwnership"
             @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
             @reset="onResetFilters" @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
-            @toggle-yield-gap="showYieldGap = !showYieldGap" @update:basemap="basemap = $event"
+            @toggle-yield-gap="toggleYieldGap" @toggle-planting-year="togglePlantingYear"
+            @update:basemap="basemap = $event"
             @update:opacity="opacity = $event" />
         </div>
       </aside>

@@ -32,6 +32,17 @@ describe("blokProfilePdf", () => {
     ]);
   });
 
+  it("menambahkan legenda tahun tanam bila diisi", () => {
+    const items = buildPdfLegend({
+      showBlocks: false,
+      showYieldGap: false,
+      plantingYears: [{ label: "Tahun Tanam 2006", color: "#FF6600" }],
+      budgetColors: {},
+      overlays: [],
+    });
+    expect(items).toEqual([{ label: "Tahun Tanam 2006", color: "#FF6600" }]);
+  });
+
   it("mengubah warna hex dan atribusi HTML", () => {
     expect(rgbOf("#638840")).toEqual([99, 136, 64]);
     expect(rgbOf("#abc")).toEqual([170, 187, 204]);

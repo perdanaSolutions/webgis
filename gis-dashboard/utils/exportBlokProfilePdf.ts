@@ -6,6 +6,7 @@ import {
   getOverlayColor,
   readBudgetCategory,
   readComparisonBudgetCategory,
+  readPlantingYear,
   type OverlayStyle,
   type LegendItem,
 } from "~/utils/mapLayers";
@@ -27,6 +28,8 @@ export type PdfExportInput = {
   basemap: BasemapKey;
   showBlocks: boolean;
   showYieldGap: boolean;
+  showPlantingYear: boolean;
+  plantingYears: LegendItem[];
   budgetColors: Record<string, boolean>;
   selectedId: string;
   blocks: GeoJSON.FeatureCollection | null;
@@ -270,7 +273,9 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
 function blockPaint(properties: GeoJSON.GeoJsonProperties | null | undefined, input: PdfExportInput): import("leaflet").PathOptions {
   const selected = String(properties?.blok_id ?? "") === input.selectedId && !!input.selectedId;
   let fill: string | null = null;
-  if (input.showYieldGap) {
+  if (input.showPlantingYear) {
+    fill = readPlantingYear(properties as Record<string, any> | null)?.color ?? null;
+  } else if (input.showYieldGap) {
     const category = readBudgetCategory(properties as Record<string, any> | null);
     if (category && input.budgetColors[category] !== false) fill = BUDGET_GAP_COLOR[category] ?? null;
   }
@@ -464,6 +469,7 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
   const swatches = buildPdfLegend({
     showBlocks: input.showBlocks,
     showYieldGap: input.showYieldGap,
+    plantingYears: input.showPlantingYear ? input.plantingYears : [],
     budgetColors: input.budgetColors,
     overlays: input.overlays,
   });

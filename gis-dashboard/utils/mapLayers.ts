@@ -232,6 +232,31 @@ export function readComparisonBudgetCategory(
   return normalizeBudgetCategory(pickField(comparison, "kategori_budget"));
 }
 
+/** Tahun tanam blok dan warnanya dari properties.areal_statement (warna dari API). */
+export function readPlantingYear(
+  properties: Record<string, any> | null | undefined,
+): { tahun: number; color: string } | null {
+  const statement = asRecord(properties?.areal_statement);
+  const tahun = Number(pickField(statement, "tahun_tanam"));
+  const color = pickField(statement, "warna_tahun_tanam");
+  if (!tahun || typeof color !== "string" || !color) return null;
+  return { tahun, color };
+}
+
+/** Legenda tahun tanam: hanya tahun yang ada di blok peta, urut naik. */
+export function plantingYearLegend(
+  features: Array<{ properties?: Record<string, any> | null }>,
+): LegendItem[] {
+  const colors = new Map<number, string>();
+  for (const feature of features) {
+    const item = readPlantingYear(feature.properties);
+    if (item) colors.set(item.tahun, item.color);
+  }
+  return [...colors.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([tahun, color]) => ({ label: `Tahun Tanam ${tahun}`, color }));
+}
+
 // ---------------------------------------------------------------------------
 // Gaya layer tambahan
 // ---------------------------------------------------------------------------
