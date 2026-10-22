@@ -27,6 +27,7 @@ from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
+from app.services.upload import context as part_context
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
@@ -151,12 +152,16 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
     return result
 
 
-def _existing_filter(spec: LayerSpec, prepared: PreparedUpload) -> tuple[str, dict]:
-    clauses = ["block_id = ANY(:blocks)"]
+def _existing_filter(spec: LayerSpec, prepared: PreparedUpload, protect_group: bool = False) -> tuple[str, dict]:
+    """Data lama periode ini yang diganti. `protect_group`: baris blok yang disimpan part lain dari grup
+    upload yang sama tidak ikut terhapus (OBJECTID sama tetap diganti = data terakhir yang dipakai)."""
+    clauses = [f"(block_id = ANY(:blocks) AND {part_context.NOT_PROTECTED})" if protect_group else "block_id = ANY(:blocks)"]
     params = {"blocks": prepared.block_ids}
     if spec.unique_objectid:
         clauses.append("objectid = ANY(:oids)")
         params["oids"] = prepared.objectids
+    if protect_group:
+        params.update(part_context.protected_params())
     return "(" + " OR ".join(clauses) + ")", params
 
 
@@ -197,6 +202,8 @@ def analyze(db: Session, spec: LayerSpec, content: bytes, bulan: int, tahun: int
         "contoh_blok_tidak_ditemukan": prepared.match.unmatched_samples,
         "peringatan": detail["peringatan"],
         "rincian": detail["rincian"],
+        "_penolakan": detail["penolakan"],
+        "_total_fitur": prepared.total,
     }
 
 
@@ -211,7 +218,7 @@ def execute(db: Session, spec: LayerSpec, content: bytes, filename: str | None, 
         replaced = 0
         if prepared.rows:
             progress.stage("menyimpan")
-            condition, params = _existing_filter(spec, prepared)
+            condition, params = _existing_filter(spec, prepared, protect_group=True)
             replaced = db.execute(
                 text(f"DELETE FROM {quote_table(spec.table)} WHERE period = :p AND {condition}"), {**params, "p": period}
             ).rowcount

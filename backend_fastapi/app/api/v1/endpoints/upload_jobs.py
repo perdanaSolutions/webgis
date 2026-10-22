@@ -41,6 +41,11 @@ def create_job(
         int | None,
         Form(ge=1, description="Jumlah total part Feature untuk grup ini."),
     ] = None,
+    feature_offset: Annotated[
+        int,
+        Form(ge=0, description="Jumlah feature sebelum part ini di file asli (0 untuk part 1). "
+                               "no_preview hasil = feature_offset + nomor feature di part."),
+    ] = 0,
 ):
     content = read_upload(file)
     runner.check_layer(db, layer)
@@ -56,6 +61,7 @@ def create_job(
         upload_group_id=upload_group_id,
         part_index=part_index,
         part_total=part_total,
+        feature_offset=feature_offset,
     )
 
 

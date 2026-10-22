@@ -47,7 +47,13 @@ def run_job(job: dict) -> str:
     """Kerjakan satu job yang sudah diklaim. Mengembalikan status akhirnya."""
     job_id = job["id"]
     progress = jobs.JobProgress(engine, job_id)
-    data = runner.UploadInput(bytes(job["content"]), job["filename"], job["bulan"], job["tahun"], job["user_id"])
+    data = runner.UploadInput(
+        bytes(job["content"]), job["filename"], job["bulan"], job["tahun"], job["user_id"],
+        part_index=job.get("part_index") or 1, part_total=job.get("part_total") or 1,
+        feature_offset=job.get("feature_offset") or 0,
+        protected_batch_ids=tuple(jobs.group_batch_ids(engine, job.get("upload_group_id"), job_id))
+        if job["kind"] == runner.EXECUTE else (),
+    )
     db = SessionLocal()
     set_audit_actor(db, job["user_id"])
     try:

@@ -101,6 +101,8 @@ const ANALYSIS_SKIP = new Set([
   "status",
   "message",
   "data",
+  "no_preview_awal",
+  "no_preview_akhir",
 ]);
 
 function mergePeringatan(parts: Record<string, any>[]): Array<Record<string, any>> {
@@ -157,9 +159,189 @@ function mergeRincian(parts: Record<string, any>[]): Record<string, unknown> {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Respons analyze per part (backend baru):
+// { kategori, bulan, tahun, part, total_part,
+//   data: { table_preview[], analisa_aman{}, analisa_gagal{}, ringkasan{} } }
+// ---------------------------------------------------------------------------
+
+export type PreviewAnalysisRow = {
+  no_preview: number;
+  status_analisa: "AMAN" | "GAGAL" | string;
+  kode_gagal: string | null;
+  alasan_gagal: string | null;
+};
+
+export type PartAnalyzeResponse = {
+  kategori: string;
+  bulan: number | string;
+  tahun: number | string;
+  part: number | string;
+  total_part: number | string;
+  data: {
+    table_preview: PreviewAnalysisRow[];
+    analisa_aman: Record<string, any>;
+    analisa_gagal: Record<string, any>;
+    ringkasan?: Record<string, any>;
+  };
+};
+
+export type PartAnalyzeSummary = {
+  part: number;
+  total_part: number;
+  no_preview_awal: number | null;
+  no_preview_akhir: number | null;
+  jumlah_aman: number;
+  jumlah_gagal: number;
+  analisa_aman: Record<string, any>;
+  analisa_gagal: Record<string, any>;
+};
+
+export function isPartAnalyzeResponse(value: unknown): value is PartAnalyzeResponse {
+  return (
+    isPlainObject(value) &&
+    "part" in value &&
+    "total_part" in value &&
+    isPlainObject(value.data) &&
+    Array.isArray((value.data as Record<string, unknown>).table_preview)
+  );
+}
+
+/** Offset feature tiap part (part 1 = 0) untuk dikirim ke backend sebagai `feature_offset`. */
+export function partFeatureOffset(partIndex: number, size = GEOJSON_FEATURES_PER_PART): number {
+  return Math.max(0, (partIndex - 1) * size);
+}
+
+/** Ubah respons per part ke bentuk lama (status_analisis/peringatan/rincian) untuk AnalysisResult. */
+export function partToLegacyBody(response: PartAnalyzeResponse): Record<string, any> {
+  const { analisa_aman: aman = {}, analisa_gagal: gagal = {}, ringkasan = {} } = response.data;
+  return {
+    ...ringkasan,
+    peringatan: [
+      ...(Array.isArray(gagal.peringatan) ? gagal.peringatan : []),
+      ...(Array.isArray(aman.catatan) ? aman.catatan : []),
+    ],
+    rincian: {
+      ...(isPlainObject(aman.rincian) ? aman.rincian : {}),
+      ...(isPlainObject(gagal.rincian) ? gagal.rincian : {}),
+    },
+  };
+}
+
+/** Peta no_preview -> hasil analisa, untuk menambah kolom status di tabel preview. */
+export function indexTablePreview(
+  target: Record<number, PreviewAnalysisRow>,
+  rows: PreviewAnalysisRow[] | null | undefined,
+): Record<number, PreviewAnalysisRow> {
+  for (const row of rows ?? []) {
+    if (row && typeof row.no_preview === "number") target[row.no_preview] = row;
+  }
+  return target;
+}
+
+export function summarizePart(response: PartAnalyzeResponse): PartAnalyzeSummary {
+  const rows = response.data.table_preview ?? [];
+  const gagal = rows.filter((r) => r.status_analisa === "GAGAL").length;
+  const numbers = rows.map((r) => r.no_preview);
+  return {
+    part: Number(response.part) || 1,
+    total_part: Number(response.total_part) || 1,
+    no_preview_awal: numbers.length ? Math.min(...numbers) : null,
+    no_preview_akhir: numbers.length ? Math.max(...numbers) : null,
+    jumlah_aman: rows.length - gagal,
+    jumlah_gagal: gagal,
+    analisa_aman: response.data.analisa_aman ?? {},
+    analisa_gagal: response.data.analisa_gagal ?? {},
+  };
+}
+
+function concatLists(target: Record<string, any>, source: Record<string, any>, limit = 1000) {
+  for (const [key, value] of Object.entries(source ?? {})) {
+    if (Array.isArray(value)) {
+      const prev = Array.isArray(target[key]) ? target[key] : [];
+      target[key] = [...prev, ...value].slice(0, limit);
+    } else if (typeof value === "number") {
+      target[key] = (typeof target[key] === "number" ? target[key] : 0) + value;
+    } else if (isPlainObject(value)) {
+      if (!isPlainObject(target[key])) target[key] = {};
+      concatLists(target[key], value, limit);
+    } else if (!(key in target)) {
+      target[key] = value;
+    }
+  }
+}
+
+/** Gabung kelompok gagal per kode dari beberapa part (jumlah dijumlah, data disambung). */
+function mergePerKode(parts: PartAnalyzeSummary[]): Array<Record<string, any>> {
+  const byKode = new Map<string, Record<string, any>>();
+  for (const part of parts) {
+    for (const group of (part.analisa_gagal.per_kode ?? []) as Array<Record<string, any>>) {
+      const prev = byKode.get(group.kode);
+      if (!prev) {
+        byKode.set(group.kode, { ...group, data: [...(group.data ?? [])] });
+        continue;
+      }
+      prev.jumlah = (Number(prev.jumlah) || 0) + (Number(group.jumlah) || 0);
+      prev.data = [...prev.data, ...(group.data ?? [])].slice(0, 5000);
+    }
+  }
+  return [...byKode.values()].sort((a, b) => (b.jumlah ?? 0) - (a.jumlah ?? 0));
+}
+
+function mergeNotes(lists: Array<Array<Record<string, any>> | undefined>): Array<Record<string, any>> {
+  return mergePeringatan(lists.map((list) => ({ peringatan: list ?? [] })));
+}
+
+/** Gabungan analisa_aman & analisa_gagal semua part (urut part). */
+export function mergeAnalysisGroups(parts: PartAnalyzeSummary[]): {
+  analisa_aman: Record<string, any>;
+  analisa_gagal: Record<string, any>;
+} {
+  const sorted = [...parts].sort((a, b) => a.part - b.part);
+  const amanRincian: Record<string, any> = {};
+  const gagalRincian: Record<string, any> = {};
+  for (const part of sorted) {
+    concatLists(amanRincian, part.analisa_aman.rincian ?? {});
+    concatLists(gagalRincian, part.analisa_gagal.rincian ?? {});
+  }
+  return {
+    analisa_aman: {
+      jumlah_data: sorted.reduce((n, p) => n + p.jumlah_aman, 0),
+      rincian: amanRincian,
+      catatan: mergeNotes(sorted.map((p) => p.analisa_aman.catatan)),
+    },
+    analisa_gagal: {
+      jumlah_data: sorted.reduce((n, p) => n + p.jumlah_gagal, 0),
+      per_kode: mergePerKode(sorted),
+      rincian: gagalRincian,
+      peringatan: mergeNotes(sorted.map((p) => p.analisa_gagal.peringatan)),
+    },
+  };
+}
+
 /** Gabungkan hasil analyze beberapa part menjadi satu payload untuk AnalysisResult. */
 export function mergeAnalyzeResults(results: Array<Record<string, any> | null | undefined>): Record<string, any> {
-  const unwrapped = results.filter(Boolean).map((r) => unwrapAnalysisPayload(r!));
+  const present = results.filter(Boolean) as Array<Record<string, any>>;
+  if (present.length && present.every(isPartAnalyzeResponse)) {
+    const responses = present as PartAnalyzeResponse[];
+    const legacy = mergeAnalyzeResults(responses.map(partToLegacyBody));
+    const summaries = responses.map(summarizePart).sort((a, b) => a.part - b.part);
+    const groups = mergeAnalysisGroups(summaries);
+    const first = responses[0]!;
+    return {
+      ...legacy,
+      kategori: first.kategori,
+      bulan: first.bulan,
+      tahun: first.tahun,
+      total_part: Number(first.total_part) || responses.length,
+      part_selesai: responses.length,
+      table_preview: responses.flatMap((r) => r.data.table_preview ?? []),
+      analisa_aman: groups.analisa_aman,
+      analisa_gagal: groups.analisa_gagal,
+      per_part: summaries,
+    };
+  }
+  const unwrapped = present.map((r) => unwrapAnalysisPayload(r));
   if (!unwrapped.length) return {};
 
   const bodies = unwrapped.map((u) => u.body);

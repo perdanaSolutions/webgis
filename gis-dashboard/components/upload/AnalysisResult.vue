@@ -28,7 +28,12 @@ const STATUS_STYLE: Record<string, { title: string; box: string; text: string }>
 };
 
 // Field yang sudah ditampilkan di bagian lain, atau tidak relevan sebagai angka ringkas.
-const SUMMARY_SKIP = new Set(["status_analisis", "kesimpulan", "peringatan", "rincian", "tipe_upload", "jenis"]);
+const SUMMARY_SKIP = new Set([
+  "status_analisis", "kesimpulan", "peringatan", "rincian", "tipe_upload", "jenis",
+  // bentuk respons per part (ditampilkan di tabel preview & UploadAnalysisGroups)
+  "kategori", "bulan", "tahun", "part", "total_part", "part_selesai", "table_preview",
+  "analisa_aman", "analisa_gagal", "per_part", "no_preview_awal", "no_preview_akhir",
+]);
 
 const SECTION_TITLES: Record<string, string> = {
   per_estate: "Ringkasan per Estate",

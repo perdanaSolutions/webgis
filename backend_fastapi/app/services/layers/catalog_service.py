@@ -28,6 +28,7 @@ from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
+from app.services.upload import context as part_context
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import BlockIndex, BlockMatchReport, block_label, geojson_block_keys, match_blocks
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
@@ -469,12 +470,13 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True, pr
             "invalid_samples": invalid_samples, "report": report}
 
 
-def _replace_condition(layer: dict, prepared: dict) -> tuple[str, dict]:
+def _replace_condition(layer: dict, prepared: dict, protect_group: bool = False) -> tuple[str, dict]:
     """Data lama periode itu yang diganti upload: blok di file (dan objectid sama); tanpa blok -> seluruh periode."""
     rows = prepared["rows"]
     clauses, params = [], {}
     if layer["relasi_blok"]:
-        clauses.append("block_id = ANY(:blocks)")
+        clauses.append(f"(block_id = ANY(:blocks) AND {part_context.NOT_PROTECTED})" if protect_group
+                       else "block_id = ANY(:blocks)")
         params["blocks"] = sorted({r["block_id"] for r in rows})
     oids = {r["objectid"] for r in rows if r.get("objectid") is not None}
     # Tanpa relasi blok, baris ber-objectid kosong tidak bisa dicocokkan dengan data lama
@@ -482,6 +484,10 @@ def _replace_condition(layer: dict, prepared: dict) -> tuple[str, dict]:
     if prepared["has_objectid"] and oids and (layer["relasi_blok"] or len(oids) == len(rows)):
         clauses.append("objectid = ANY(:oids)")
         params["oids"] = sorted(oids)
+    if protect_group:
+        params.update(part_context.protected_params())
+        if not clauses:  # seluruh periode -> kecuali data part lain dari grup upload yang sama
+            clauses.append(part_context.NOT_PROTECTED)
     return (f" AND ({' OR '.join(clauses)})" if clauses else ""), params
 
 
@@ -528,6 +534,8 @@ def analyze_generic(db: Session, layer: dict, content: bytes, bulan: int, tahun:
         "data_periode_ini_akan_diganti": will_replace,
         "peringatan": detail["peringatan"],
         "rincian": detail["rincian"],
+        "_penolakan": detail["penolakan"],
+        "_total_fitur": s["total"],
     }
 
 
@@ -544,7 +552,7 @@ def execute_generic(db: Session, layer: dict, content: bytes, filename: str | No
         replaced = 0
         if rows:
             progress.stage("menyimpan")
-            condition, params = _replace_condition(layer, prepared)
+            condition, params = _replace_condition(layer, prepared, protect_group=True)
             replaced = db.execute(text(f"DELETE FROM {q_table} WHERE period = :p{condition}"),
                                   {**params, "p": period}).rowcount
             attr = [c["column"] for c in prepared["columns"]]
