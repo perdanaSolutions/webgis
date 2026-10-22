@@ -109,9 +109,9 @@ async function onSubmit(event?: Event) {
               </label>
               <div class="relative">
                 <input id="password" v-model="form.password" :type="showPassword ? 'text' : 'password'"
-                  autocomplete="current-password" placeholder="Masukan kata sandi Anda"
+                  autocomplete="current-password" placeholder="Masukan Password Anda"
                   class="h-12 w-full rounded-2xl border border-input bg-surface px-4 pr-12 text-14 text-content-dark outline-none placeholder-text-placeholder-light focus-border-brand-secondary focus:ring-2 focus-ring-brand-secondary-20 sm:h-14 sm:px-5 sm:pr-14">
-                <button type="button" :aria-label="showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'"
+                <button type="button" :aria-label="showPassword ? 'Sembunyikan Password' : 'Tampilkan Password'"
                   class="absolute inset-y-0 right-3 my-auto flex h-8 w-8 items-center justify-center text-muted-ios hover-text-brand-secondary sm:right-4"
                   @click="togglePasswordVisibility">
                   <svg v-if="showPassword" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
