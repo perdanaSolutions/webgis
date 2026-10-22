@@ -1,50 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import skyImage from '~/assets/image/3.png'
+import { onMounted } from 'vue'
+import logoImage from '~/assets/image/logo-1.png'
 import sloganImage from '~/assets/image/slogan-palm.png'
-import handsImage from '~/assets/image/hands-tldn.png'
-import estateImage from '~/assets/image/4.png'
+import handsImage from '~/assets/image/hand-deskripsi-overlay.png'
+import modulesImage from '~/assets/image/base-modul-overlay.png'
+import estateImage from '~/assets/image/Palm.jpeg'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import BannerCharts from '~/components/dashboard/BannerCharts.vue'
-import { dashboardStore, type ModuleItem } from '~/stores/dashboardStore'
 
 const authStore = useAuthStore()
-const dashboardService = dashboardStore()
-
-const menuKeyword = ref('')
-
-function menuMatches(item: ModuleItem, keyword: string) {
-  return [item.title, item.description, item.to]
-    .join(' ')
-    .toLowerCase()
-    .includes(keyword)
-}
-
-function filterMenus(items: ModuleItem[], keyword: string): ModuleItem[] {
-  return items.flatMap((item) => {
-    const children = filterMenus(item.children ?? [], keyword)
-    if (!menuMatches(item, keyword) && !children.length) return []
-    return [{
-      ...item,
-      children: menuMatches(item, keyword) ? item.children : children,
-    }]
-  })
-}
-
-const appliedKeyword = computed(() => menuKeyword.value.trim().toLowerCase())
-
-const visibleMenus = computed(() => {
-  if (!appliedKeyword.value) return dashboardService.moduleItems
-  return filterMenus(dashboardService.moduleItems, appliedKeyword.value)
-})
-
-function searchMenus() {
-  document.getElementById('menu-modul')?.scrollIntoView({
-    behavior: 'smooth',
-    block: 'start',
-  })
-}
 
 defineOptions({
   name: 'DashboardPage',
@@ -54,20 +19,18 @@ onMounted(async () => {
   const session = await authStore.ensureSession()
   if (!session) {
     window.location.replace('/login')
-    return
   }
-  dashboardService.initDataMenu()
 })
 </script>
 
 <template>
-  <main class="flex min-h-screen flex-col bg-page text-14 text-content">
-    <Header :brand-title="dashboardService.dashboardConfig.brandTitle"
-      :brand-subtitle="dashboardService.dashboardConfig.brandSubtitle" />
-    <MenuDashboardNav id="menu-modul" :items="visibleMenus" :loading="dashboardService.loading" />
+  <main class="dash-page">
+    <Header />
     <section class="dash-home" aria-label="Ringkasan perkebunan">
-      <img :src="skyImage" alt="" class="dash-home__sky">
       <div class="dash-home__panel">
+        <div class="dash-home__topline">
+          <img :src="logoImage" alt="Teladan Prima Agro" class="dash-home__logo">
+        </div>
         <BannerCharts />
       </div>
       <div class="dash-home__hero">
@@ -81,34 +44,51 @@ onMounted(async () => {
             perkebunan kelapa sawit terbaik dan berkelanjutan.
           </p>
         </div>
-        <img :src="handsImage" alt="Teknologi perkebunan di atas telapak tangan" class="dash-home__hands">
+        <img :src="handsImage" alt="" class="dash-home__hands">
+        <img :src="modulesImage" alt="Modul teknologi perkebunan Teladan Prima Agro" class="dash-home__modules">
       </div>
     </section>
   </main>
 </template>
 
 <style scoped>
+.dash-page {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  background: #fff;
+  color: #1f2a18;
+}
+
 .dash-home {
   display: flex;
-  flex: 1 0 auto;
+  min-height: 0;
+  flex: 1 1 auto;
   flex-direction: column;
   background: #fff;
 }
 
-.dash-home__sky {
-  display: block;
-  width: 100%;
-  height: auto;
+.dash-home__panel {
+  padding: 0.35rem 0.85rem 0.25rem;
 }
 
-.dash-home__panel {
-  padding: 0.85rem 1.15rem 0.35rem;
+.dash-home__topline {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.2rem;
+}
+
+.dash-home__logo {
+  display: block;
+  height: 34px;
+  width: auto;
+  object-fit: contain;
 }
 
 .dash-home__hero {
   position: relative;
-  height: clamp(460px, 52vw, 680px);
-  margin-top: 0.55rem;
+  min-height: 340px;
+  flex: 1 1 auto;
   overflow: hidden;
 }
 
@@ -118,89 +98,185 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 78%;
+  object-position: center 72%;
 }
 
 .dash-home__story {
   position: absolute;
-  z-index: 1;
-  top: 34%;
-  left: 4.5%;
+  z-index: 3;
+  top: 6%;
+  left: 4%;
   display: flex;
-  width: min(34rem, 40%);
+  width: min(24rem, 34%);
   flex-direction: column;
   align-items: center;
   text-align: center;
+}
+
+.dash-home__story::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -18% -10% -8%;
+  background: radial-gradient(ellipse at center, rgb(10 24 8 / 46%), transparent 72%);
 }
 
 .dash-home__slogan {
   display: block;
   width: 100%;
   height: auto;
-  filter: drop-shadow(0 6px 16px rgb(255 255 255 / 28%));
+  filter:
+    drop-shadow(0 1px 1px rgb(8 20 6 / 95%))
+    drop-shadow(0 0 8px rgb(8 20 6 / 75%));
 }
 
 .dash-home__lead {
-  margin: 0.45rem 0 0;
-  max-width: 34rem;
-  color: #f4e7a4;
-  font-size: clamp(0.72rem, 1.05vw, 0.98rem);
-  font-weight: 600;
-  line-height: 1.45;
-  text-shadow: 0 1px 2px rgb(20 40 8 / 35%);
+  margin: 0.35rem 0 0;
+  color: #fff8e8;
+  font-size: clamp(0.68rem, 0.95vw, 0.92rem);
+  font-weight: 650;
+  line-height: 1.4;
+  text-shadow:
+    0 1px 2px rgb(8 18 6 / 95%),
+    0 0 8px rgb(8 18 6 / 80%);
 }
 
-.dash-home__hands {
+.dash-home__hands,
+.dash-home__modules {
   position: absolute;
-  z-index: 1;
-  right: 1%;
-  bottom: 0;
+  z-index: 2;
   width: auto;
-  max-width: 46%;
-  height: 92%;
   object-fit: contain;
-  object-position: right bottom;
   pointer-events: none;
   user-select: none;
 }
 
-@media (max-width: 900px) {
+.dash-home__hands {
+  bottom: 0;
+  left: 18%;
+  height: 62%;
+  max-width: 42%;
+  object-position: center bottom;
+}
+
+.dash-home__modules {
+  right: 2%;
+  bottom: 4%;
+  height: 78%;
+  max-width: 32%;
+  object-position: right bottom;
+}
+
+@media (min-width: 1024px) {
+  .dash-page {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
   .dash-home__panel {
-    padding: 0.75rem 0.75rem 0.2rem;
+    padding: 0.28rem 1rem 0.15rem;
+  }
+
+  .dash-home__logo {
+    height: 50px;
   }
 
   .dash-home__hero {
-    display: flex;
-    height: auto;
-    min-height: 520px;
-    flex-direction: column;
-    justify-content: flex-end;
+    min-height: 0;
+  }
+}
+
+@media (min-width: 1024px) and (max-height: 760px) {
+  .dash-home__panel {
+    padding-top: 0.15rem;
   }
 
-  .dash-home__estate {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+  .dash-home__logo {
+    height: 24px;
+  }
+
+  .dash-home__panel :deep(.kpi__svg) {
+    height: 4.7rem;
+  }
+
+  .dash-home__panel :deep(.kpi__chart) {
+    min-height: 4.7rem;
+  }
+
+  .dash-home__panel :deep(.kpi__foot p) {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (max-width: 1023px) {
+  .dash-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .dash-home__panel {
+    padding: 0.7rem 0.7rem 0.2rem;
+  }
+
+  .dash-home__hero {
+    height: 72vw;
+    min-height: 300px;
+    flex: none;
   }
 
   .dash-home__story {
-    position: relative;
-    top: auto;
-    left: auto;
-    width: min(100% - 1.5rem, 28rem);
-    margin: 0 auto 0.5rem;
-    padding-top: 4.5rem;
+    top: 5%;
+    left: 3%;
+    width: min(15rem, 62%);
+  }
+
+  .dash-home__lead {
+    font-size: 0.68rem;
   }
 
   .dash-home__hands {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    width: min(100%, 420px);
-    max-width: 100%;
+    left: 0;
+    height: 50%;
+    max-width: 72%;
+  }
+
+  .dash-home__modules {
+    right: 0;
+    bottom: 8%;
+    height: 58%;
+    max-width: 58%;
+  }
+}
+
+@media (max-width: 767px) {
+  .dash-home__topline {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-home__hero {
     height: auto;
-    margin: 0 auto;
+    min-height: 420px;
+    aspect-ratio: 4 / 5;
+  }
+
+  .dash-home__story {
+    width: min(13.5rem, 70%);
+  }
+
+  .dash-home__hands {
+    height: 42%;
+    max-width: 78%;
+  }
+
+  .dash-home__modules {
+    bottom: 10%;
+    height: 48%;
+    max-width: 62%;
   }
 }
 </style>

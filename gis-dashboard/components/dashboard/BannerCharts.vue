@@ -532,9 +532,40 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   }
 }
 
-@media (min-width: 1180px) {
+@media (min-width: 1024px) {
   .kpi-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .kpi {
+    border-radius: 16px;
+    padding: 0.42rem 0.55rem 0.38rem;
+  }
+
+  .kpi h2 {
+    font-size: 0.9rem;
+  }
+
+  .kpi__chart {
+    min-height: 5.7rem;
+    margin-top: 0.1rem;
+  }
+
+  .kpi__svg {
+    height: 5.7rem;
+  }
+
+  .kpi__empty {
+    height: 5.2rem;
+  }
+
+  .kpi__foot {
+    padding-top: 0.15rem;
+  }
+
+  .kpi__foot p {
+    margin-top: 0.12rem;
   }
 }
 

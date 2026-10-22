@@ -26,7 +26,6 @@ type MenuColumn = {
 
 const openKey = ref("");
 const flipKeys = ref<Record<string, boolean>>({});
-const panelLeft = ref("0.75rem");
 const itemEls = new Map<string, HTMLElement>();
 
 function itemKey(item: ModuleItem, index: number) {
@@ -75,20 +74,6 @@ async function placePanel(key: string) {
   const itemEl = itemEls.get(key);
   const panel = itemEl?.querySelector<HTMLElement>(".menu-nav__panel");
   if (!itemEl || !panel) return;
-
-  if (window.innerWidth <= 1024) {
-    flipKeys.value = { ...flipKeys.value, [key]: false };
-    const nav = itemEl.closest(".menu-nav");
-    if (!nav) return;
-    const navRect = nav.getBoundingClientRect();
-    const itemRect = itemEl.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    const minLeft = 12;
-    const maxLeft = Math.max(minLeft, navRect.width - panelRect.width - minLeft);
-    const left = Math.min(Math.max(itemRect.left - navRect.left, minLeft), maxLeft);
-    panelLeft.value = `${Math.round(left)}px`;
-    return;
-  }
 
   flipKeys.value = { ...flipKeys.value, [key]: false };
   await nextTick();
@@ -182,7 +167,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <nav class="menu-nav" :style="{ '--menu-panel-left': panelLeft }" aria-label="Menu modul">
+  <nav class="menu-nav" aria-label="Menu modul">
     <p v-if="props.loading && !props.items.length" class="menu-nav__empty">Memuat menu...</p>
     <p v-else-if="!props.items.length" class="menu-nav__empty">Menu belum tersedia.</p>
     <ul v-else class="menu-nav__list">
@@ -266,9 +251,9 @@ onUnmounted(() => {
 <style scoped>
 .menu-nav {
   position: relative;
-  background: var(--color-brand);
+  max-width: 100%;
+  background: transparent;
   color: #f7f8f9;
-  box-shadow: 0 10px 24px rgb(63 87 40 / 16%);
 }
 
 .menu-nav__empty {
@@ -281,12 +266,12 @@ onUnmounted(() => {
 
 .menu-nav__list {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: safe center;
+  flex-wrap: nowrap;
+  justify-content: center;
   align-items: stretch;
   gap: 0;
   margin: 0;
-  padding: 0 0.75rem;
+  padding: 0;
   list-style: none;
 }
 
@@ -303,7 +288,7 @@ onUnmounted(() => {
 .menu-nav__trigger {
   display: flex;
   align-items: stretch;
-  min-height: 48px;
+  min-height: 40px;
 }
 
 .menu-nav__label,
@@ -318,8 +303,8 @@ onUnmounted(() => {
 .menu-nav__label {
   display: flex;
   align-items: center;
-  padding: 0.75rem 0.35rem 0.75rem 0.95rem;
-  font-size: 0.95rem;
+  padding: 0.4rem 0.25rem 0.4rem 0.75rem;
+  font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.2;
   text-decoration: none;
@@ -468,31 +453,10 @@ onUnmounted(() => {
   background: transparent;
 }
 
-@media (min-width: 640px) {
-  .menu-nav__list {
-    padding-inline: 1.25rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .menu-nav__list {
-    padding-inline: 2rem;
-  }
-}
-
 @media (max-width: 1024px) {
   .menu-nav:has(.menu-nav__item.is-open),
   .menu-nav:has(.menu-nav__item:focus-within) {
     z-index: 40;
-  }
-
-  .menu-nav__list {
-    overflow: visible;
-  }
-
-  .menu-nav__item.is-open,
-  .menu-nav__item:focus-within {
-    position: static;
   }
 
   .menu-nav__item:hover > .menu-nav__panel {
@@ -502,32 +466,12 @@ onUnmounted(() => {
   }
 
   .menu-nav__item.is-open > .menu-nav__panel,
-  .menu-nav__item:focus-within > .menu-nav__panel,
-  .menu-nav__item.is-open > .menu-nav__panel.is-flip,
-  .menu-nav__item:focus-within > .menu-nav__panel.is-flip {
-    position: absolute;
-    top: 100%;
-    right: auto;
-    left: var(--menu-panel-left, 0.75rem);
-    z-index: 30;
-    box-sizing: border-box;
-    width: max-content;
-    min-width: 0;
-    max-width: calc(100% - 1.5rem);
-    max-height: min(70dvh, 32rem);
-    overflow-x: hidden;
-    overflow-y: auto;
+  .menu-nav__item:focus-within > .menu-nav__panel {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .menu-nav__panel .menu-nav__column,
-  .menu-nav__panel .menu-nav__link {
-    flex: 0 0 auto;
-    width: max-content;
-    min-width: 0;
-    max-width: 100%;
+    max-height: min(70dvh, 32rem);
+    overflow-y: auto;
   }
 }
 

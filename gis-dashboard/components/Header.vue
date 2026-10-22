@@ -9,6 +9,57 @@ import { preloadMapViewIfNeeded } from '~/utils/preloadMapView'
 const authStore = useAuthStore()
 const dashboardService = dashboardStore()
 const pengumumanStore = useManagePengumumanStore()
+const route = useRoute()
+const isDashboard = computed(() => route.path === '/dashboard')
+
+const now = ref(new Date())
+const clockReady = ref(false)
+let clockTimer: ReturnType<typeof setInterval> | undefined
+
+const INDONESIA_ZONE: Record<string, string> = {
+  'Asia/Jakarta': 'WIB',
+  'Asia/Pontianak': 'WIB',
+  'Asia/Makassar': 'WITA',
+  'Asia/Ujung_Pandang': 'WITA',
+  'Asia/Jayapura': 'WIT',
+}
+
+function padTime(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function localZoneLabel(date: Date) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const named = INDONESIA_ZONE[timeZone]
+  if (named) return named
+  const offsetHours = -date.getTimezoneOffset() / 60
+  if (offsetHours === 7) return 'WIB'
+  if (offsetHours === 8) return 'WITA'
+  if (offsetHours === 9) return 'WIT'
+  try {
+    const part = new Intl.DateTimeFormat('id-ID', { timeZoneName: 'shortOffset' })
+      .formatToParts(date)
+      .find((item) => item.type === 'timeZoneName')
+    if (part?.value) return part.value.replace('GMT', 'UTC')
+  } catch {
+    // Browser lama tidak mendukung shortOffset.
+  }
+  const sign = offsetHours >= 0 ? '+' : ''
+  return `UTC${sign}${Number.isInteger(offsetHours) ? offsetHours : offsetHours.toFixed(1)}`
+}
+
+const clockDateLabel = computed(() =>
+  new Intl.DateTimeFormat('id-ID', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(now.value),
+)
+
+const clockHourMinute = computed(() => `${padTime(now.value.getHours())}:${padTime(now.value.getMinutes())}`)
+const clockSeconds = computed(() => padTime(now.value.getSeconds()))
+const clockZoneLabel = computed(() => localZoneLabel(now.value))
 
 onMounted(async () => {
   const session = await authStore.ensureSession()
@@ -219,10 +270,16 @@ const clickOutsideHandler = (event: MouseEvent) => {
 }
 
 onMounted(() => {
+  clockReady.value = true
+  now.value = new Date()
+  clockTimer = setInterval(() => {
+    now.value = new Date()
+  }, 1000)
   window.addEventListener('click', clickOutsideHandler)
 })
 
 onUnmounted(() => {
+  if (clockTimer) clearInterval(clockTimer)
   window.removeEventListener('click', clickOutsideHandler)
 })
 
@@ -230,9 +287,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="border-b border-header bg-surface">
-    <div class="mx-auto flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:px-5 sm:py-2 lg:px-8">
-      <div class="min-w-0 flex items-center gap-2">
+  <header class="app-header">
+    <div class="app-header__bar">
+      <div class="app-header__brand">
         <button @click.stop="toggleSidebar"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
           aria-label="Buka Sidebar">
@@ -241,19 +298,24 @@ onUnmounted(() => {
           </svg>
         </button>
 
-        <img :src="logoImage" alt="TLDN Productivity Technology Science"
-          class="h-8 w-auto shrink-0 object-contain sm:h-9">
-        <div class="min-w-0">
-          <h1 class="truncate text-14 font-bold leading-none sm:text-16">
+        <img v-if="!isDashboard" :src="logoImage" alt="Teladan Prima Agro" class="app-header__logo">
+        <div v-if="!isDashboard" class="min-w-0">
+          <h1 class="app-header__title">
             {{ props.brandTitle }}
           </h1>
-          <p class="mt-0.5 truncate text-11 leading-none text-muted-light sm:text-12">
+          <p class="app-header__subtitle">
             {{ props.brandSubtitle }}
           </p>
         </div>
       </div>
 
-      <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
+      <div class="app-header__center">
+        <MenuDashboardNav class="app-header__nav" :items="dashboardService.moduleItems"
+          :loading="dashboardService.loading" />
+        <img v-if="isDashboard" :src="logoImage" alt="Teladan Prima Agro" class="app-header__mobile-logo">
+      </div>
+
+      <div class="app-header__actions">
         <div v-if="dashboardService.favoriteMenus.length" class="favorite-menu-container relative">
           <button type="button" @click="toggleFavoriteMenu"
             class="flex h-8 w-8 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
@@ -266,14 +328,13 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isFavoriteOpen"
-            class="absolute right-0 z-[1500] mt-2 w-72 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl">
+            class="app-pop absolute right-0 z-[1500] mt-2 w-72 origin-top-right rounded-2xl border border-default bg-surface p-2 text-content shadow-xl">
             <p class="px-3 py-2 text-12 font-semibold uppercase tracking-wide text-label">
               Menu favorit
             </p>
             <button v-for="item in dashboardService.favoriteMenus" :key="`favorite-menu-${item.id}`" type="button"
               class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
-              @pointerenter="preloadMapViewIfNeeded(item.to)"
-              @click="openFavoriteMenu(item.to)">
+              @pointerenter="preloadMapViewIfNeeded(item.to)" @click="openFavoriteMenu(item.to)">
               <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" :class="item.bgClass">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="item.iconClass" fill="none"
                   viewBox="0 0 24 24" stroke="currentColor">
@@ -301,7 +362,7 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isAnnouncementOpen"
-            class="absolute right-0 z-[1500] mt-2 w-80 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl sm:w-96">
+            class="app-pop absolute right-0 z-[1500] mt-2 w-80 origin-top-right rounded-2xl border border-default bg-surface p-2 text-content shadow-xl sm:w-96">
             <p class="px-3 py-2 text-12 font-semibold uppercase tracking-wide text-label">
               Pengumuman
             </p>
@@ -331,6 +392,13 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <time v-if="clockReady" class="app-clock" :datetime="now.toISOString()"
+          :title="`${clockDateLabel}, ${clockHourMinute}:${clockSeconds} ${clockZoneLabel}`">
+          <span class="app-clock__date">{{ clockDateLabel }}</span>
+          <span class="app-clock__time">{{ clockHourMinute }}<span class="app-clock__seconds">:{{ clockSeconds }}</span>
+            {{ clockZoneLabel }}</span>
+        </time>
 
         <!-- <div class="quick-menu-container relative">
           <button @click.stop="toggleQuickMenu"
@@ -376,7 +444,7 @@ onUnmounted(() => {
           <button @click="toggleMenu"
             class="flex items-center gap-2 rounded-xl border border-default bg-cream px-1.5 py-1 transition-all hover-bg-cream-hover focus:outline-none sm:px-2">
             <div class="h-7 w-7 overflow-hidden rounded-md bg-avatar" />
-            <div class="hidden text-left sm:block">
+            <div class="app-header__profile-meta">
               <p class="text-13 font-bold leading-none text-brand">
                 {{ displayProfileName }}
               </p>
@@ -391,7 +459,7 @@ onUnmounted(() => {
           </button>
 
           <div v-if="isMenuOpen"
-            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-default bg-surface p-2 shadow-xl z-[1500] animate-fade-in">
+            class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-default bg-surface p-2 text-content shadow-xl z-[1500] animate-fade-in">
             <button v-for="(item, index) in menuItems" :key="index" @click="item.action(); closeMenu();"
               class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream group">
               <div
@@ -417,13 +485,13 @@ onUnmounted(() => {
     <div v-if="isSidebarOpen" class="fixed inset-0 z-[1590] bg-overlay" @click="closeSidebar" />
 
     <aside
-      class="fixed left-0 top-0 z-[1600] flex h-full w-[320px] max-w-[88vw] transform flex-col border-r border-default bg-surface shadow-2xl transition-transform duration-300"
+      class="fixed left-0 top-0 z-[1600] flex h-full w-[320px] max-w-[88vw] transform flex-col border-r border-default bg-surface text-content shadow-2xl transition-transform duration-300"
       :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'">
       <div class="border-b border-menu bg-surface-warm px-4 py-4">
         <div class="flex items-center justify-between gap-3">
           <div class="flex min-w-0 items-center gap-2.5">
             <img :src="logoImage" alt="TLDN Productivity Technology Science"
-              class="h-[68px] w-[94px] shrink-0 object-contain">
+              class="h-auto w-[200px] shrink-0 object-contain">
           </div>
           <button @click="closeSidebar"
             class="flex h-9 w-9 items-center justify-center rounded-full border border-menu bg-surface text-label transition hover-bg-cream"
@@ -480,7 +548,7 @@ onUnmounted(() => {
 
     <div v-if="showProfileModal" class="fixed inset-0 z-[1700] flex items-center justify-center bg-overlay p-4"
       @click.self="closeProfileModal">
-      <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5">
+      <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5 text-content">
         <div class="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 class="text-18 font-bold">Profil Saya</h3>
@@ -574,8 +642,7 @@ onUnmounted(() => {
               @click="closeProfileModal">
               Tutup
             </button>
-            <button type="submit"
-              class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
+            <button type="submit" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="authStore.loading">
               {{ authStore.loading ? 'Menyimpan...' : 'Simpan Password' }}
             </button>
@@ -585,3 +652,190 @@ onUnmounted(() => {
     </div>
   </header>
 </template>
+
+<style scoped>
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 1500;
+  flex-shrink: 0;
+  background: var(--color-brand);
+  color: #f7f8f9;
+}
+
+.app-header__bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.2rem 0.75rem;
+}
+
+.app-header__brand,
+.app-header__actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.app-header__brand {
+  justify-self: start;
+}
+
+.app-header__actions {
+  justify-self: end;
+}
+
+.app-header__center {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+}
+
+.app-header__logo,
+.app-header__mobile-logo {
+  width: auto;
+  flex-shrink: 0;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.app-header__logo {
+  height: 36px;
+  padding: 2px 6px;
+}
+
+.app-header__title {
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header__subtitle {
+  margin: 0.12rem 0 0;
+  overflow: hidden;
+  color: rgb(255 255 255 / 84%);
+  font-size: 0.72rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header__mobile-logo,
+.app-header__profile-meta {
+  display: none;
+}
+
+.app-header__profile-meta {
+  text-align: left;
+}
+
+.app-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.app-clock__date {
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0.9;
+}
+
+.app-clock__time {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+@media (min-width: 640px) {
+  .app-header__bar {
+    padding-inline: 1.25rem;
+  }
+
+  .app-header__title {
+    font-size: 1rem;
+  }
+
+  .app-header__subtitle {
+    font-size: 0.75rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-header__bar {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1180px) {
+  .app-header__profile-meta {
+    display: block;
+  }
+}
+
+@media (max-width: 767px) {
+  .app-pop {
+    position: fixed;
+    top: 3.7rem;
+    right: 0.65rem;
+    left: 0.65rem;
+    width: auto;
+    max-width: none;
+    max-height: min(70dvh, 28rem);
+    margin-top: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .app-header__nav {
+    display: none;
+  }
+
+  .app-header__bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-inline: 0.55rem;
+  }
+
+  .app-header__center:not(:has(.app-header__mobile-logo)) {
+    display: none;
+  }
+
+  .app-header__bar:has(.app-header__mobile-logo) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .app-header__mobile-logo {
+    display: block;
+    height: 28px;
+    max-width: 100%;
+    margin-inline: auto;
+    padding: 2px 6px;
+  }
+
+  .app-clock__date {
+    font-size: 0.6rem;
+  }
+
+  .app-clock__time {
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-clock__seconds {
+    display: none;
+  }
+}
+</style>
