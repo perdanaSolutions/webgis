@@ -12,6 +12,7 @@ import {
   type BasemapStatus,
 } from "~/utils/mapBasemap";
 import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory } from "~/utils/mapLayers";
+import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -363,16 +364,10 @@ function comparisonMarkerColor(properties: Record<string, any> | null | undefine
 }
 
 function blockAnchor(layer: any): import("leaflet").LatLng | null {
+  const point = polygonLabelLngLat(layer?.feature?.geometry);
+  if (point && Lf) return Lf.latLng(point[1], point[0]);
   const bounds = layer.getBounds?.() as import("leaflet").LatLngBounds | undefined;
   if (!bounds?.isValid()) return null;
-  if (layer._map) {
-    try {
-      const center = layer.getCenter?.() as import("leaflet").LatLng | undefined;
-      if (center) return center;
-    } catch {
-      /* Pusat poligon butuh layer yang sudah tergambar di peta. */
-    }
-  }
   return bounds.getCenter();
 }
 
@@ -488,10 +483,10 @@ function renderBlockMarks() {
     const bounds = (layer as any).getBounds?.() as import("leaflet").LatLngBounds | undefined;
     if (!bounds?.isValid()) return;
     const properties = featureProperties(feature);
-    const compared = props.showYieldGap && Boolean(readComparisonBudgetCategory(properties));
     const color = comparisonMarkerColor(properties);
     const center = blockAnchor(layer) ?? bounds.getCenter();
     const kode = escapeHtml(feature.properties?.kode_blok);
+    const selected = String(properties.blok_id ?? "") === props.selectedId;
 
     if (color) {
       Lf!.circleMarker(center, {
@@ -506,27 +501,16 @@ function renderBlockMarks() {
       }).addTo(comparisonLayer!);
     }
 
-    if (compared) {
-      Lf!.marker(center, {
-        pane: "bp-labels",
-        interactive: false,
-        icon: Lf!.divIcon({
-          className: "bp-block-label",
-          html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
-          iconSize: [0, 0],
-        }),
-      }).addTo(labelLayer!);
-      return;
-    }
+    // Tag blok terpilih sudah menampilkan nama di pusat yang sama.
+    if (selected) return;
 
-    Lf!.marker(bounds.getNorthWest(), {
+    Lf!.marker(center, {
       pane: "bp-labels",
       interactive: false,
       icon: Lf!.divIcon({
         className: "bp-block-label",
-        html: kode,
-        iconSize: undefined as any,
-        iconAnchor: [-8, -8],
+        html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
+        iconSize: [0, 0],
       }),
     }).addTo(labelLayer!);
   });
@@ -559,8 +543,9 @@ function renderSelected(pan = false) {
     if (id !== props.selectedId) return;
     (layer as any).bringToFront?.();
     const bounds = (layer as any).getBounds() as import("leaflet").LatLngBounds;
+    const center = blockAnchor(layer) ?? bounds.getCenter();
     const luas = feature.properties?.areal_statement?.luas_tanam;
-    selectedTag = Lf!.marker(bounds.getCenter(), {
+    selectedTag = Lf!.marker(center, {
       pane: "bp-labels",
       interactive: false,
       icon: Lf!.divIcon({
@@ -824,6 +809,7 @@ watch(() => props.selectedId, (id, previous) => {
   skipViewAdjust = false;
   const pan = adjust && panOnSelect && !!id;
   panOnSelect = true;
+  renderBlockMarks();
   renderSelected(pan);
   if (adjust && !id && previous) fitVisibleBlocks();
 });
@@ -872,7 +858,8 @@ watch(() => props.insets, applyInsets, { deep: true });
 }
 .bp-block-label-text.is-center,
 .bp-block-label-text.is-below {
-  display: block;
+  display: inline-block;
+  width: max-content;
 }
 .bp-block-label-text.is-center { transform: translate(-50%, -50%); }
 .bp-block-label-text.is-below { transform: translate(-50%, 10px); }

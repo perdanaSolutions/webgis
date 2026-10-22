@@ -10,6 +10,7 @@ import {
   type LegendItem,
 } from "~/utils/mapLayers";
 import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch } from "~/utils/blokProfilePdf";
+import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
 
 export type PdfOverlay = {
   code: string;
@@ -287,6 +288,16 @@ function blockPaint(properties: GeoJSON.GeoJsonProperties | null | undefined, in
   };
 }
 
+function labelLatLng(
+  Lf: Leaflet,
+  geometry: GeoJSON.Geometry | null | undefined,
+  bounds: import("leaflet").LatLngBounds,
+) {
+  const point = polygonLabelLngLat(geometry);
+  if (point) return Lf.latLng(point[1], point[0]);
+  return bounds.getCenter();
+}
+
 function addBlockLabels(
   Lf: Leaflet,
   map: import("leaflet").Map,
@@ -301,15 +312,10 @@ function addBlockLabels(
     if (!bounds?.isValid()) return;
     const properties = feature?.properties as Record<string, any> | null | undefined;
     const category = input.showYieldGap ? readComparisonBudgetCategory(properties) : "";
-    const compared = Boolean(category);
     const color = category && input.budgetColors[category] !== false ? BUDGET_GAP_COLOR[category] ?? null : null;
-    let center = bounds.getCenter();
-    try {
-      center = (layer as { getCenter?: () => import("leaflet").LatLng }).getCenter?.() ?? center;
-    } catch {
-      /* Pusat poligon belum siap. */
-    }
+    const center = labelLatLng(Lf, feature?.geometry, bounds);
     const kode = escapeHtml(feature?.properties?.kode_blok);
+    const selected = String(properties?.blok_id ?? "") === input.selectedId;
     if (color) {
       Lf.circleMarker(center, {
         pane: "bp-labels",
@@ -322,25 +328,14 @@ function addBlockLabels(
         interactive: false,
       }).addTo(markers);
     }
-    if (compared) {
-      Lf.marker(center, {
-        pane: "bp-labels",
-        interactive: false,
-        icon: Lf.divIcon({
-          className: "bp-block-label",
-          html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
-          iconSize: [0, 0],
-        }),
-      }).addTo(labels);
-      return;
-    }
-    Lf.marker(bounds.getNorthWest(), {
+    if (selected) return;
+    Lf.marker(center, {
       pane: "bp-labels",
       interactive: false,
       icon: Lf.divIcon({
         className: "bp-block-label",
-        html: kode,
-        iconAnchor: [-8, -8],
+        html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
+        iconSize: [0, 0],
       }),
     }).addTo(labels);
   });
@@ -356,11 +351,12 @@ function addSelectedTag(Lf: Leaflet, map: import("leaflet").Map, blocks: import(
     const bounds = (layer as { getBounds?: () => import("leaflet").LatLngBounds }).getBounds?.();
     if (!bounds?.isValid()) return;
     (layer as { bringToFront?: () => void }).bringToFront?.();
+    const center = labelLatLng(Lf, feature?.geometry, bounds);
     const luas = feature?.properties?.areal_statement?.luas_tanam;
     const luasText = Number.isFinite(Number(luas)) && Number(luas) !== 0
       ? ` · ${Number(luas).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ha`
       : "";
-    Lf.marker(bounds.getCenter(), {
+    Lf.marker(center, {
       pane: "bp-labels",
       interactive: false,
       icon: Lf.divIcon({

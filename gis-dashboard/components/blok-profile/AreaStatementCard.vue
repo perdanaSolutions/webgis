@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 
-import type { AreaStatementHistory } from "~/stores/blokProfileStore";
+import AreaSummaryCard from "~/components/blok-profile/AreaSummaryCard.vue";
+import LayerArealCard from "~/components/blok-profile/LayerArealCard.vue";
+import type { AreaStatementHistory, AreaStatementSummary, LayerArealData } from "~/stores/blokProfileStore";
 
 const PAGE_SIZE = 10;
 
-const props = defineProps<{ data: AreaStatementHistory | null; loading: boolean; expanded?: boolean }>();
+const props = defineProps<{
+  data: AreaStatementHistory | null;
+  loading: boolean;
+  layerAreal: LayerArealData | null;
+  layerLoading: boolean;
+  areaSummary: AreaStatementSummary | null;
+  summaryLoading: boolean;
+  expanded?: boolean;
+}>();
 
 const yearPage = ref(1);
 const divisionPage = ref(1);
@@ -128,6 +138,10 @@ watch(divisionPageCount, (count) => {
         </div>
       </template>
     </section>
+
+    <LayerArealCard :data="layerAreal" :loading="layerLoading" :expanded="expanded" />
+
+    <AreaSummaryCard :data="areaSummary" :loading="summaryLoading" :expanded="expanded" />
 
     <section class="bp-card flex flex-col gap-3 p-4">
       <div class="flex items-baseline justify-between gap-3">

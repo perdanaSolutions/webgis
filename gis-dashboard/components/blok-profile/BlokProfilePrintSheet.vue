@@ -7,7 +7,7 @@ import ProductionChartCard from "~/components/blok-profile/ProductionChartCard.v
 import ProductionGapCard from "~/components/blok-profile/ProductionGapCard.vue";
 import RotationCard from "~/components/blok-profile/RotationCard.vue";
 import SlopeInfoCard from "~/components/blok-profile/SlopeInfoCard.vue";
-import type { AreaStatementHistory, ProductionGapSummary, ProductionYear, RotationHistory } from "~/stores/blokProfileStore";
+import type { AreaStatementHistory, AreaStatementSummary, LayerArealData, ProductionGapSummary, ProductionYear, RotationHistory } from "~/stores/blokProfileStore";
 
 defineProps<{
   scopeLabel: string;
@@ -39,6 +39,10 @@ defineProps<{
   canViewArea: boolean;
   areaStatement: AreaStatementHistory | null;
   areaLoading: boolean;
+  layerAreal: LayerArealData | null;
+  layerLoading: boolean;
+  areaSummary: AreaStatementSummary | null;
+  summaryLoading: boolean;
   canViewRotation: boolean;
   rotation: RotationHistory | null;
   rotationLoading: boolean;
@@ -79,7 +83,8 @@ defineExpose({ sections });
     </div>
 
     <div v-if="canViewArea" class="bp-print-section">
-      <AreaStatementCard :data="areaStatement" :loading="areaLoading" expanded />
+      <AreaStatementCard :data="areaStatement" :loading="areaLoading" :layer-areal="layerAreal"
+        :layer-loading="layerLoading" :area-summary="areaSummary" :summary-loading="summaryLoading" expanded />
     </div>
 
     <div v-if="canViewRotation" class="bp-print-section">

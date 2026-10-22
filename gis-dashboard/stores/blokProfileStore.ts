@@ -122,6 +122,84 @@ export type RotationHistory = {
   /** Isi dari GET /spatial/blok/detail. Kalau ada, kartu tidak memakai agregat /history. */
   kegiatan?: RotationActivity[];
 };
+/** GET /spatial/history/tahun-tanam. Tahun unik untuk filter histori pada scope yang sama. */
+export type PlantingYearList = {
+  data: number[];
+  total: number;
+};
+export type LayerArealTanamRow = {
+  status?: string;
+  label?: string;
+  tahun_tanam?: number;
+  jumlah_blok?: number;
+  luas_tanam: number;
+  luas_tanah?: number;
+  pokok?: number;
+  persen?: number;
+  persen_grand_total?: number;
+};
+export type LayerArealTanam = {
+  total_luas_tanam: number;
+  total_luas_tanah: number;
+  total_pokok: number;
+  sph_rata_rata: number;
+  jumlah_blok: number;
+  per_status: LayerArealTanamRow[];
+  per_tahun_tanam: LayerArealTanamRow[];
+};
+export type LayerArealLanduseRow = {
+  kategori?: string;
+  kode?: string;
+  kode_baris?: string;
+  label?: string;
+  jumlah_polygon?: number;
+  luas: number;
+  persen?: number;
+  persen_grand_total?: number;
+  rincian?: Array<{ kategori: string; jumlah_polygon: number; luas: number }>;
+};
+export type LayerArealNonTanam = {
+  periode: string | null;
+  total_luas: number;
+  grand_total_areal: number | null;
+  per_baris: LayerArealLanduseRow[];
+  per_kategori: LayerArealLanduseRow[];
+};
+export type AreaStatementPopulationClass = {
+  kode: string;
+  label: string;
+  batas_bawah: number | null;
+  batas_atas: number | null;
+  jumlah_blok: number;
+  luas_tanam: number;
+  persen: number;
+};
+/** GET /spatial/areal-statement/ringkasan. Snapshot kartu Areal Statement pada scope serta periode yang sama. */
+export type AreaStatementSummary = {
+  periode: string | null;
+  bulan: number | null;
+  tahun: number | null;
+  tanam: LayerArealTanam;
+  populasi: {
+    kelas: AreaStatementPopulationClass[];
+    tanpa_sph: { jumlah_blok: number; luas_tanam: number };
+  };
+  tidak_tertanam_dalam_blok: { luas: number; keterangan: string };
+  non_tanam: LayerArealNonTanam | null;
+};
+/** GET /spatial/layer-data/areal. Snapshot areal tanam dan landuse pada scope serta periode yang sama. */
+export type LayerArealData = {
+  periode: { areal_statement: string | null; landuse: string | null };
+  areal_tanam: LayerArealTanam | null;
+  areal_non_tanam: LayerArealNonTanam | null;
+  total: {
+    areal_tanam: number;
+    areal_non_tanam: number;
+    grand_total_areal: number;
+    persen_tanam: number;
+    persen_non_tanam: number;
+  } | null;
+};
 
 const SLOPE_CLASSES: Array<{ key: string; label: string; range: string; historyKey: string; detailKey: string }> = [
   { key: "datar", label: "Datar", range: "0–3%", historyKey: "0-3%", detailKey: "pct_tanah_datar" },
@@ -203,6 +281,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const production = ref<Record<string, any> | null>(null);
   const areaStatement = ref<AreaStatementHistory | null>(null);
   const rotation = ref<RotationHistory | null>(null);
+  const plantingYears = ref<PlantingYearList | null>(null);
+  const layerAreal = ref<LayerArealData | null>(null);
+  const areaSummary = ref<AreaStatementSummary | null>(null);
 
   const loadingOptions = ref(false);
   const loadingBlocks = ref(false);
@@ -210,6 +291,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const loadingProduction = ref(false);
   const loadingAreaStatement = ref(false);
   const loadingRotation = ref(false);
+  const loadingPlantingYears = ref(false);
+  const loadingLayerAreal = ref(false);
+  const loadingAreaSummary = ref(false);
   const errorMessage = ref("");
   const statusNotice = ref<StatusNotice | null>(null);
 
@@ -264,6 +348,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     production: Record<string, any> | null;
     areaStatement: AreaStatementHistory | null;
     rotation: RotationHistory | null;
+    plantingYears: PlantingYearList | null;
+    layerAreal: LayerArealData | null;
+    areaSummary: AreaStatementSummary | null;
   };
   let memorySearch: SavedSearch | null = null;
 
@@ -299,6 +386,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       production: cloneData(production.value),
       areaStatement: cloneData(areaStatement.value),
       rotation: cloneData(rotation.value),
+      plantingYears: cloneData(plantingYears.value),
+      layerAreal: cloneData(layerAreal.value),
+      areaSummary: cloneData(areaSummary.value),
     });
   }
 
@@ -308,6 +398,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     memorySearch.production = cloneData(production.value);
     memorySearch.areaStatement = cloneData(areaStatement.value);
     memorySearch.rotation = cloneData(rotation.value);
+    memorySearch.plantingYears = cloneData(plantingYears.value);
+    memorySearch.layerAreal = cloneData(layerAreal.value);
+    memorySearch.areaSummary = cloneData(areaSummary.value);
     persistSearch(memorySearch);
   }
 
@@ -316,6 +409,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (table === "trx_produksi_tbs") memorySearch.production = cloneData(value) as SavedSearch["production"];
     else if (table === "trx_areal_statement") memorySearch.areaStatement = cloneData(value) as SavedSearch["areaStatement"];
     else if (table === "trx_rotasi_pusingan") memorySearch.rotation = cloneData(value) as SavedSearch["rotation"];
+    else if (table === "tahun_tanam") memorySearch.plantingYears = cloneData(value) as SavedSearch["plantingYears"];
+    else if (table === "layer_areal") memorySearch.layerAreal = cloneData(value) as SavedSearch["layerAreal"];
+    else if (table === "areal_ringkasan") memorySearch.areaSummary = cloneData(value) as SavedSearch["areaSummary"];
     else return;
     persistSearch(memorySearch);
   }
@@ -368,6 +464,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const canViewProduction = computed(() => grantCovers(transactionGrants.value, "trx.block_productions", "trx_produksi_tbs"));
   const canViewAreaStatement = computed(() => grantCovers(transactionGrants.value, "trx.area_statements", "trx_areal_statement"));
   const canViewRotation = computed(() => grantCovers(transactionGrants.value, "trx.harvest_rotations", "trx_rotasi_pusingan"));
+  const canViewLanduse = computed(() => grantCovers(transactionGrants.value, "spatial.landuse_polygons", "landuse"));
 
   function scopeRows(): AksesData[] {
     return Array.isArray(aksesData.value) ? aksesData.value : [];
@@ -786,15 +883,17 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   /**
-   * Histori produksi, areal statement, dan rotasi.
+   * Enam permintaan scope yang sama: tiga histori, tahun tanam, layer areal, dan ringkasan areal statement.
    * `patchSaved` false saat klik peta: kartu mengikuti blok, snapshot Filter Kebun tidak ditimpa.
    * `tahun` mengikuti periode popup bila dikirim; selain itu memakai tahun Filter Kebun terapan.
-   * Param `bulan` sengaja tidak dikirim untuk sementara.
+   * Param `bulan` sengaja tidak dikirim ke tiga histori. Layer areal dan ringkasan memakainya sebagai batas snapshot.
    */
-  async function loadHistories(options?: { patchSaved?: boolean; tahun?: string }) {
+  async function loadHistories(options?: { patchSaved?: boolean; tahun?: string; bulan?: string }) {
     const seq = ++historySeq;
     const patchSaved = options?.patchSaved !== false;
     const params = historyParams({ tahun: options?.tahun });
+    const { tahun: layerTahun, ...spatial } = params;
+    const layerBulan = String(options?.bulan ?? applied.value.bulan ?? "").trim();
     const jobs: Array<Promise<void>> = [];
 
     function track<T>(
@@ -802,6 +901,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       table: string,
       loading: { value: boolean },
       target: { value: T | null },
+      request: () => Promise<T>,
     ) {
       if (!allowed) {
         target.value = null;
@@ -810,7 +910,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       }
       loading.value = true;
       jobs.push(
-        get<T>("/spatial/history", { table, ...params })
+        request()
           .then((res) => {
             if (seq !== historySeq) {
               if (patchSaved) rememberScopeHistory(table, res);
@@ -824,9 +924,18 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       );
     }
 
-    track(canViewProduction.value, "trx_produksi_tbs", loadingProduction, production);
-    track(canViewAreaStatement.value, "trx_areal_statement", loadingAreaStatement, areaStatement);
-    track(canViewRotation.value, "trx_rotasi_pusingan", loadingRotation, rotation);
+    track(canViewProduction.value, "trx_produksi_tbs", loadingProduction, production, () =>
+      get("/spatial/history", { table: "trx_produksi_tbs", ...params }));
+    track(canViewAreaStatement.value, "trx_areal_statement", loadingAreaStatement, areaStatement, () =>
+      get("/spatial/history", { table: "trx_areal_statement", ...params }));
+    track(canViewRotation.value, "trx_rotasi_pusingan", loadingRotation, rotation, () =>
+      get("/spatial/history", { table: "trx_rotasi_pusingan", ...params }));
+    track(canViewAreaStatement.value, "tahun_tanam", loadingPlantingYears, plantingYears, () =>
+      get<PlantingYearList>("/spatial/history/tahun-tanam", spatial));
+    track(canViewAreaStatement.value || canViewLanduse.value, "layer_areal", loadingLayerAreal, layerAreal, () =>
+      get<LayerArealData>("/spatial/layer-data/areal", { ...spatial, tahun: layerTahun, bulan: layerBulan || undefined }));
+    track(canViewAreaStatement.value, "areal_ringkasan", loadingAreaSummary, areaSummary, () =>
+      get<AreaStatementSummary>("/spatial/areal-statement/ringkasan", { ...spatial, tahun: layerTahun, bulan: layerBulan || undefined }));
     await Promise.all(jobs);
   }
 
@@ -880,7 +989,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
           loadSelectedDetail(blokId.value, period.bulan, period.tahun).catch(() => {
             detail.value = null;
           }),
-          loadHistories({ tahun: period.tahun }),
+          loadHistories({ tahun: period.tahun, bulan: period.bulan }),
         ]);
       } else {
         detail.value = null;
@@ -1060,18 +1169,19 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       loadSelectedDetail(value, period.bulan, period.tahun).catch(() => {
         detail.value = null;
       }),
-      loadHistories({ patchSaved: false, tahun: period.tahun }),
+      loadHistories({ patchSaved: false, tahun: period.tahun, bulan: period.bulan }),
     ]);
   }
 
   /**
-   * Detail popup + 3 history. Dipakai saat buka/apply periode di popup agar `tahun`
-   * history mengikuti pilihan di dalam popup. Param `bulan` di-hide sementara.
+   * Detail popup plus enam permintaan scope (tiga histori, tahun tanam, layer areal, ringkasan areal).
+   * Dipakai saat buka/apply periode di popup agar `tahun` history mengikuti pilihan di dalam popup.
+   * Param `bulan` tidak dikirim ke tiga histori; layer areal dan ringkasan memakainya sebagai batas snapshot.
    */
   async function loadPopupDetail(id: string, bulan: string, tahun: string) {
     const [next] = await Promise.all([
       loadSelectedDetail(id, bulan, tahun),
-      loadHistories({ patchSaved: false, tahun }),
+      loadHistories({ patchSaved: false, tahun, bulan }),
     ]);
     return next;
   }
@@ -1086,6 +1196,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingProduction.value = false;
     loadingAreaStatement.value = false;
     loadingRotation.value = false;
+    loadingPlantingYears.value = false;
+    loadingLayerAreal.value = false;
+    loadingAreaSummary.value = false;
     if (!saved) return;
     grup.value = saved.grup ?? "";
     area.value = saved.area;
@@ -1105,6 +1218,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     production.value = saved.production;
     areaStatement.value = saved.areaStatement;
     rotation.value = saved.rotation;
+    plantingYears.value = saved.plantingYears ?? null;
+    layerAreal.value = saved.layerAreal ?? null;
+    areaSummary.value = saved.areaSummary ?? null;
   }
 
   /** Tutup popup peta. User biasa tetap di blok terpilih; admin boleh lepas ke semua blok. */
@@ -1146,6 +1262,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     production.value = null;
     areaStatement.value = null;
     rotation.value = null;
+    plantingYears.value = null;
+    layerAreal.value = null;
+    areaSummary.value = null;
     detailKey = "";
     detailFlight = null;
     errorMessage.value = "";
@@ -1159,6 +1278,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingProduction.value = false;
     loadingAreaStatement.value = false;
     loadingRotation.value = false;
+    loadingPlantingYears.value = false;
+    loadingLayerAreal.value = false;
+    loadingAreaSummary.value = false;
   }
 
   async function reset() {
@@ -1376,11 +1498,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     grup, area, pt, estate, afdeling, blokId, ownership, bulan, tahun, yearToDate, bulanComparison, tahunComparison,
     visibleBlocks,
     blocks, blockFeatures, selectedFeature, detail, production, areaStatement, rotation,
+    plantingYears, layerAreal, areaSummary,
     areaStatementView, rotationView,
-    loadingOptions, loadingBlocks, loadingDetail, loadingProduction, loadingAreaStatement, loadingRotation, errorMessage,
+    loadingOptions, loadingBlocks, loadingDetail, loadingProduction, loadingAreaStatement, loadingRotation,
+    loadingPlantingYears, loadingLayerAreal, loadingAreaSummary, errorMessage,
     applying, statusNotice,
     scopeLevel, scopeLabel, scopeParams, productionYears, productionGapBudget, productionGapSensus, slopeShares, summary,
-    canViewProduction, canViewAreaStatement, canViewRotation, allowAllScope,
+    canViewProduction, canViewAreaStatement, canViewRotation, canViewLanduse, allowAllScope,
     filterGeneration,
     init, reset, resetFilters: clearMap, setGrup, setArea, setPt, setEstate, setAfdeling, setBlok, setOwnership, setBulan, setTahun,
     setYearToDate, setBulanComparison, setTahunComparison, popupPeriod,
