@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
-import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
@@ -798,12 +797,6 @@ watch(
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
           <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
-            <h3 class="mb-4 text-18 font-bold text-brand">Hasil Analisis</h3>
-            <UploadAnalysisResult :analysis="analysis" />
-          </div>
-
-          <div v-if="analysis.analisa_aman || analysis.analisa_gagal"
-            class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
             <h3 class="mb-4 text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
             <UploadAnalysisGroups :analysis="analysis" :parts="documentUploadStore.analyzeParts" />
           </div>
