@@ -5,6 +5,12 @@ import {
   chunkFeatureCollection,
   featureCollectionToFile,
   mergeAnalyzeResults,
+  indexTablePreview,
+  isPartAnalyzeResponse,
+  partFeatureOffset,
+  summarizePart,
+  type PartAnalyzeSummary,
+  type PreviewAnalysisRow,
   mergeExecuteResults,
   type GeoJsonCollection as PartGeoJsonCollection,
   type GeoJsonFeature as PartGeoJsonFeature,
@@ -187,6 +193,12 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     /** Progress part Feature (1.000/feature) saat analyze/execute beruntun. */
     multipart: null as MultipartUploadProgress | null,
     multipartAbort: false,
+    /** Hasil analisa per baris preview (key = no_preview global), terisi bertahap per part. */
+    previewAnalysis: {} as Record<number, PreviewAnalysisRow>,
+    /** Ringkasan analisa_aman/analisa_gagal tiap part yang sudah selesai (tampil langsung). */
+    analyzeParts: [] as PartAnalyzeSummary[],
+    /** Gabungan sementara part yang sudah selesai saat analyze masih berjalan. */
+    liveAnalyze: {} as Record<string, any>,
   }),
 
   getters: {
@@ -203,6 +215,9 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.errorMessage = "";
       this.successMessage = "";
       this.summaryAnalyze = {};
+      this.previewAnalysis = {};
+      this.analyzeParts = [];
+      this.liveAnalyze = {};
       this.executeResponse = null;
       this.executeError = "";
     },
@@ -430,6 +445,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
           formData.append("upload_group_id", groupId);
           formData.append("part_index", String(partIndex));
           formData.append("part_total", String(partTotal));
+          // no_preview dari backend = feature_offset + nomor feature di part (nomor baris preview global).
+          formData.append("feature_offset", String(partFeatureOffset(partIndex, GEOJSON_FEATURES_PER_PART)));
 
           const job = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs`, {
             method: "POST",
@@ -455,6 +472,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
             return;
           }
           partResults.push(finished.result);
+          if (isAnalyze) this.applyAnalyzePart(finished.result, partResults);
         }
 
         if (isAnalyze) {
@@ -479,6 +497,17 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         this.activeJob = null;
         rememberJob(null);
       }
+    },
+
+    /** Tempel hasil satu part ke tabel preview & ringkasan aman/gagal langsung (tanpa menunggu semua part). */
+    applyAnalyzePart(result: unknown, allResults: Array<Record<string, any> | null | undefined>) {
+      if (!isPartAnalyzeResponse(result)) return;
+      this.previewAnalysis = indexTablePreview({ ...this.previewAnalysis }, result.data.table_preview);
+      const summary = summarizePart(result);
+      this.analyzeParts = [...this.analyzeParts.filter((p) => p.part !== summary.part), summary].sort(
+        (a, b) => a.part - b.part,
+      );
+      this.liveAnalyze = mergeAnalyzeResults(allResults);
     },
 
     /** Poll satu job sampai selesai (dipakai loop part Feature). */
@@ -589,7 +618,10 @@ export const useDocumentUploadStore = defineStore("document-upload", {
 
       const isAnalyze = job.kind === "analyze";
       if (job.status === "succeeded") {
-        if (isAnalyze) this.summaryAnalyze = job.result ?? {};
+        if (isAnalyze) {
+          this.applyAnalyzePart(job.result, [job.result]);
+          this.summaryAnalyze = job.result ? mergeAnalyzeResults([job.result]) : {};
+        }
         else this.executeResponse = job.result ?? {};
         if (isAnalyze && !this.selectedFile) {
           this.errorMessage =

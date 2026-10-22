@@ -3,6 +3,9 @@ import { computed, reactive, ref, watch, onMounted } from "vue";
 import Header from "~/components/Header.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
+import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
+import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
+import { GROUP_FILTER_DEFS, findGroupColumns } from "~/utils/uploadPreviewFilters";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
 defineOptions({
@@ -45,7 +48,71 @@ const previewRows = computed(() =>
   })),
 );
 
-const filteredPreviewRows = computed(() => {
+// ---- Kolom hasil analisa (ditempel per part lewat no_preview) & filter gaya Excel ----
+const ANALYSIS_COLUMNS = [
+  { key: "status_analisa", label: "Status Analisa" },
+  { key: "kode_gagal", label: "Kode Gagal" },
+  { key: "alasan_gagal", label: "Alasan Gagal" },
+] as const;
+const GEOMETRY_COLUMN = "__geometry__";
+
+const hasAnalysisColumns = computed(() => Object.keys(documentUploadStore.previewAnalysis).length > 0);
+
+/** Kolom pengelompokan (group/perusahaan/area/estate/afdeling/blok) yang ada di file. */
+const groupColumns = computed(() => findGroupColumns(previewHeaders.value));
+
+const columnFilters = reactive<Record<string, string[] | null>>({});
+
+function cellValue(row: { feature: any; number: number }, column: string): string {
+  if (column === GEOMETRY_COLUMN) return String(row.feature.geometry?.type ?? "");
+  if (ANALYSIS_COLUMNS.some((c) => c.key === column)) {
+    const analysisRow = documentUploadStore.previewAnalysis[row.number] as Record<string, unknown> | undefined;
+    if (!analysisRow) return column === "status_analisa" ? "BELUM DIANALISA" : "";
+    return String(analysisRow[column] ?? "");
+  }
+  const value = row.feature.properties?.[column];
+  return value == null ? "" : String(value).trim();
+}
+
+function passesFilters(row: { feature: any; number: number }, except?: string): boolean {
+  for (const [column, selected] of Object.entries(columnFilters)) {
+    if (!selected || column === except) continue;
+    if (!selected.includes(cellValue(row, column))) return false;
+  }
+  return true;
+}
+
+function filterOptions(column: string): Array<{ value: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const row of searchedPreviewRows.value) {
+    if (!passesFilters(row, column)) continue;
+    const value = cellValue(row, column);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => a.value.localeCompare(b.value, "id", { numeric: true }));
+}
+
+function setColumnFilter(column: string, value: string[] | null) {
+  columnFilters[column] = value;
+}
+
+const activeFilterCount = computed(() => Object.values(columnFilters).filter((v) => v !== null).length);
+
+function clearAllFilters() {
+  for (const key of Object.keys(columnFilters)) columnFilters[key] = null;
+}
+
+const analysisStatusCounts = computed(() => {
+  const rows = Object.values(documentUploadStore.previewAnalysis);
+  const gagal = rows.filter((r) => r.status_analisa === "GAGAL").length;
+  return { total: rows.length, aman: rows.length - gagal, gagal };
+});
+
+const filteredPreviewRows = computed(() => searchedPreviewRows.value.filter((row) => passesFilters(row)));
+
+const searchedPreviewRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
   if (!query) return previewRows.value;
 
@@ -177,6 +244,16 @@ watch(searchQuery, () => {
   currentPage.value = 1;
 });
 
+watch(columnFilters, () => {
+  currentPage.value = 1;
+}, { deep: true });
+
+// File baru -> filter lama tidak berlaku lagi.
+watch(
+  () => documentUploadStore.selectedFile,
+  () => clearAllFilters(),
+);
+
 watch(totalPages, (newTotal) => {
   if (currentPage.value > newTotal) currentPage.value = newTotal;
 });
@@ -236,6 +313,8 @@ async function gotoDashboard() {
 }
 
 // Hasil analyze: layer bawaan & sawit membungkusnya di `data`, batas blok & layer dinamis tidak.
+const liveAnalysis = computed<Record<string, any>>(() => documentUploadStore.liveAnalyze ?? {});
+
 const analysis = computed<Record<string, any>>(() => {
   const summary = documentUploadStore.summaryAnalyze;
   const rawData = summary.data ?? summary;
@@ -578,23 +657,89 @@ watch(
             </div>
           </div>
 
+          <!-- Filter cepat kolom pengelompokan (gaya Excel) -->
+          <div v-if="groupColumns.length || hasAnalysisColumns"
+            class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-default bg-surface px-3 py-2">
+            <span class="text-size-sm font-semibold text-brand">Filter:</span>
+            <template v-for="group in groupColumns" :key="group.column">
+              <span class="text-size-xs text-muted">{{ group.label }}</span>
+              <UploadColumnFilter :label="group.column" :model-value="columnFilters[group.column] ?? null"
+                :load-options="() => filterOptions(group.column)"
+                @update:model-value="(v) => setColumnFilter(group.column, v)" />
+            </template>
+            <template v-if="hasAnalysisColumns">
+              <span class="text-size-xs text-muted">Status Analisa</span>
+              <UploadColumnFilter label="status_analisa" :model-value="columnFilters.status_analisa ?? null"
+                :load-options="() => filterOptions('status_analisa')"
+                @update:model-value="(v) => setColumnFilter('status_analisa', v)" />
+              <span class="text-size-xs text-muted">Kode Gagal</span>
+              <UploadColumnFilter label="kode_gagal" :model-value="columnFilters.kode_gagal ?? null"
+                :load-options="() => filterOptions('kode_gagal')"
+                @update:model-value="(v) => setColumnFilter('kode_gagal', v)" />
+            </template>
+            <button v-if="activeFilterCount" type="button" class="ml-auto text-size-xs font-semibold text-brand underline"
+              @click="clearAllFilters">
+              Hapus semua filter ({{ activeFilterCount }})
+            </button>
+          </div>
+
+          <p v-if="hasAnalysisColumns" class="mb-2 text-size-sm text-muted">
+            Hasil analisa: {{ analysisStatusCounts.total.toLocaleString("id-ID") }} dari
+            {{ documentUploadStore.featureCount.toLocaleString("id-ID") }} data sudah dianalisa —
+            <span class="font-semibold text-success">{{ analysisStatusCounts.aman.toLocaleString("id-ID") }} aman</span>,
+            <span class="font-semibold text-error-dark">{{ analysisStatusCounts.gagal.toLocaleString("id-ID") }} gagal</span>.
+          </p>
+
           <div class="overflow-x-auto rounded-xl border border-default">
             <table class="min-w-full bg-surface text-size-sm">
               <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">No</th>
-                  <th class="px-3 py-2 font-bold">Geometry</th>
-                  <th v-for="header in previewHeaders" :key="header" class="px-3 py-2 font-bold">
-                    {{ header }}
+                  <template v-if="hasAnalysisColumns">
+                    <th v-for="col in ANALYSIS_COLUMNS" :key="col.key" class="whitespace-nowrap px-3 py-2 font-bold">
+                      <div class="flex items-center gap-1">
+                        {{ col.label }}
+                        <UploadColumnFilter compact :label="col.label" :model-value="columnFilters[col.key] ?? null"
+                          :load-options="() => filterOptions(col.key)"
+                          @update:model-value="(v) => setColumnFilter(col.key, v)" />
+                      </div>
+                    </th>
+                  </template>
+                  <th class="px-3 py-2 font-bold">
+                    <div class="flex items-center gap-1">
+                      Geometry
+                      <UploadColumnFilter compact label="Geometry" :model-value="columnFilters[GEOMETRY_COLUMN] ?? null"
+                        :load-options="() => filterOptions(GEOMETRY_COLUMN)"
+                        @update:model-value="(v) => setColumnFilter(GEOMETRY_COLUMN, v)" />
+                    </div>
+                  </th>
+                  <th v-for="header in previewHeaders" :key="header" class="whitespace-nowrap px-3 py-2 font-bold">
+                    <div class="flex items-center gap-1">
+                      {{ header }}
+                      <UploadColumnFilter compact :label="header" :model-value="columnFilters[header] ?? null"
+                        :load-options="() => filterOptions(header)"
+                        @update:model-value="(v) => setColumnFilter(header, v)" />
+                    </div>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="paginatedPreviewRows.length === 0">
-                  <td :colspan="previewHeaders.length + 2" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                  <td :colspan="previewHeaders.length + 2 + (hasAnalysisColumns ? ANALYSIS_COLUMNS.length : 0)"
+                    class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
                 </tr>
-                <tr v-for="row in paginatedPreviewRows" :key="row.number" class="border-t border-row">
+                <tr v-for="row in paginatedPreviewRows" :key="row.number" class="border-t border-row"
+                  :class="documentUploadStore.previewAnalysis[row.number]?.status_analisa === 'GAGAL' ? 'bg-error-light' : ''">
                   <td class="px-3 py-2">{{ row.number }}</td>
+                  <template v-if="hasAnalysisColumns">
+                    <td class="whitespace-nowrap px-3 py-2 font-semibold"
+                      :class="documentUploadStore.previewAnalysis[row.number]?.status_analisa === 'GAGAL'
+                        ? 'text-error-dark' : documentUploadStore.previewAnalysis[row.number] ? 'text-success' : 'text-muted'">
+                      {{ documentUploadStore.previewAnalysis[row.number]?.status_analisa ?? "Menunggu" }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.kode_gagal ?? "-" }}</td>
+                    <td class="min-w-[220px] px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}</td>
+                  </template>
                   <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
                   <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
                     {{ row.feature.properties?.[header] ?? "-" }}
@@ -640,11 +785,27 @@ watch(
           </div>
         </section>
 
+        <!-- Hasil part yang sudah selesai, tampil langsung selama analisa masih berjalan -->
+        <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length === 0 && documentUploadStore.analyzeParts.length"
+          class="mt-6 bg-surface rounded-2xl border border-default p-6 shadow-sm">
+          <h3 class="mb-4 text-18 font-bold text-brand">
+            Hasil Analisis Sementara ({{ documentUploadStore.analyzeParts.length }} dari
+            {{ liveAnalysis.total_part ?? documentUploadStore.analyzeParts.length }} part)
+          </h3>
+          <UploadAnalysisGroups :analysis="liveAnalysis" :parts="documentUploadStore.analyzeParts" />
+        </div>
+
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
           <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
             <h3 class="mb-4 text-18 font-bold text-brand">Hasil Analisis</h3>
             <UploadAnalysisResult :analysis="analysis" />
+          </div>
+
+          <div v-if="analysis.analisa_aman || analysis.analisa_gagal"
+            class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
+            <h3 class="mb-4 text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
+            <UploadAnalysisGroups :analysis="analysis" :parts="documentUploadStore.analyzeParts" />
           </div>
 
           <div v-if="!executeFinished" class="mt-4 flex justify-end gap-2">
