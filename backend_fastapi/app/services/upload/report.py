@@ -155,4 +155,6 @@ def build(
             "per_estate": estate_summary(db, block_ids or []),
             "data_ditolak": sorted(report.rejected, key=lambda r: r["no_preview"])[:DETAIL_LIMIT],
         },
+        # Daftar lengkap (tanpa batas) untuk table_preview per part; tidak ikut ke respons.
+        "penolakan": sorted(report.rejected, key=lambda r: r["no_preview"]),
     }

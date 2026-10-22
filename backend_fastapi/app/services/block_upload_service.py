@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.data_version import GEOJSON, bump
+from app.services.upload import context as part_context
 from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.progress import SILENT, Progress
@@ -427,6 +428,17 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
             "blok_kembar_di_master": [{"blok": _block_label(b["item"]), "afdeling_master": b["kembar"]}
                                       for b in twin_blocks[:DETAIL_LIMIT]],
         },
+        # Daftar lengkap fitur yang tidak akan disimpan (untuk table_preview per part).
+        "_penolakan": sorted(
+            [{"no_preview": r["no_preview"], "kode": "ATRIBUT_BLOK_KOSONG",
+              "alasan": "Kosong: " + ", ".join(r["atribut_kosong"])} for r in invalid_rows]
+            + [{"no_preview": r["no_preview"], "kode": "GEOMETRI_TIDAK_VALID",
+                "alasan": f"Geometri blok {r['blok']} kosong atau bukan poligon."} for r in invalid_geom_rows]
+            + [{"no_preview": n + 1, "kode": "BLOK_KEMBAR_DI_MASTER",
+                "alasan": f"Blok {b['item'].block} di master tercatat di afdeling {', '.join(b['kembar'])}; "
+                          "tentukan blok yang benar dulu."} for b in twin_blocks for n in b["fitur"]],
+            key=lambda r: r["no_preview"]),
+        "_total_fitur": len(features),
     }
 
 
@@ -617,10 +629,17 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
                 text("""
                     INSERT INTO spatial.block_boundaries (block_id, period, geom, upload_batch_id)
                     VALUES (:b, :p, CAST(:g AS geometry), :batch)
-                    ON CONFLICT (block_id, period) DO UPDATE SET geom = EXCLUDED.geom, upload_batch_id = EXCLUDED.upload_batch_id
+                    ON CONFLICT (block_id, period) DO UPDATE SET
+                        -- Potongan blok yang sama dari part lain grup upload ini digabung, bukan ditimpa.
+                        geom = CASE
+                            WHEN spatial.block_boundaries.upload_batch_id = ANY(CAST(:protected_batches AS uuid[]))
+                            THEN ST_Multi(ST_CollectionExtract(ST_MakeValid(
+                                     ST_Union(spatial.block_boundaries.geom, EXCLUDED.geom)), 3))
+                            ELSE EXCLUDED.geom END,
+                        upload_batch_id = EXCLUDED.upload_batch_id
                 """),
                 {"b": block_id, "p": period, "g": to_ewkb(merge_polygons([i.geom for i in entry["items"]])),
-                 "batch": str(batch_id)},
+                 "batch": str(batch_id), **part_context.protected_params()},
             )
             savepoint.commit()
             success += len(entry["features"])

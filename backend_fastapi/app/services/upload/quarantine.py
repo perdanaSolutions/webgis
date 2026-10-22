@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.upload import context
 from app.utils.parsing import json_safe
 
 
@@ -48,11 +49,12 @@ def save(db: Session, batch_id: UUID, target_table: str, rejected: list[Rejected
     """Simpan baris yang ditolak. Mengembalikan jumlah baris yang dikarantina."""
     if not rejected:
         return 0
+    offset = context.current().offset  # part ke-n: nomor fitur global = offset + nomor di part
     db.execute(text("""
         INSERT INTO quarantine.rows (source_table, source_id, reason, reason_code, action, data, upload_batch_id)
         VALUES (:table, :no, :reason, :code, 'NOT_LOADED', CAST(:data AS jsonb), :batch)
     """), [
-        {"table": target_table, "no": str(r.no), "reason": r.reason[:2000], "code": r.code[:50],
+        {"table": target_table, "no": str(r.no + offset), "reason": r.reason[:2000], "code": r.code[:50],
          "data": _json(r.data), "batch": str(batch_id)}
         for r in rejected
     ])

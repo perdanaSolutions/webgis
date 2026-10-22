@@ -27,7 +27,7 @@ CANCELLED_MESSAGE = "Dibatalkan oleh pengguna. Tidak ada data yang disimpan."
 _VIEW = """
     SELECT j.id, j.status, j.kind, j.layer, j.bulan, j.tahun, j.filename, j.file_size, j.stage, j.message,
            j.progress_current, j.progress_total, j.error_message, j.batch_id, j.cancel_requested,
-           j.upload_group_id, j.part_index, j.part_total,
+           j.upload_group_id, j.part_index, j.part_total, j.feature_offset,
            j.created_at, j.started_at, j.finished_at,
            EXTRACT(EPOCH FROM COALESCE(j.finished_at, now()) - COALESCE(j.started_at, j.created_at))::int AS elapsed,
            CASE WHEN j.status = 'queued' THEN (
@@ -60,6 +60,7 @@ def _view(row, with_result: bool = False) -> dict:
         "upload_group_id": str(row["upload_group_id"]) if row["upload_group_id"] else None,
         "part_index": row["part_index"],
         "part_total": row["part_total"],
+        "feature_offset": row["feature_offset"],
         "created_at": row["created_at"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
@@ -83,7 +84,7 @@ def _fetch(db: Session, job_id: UUID, user_id: UUID, with_result: bool = False) 
 
 def create(db: Session, *, user_id: UUID, kind: str, layer: str, bulan: int, tahun: int, filename: str | None,
            content: bytes, upload_group_id: UUID | None = None, part_index: int | None = None,
-           part_total: int | None = None) -> dict:
+           part_total: int | None = None, feature_offset: int = 0) -> dict:
     """Antrekan satu file GeoJSON. FE boleh mengirim beberapa part Feature (≤1000/part) dengan
     `upload_group_id` + `part_index`/`part_total`; tiap part = satu job worker terpisah."""
     if (part_index is None) ^ (part_total is None):
@@ -102,18 +103,19 @@ def create(db: Session, *, user_id: UUID, kind: str, layer: str, bulan: int, tah
     job_id = db.execute(text("""
         INSERT INTO audit.upload_jobs (
             user_id, kind, layer, bulan, tahun, filename, file_size, content, message,
-            upload_group_id, part_index, part_total
+            upload_group_id, part_index, part_total, feature_offset
         )
         VALUES (
             :u, :kind, :layer, :bulan, :tahun, :filename, :size, :content, :message,
-            :group_id, :part_index, :part_total
+            :group_id, :part_index, :part_total, :feature_offset
         )
         RETURNING id
     """), {"u": str(user_id), "kind": kind, "layer": layer, "bulan": bulan, "tahun": tahun,
            "filename": (filename or "")[:255] or None, "size": len(content), "content": content,
            "message": message,
            "group_id": str(upload_group_id) if upload_group_id else None,
-           "part_index": part_index, "part_total": part_total}).scalar_one()
+           "part_index": part_index, "part_total": part_total,
+           "feature_offset": max(int(feature_offset or 0), 0)}).scalar_one()
     db.commit()
     return _fetch(db, job_id, user_id)
 
@@ -163,7 +165,8 @@ def claim_next(engine: Engine) -> dict | None:
                 SELECT id FROM audit.upload_jobs WHERE status = 'queued'
                 ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
             )
-            RETURNING id, user_id, kind, layer, bulan, tahun, filename, content
+            RETURNING id, user_id, kind, layer, bulan, tahun, filename, content,
+                      upload_group_id, part_index, part_total, feature_offset
         """), {"msg": stage_message("membaca_file")}).mappings().first()
     return dict(row) if row else None
 
@@ -274,3 +277,20 @@ class Heartbeat:
     def __exit__(self, *_exc) -> None:
         self._stop.set()
         self._thread.join(timeout=self.interval)
+
+
+def group_batch_ids(engine_or_db, upload_group_id: UUID | None, exclude_job_id: UUID | None = None) -> list[str]:
+    """batch_id simpan milik part LAIN dalam grup upload yang sama. Data yang baru saja disimpan
+    part sebelumnya tidak boleh ikut terhapus sebagai "data lama periode ini" oleh part berikutnya."""
+    if upload_group_id is None:
+        return []
+    sql = text("""
+        SELECT DISTINCT batch_id::text FROM audit.upload_jobs
+        WHERE upload_group_id = :g AND batch_id IS NOT NULL AND kind = 'execute'
+          AND (CAST(:j AS uuid) IS NULL OR id <> CAST(:j AS uuid))
+    """)
+    params = {"g": str(upload_group_id), "j": str(exclude_job_id) if exclude_job_id else None}
+    if isinstance(engine_or_db, Engine):
+        with engine_or_db.connect() as conn:
+            return [r[0] for r in conn.execute(sql, params)]
+    return [r[0] for r in engine_or_db.execute(sql, params)]

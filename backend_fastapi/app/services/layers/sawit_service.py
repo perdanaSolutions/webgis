@@ -23,6 +23,7 @@ from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
+from app.services.upload import context as part_context
 from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import (
     BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
@@ -146,6 +147,8 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
         "contoh_blok_tidak_ditemukan": prepared.match.unmatched_samples,
         "peringatan": detail["peringatan"],
         "rincian": detail["rincian"],
+        "_penolakan": detail["penolakan"],
+        "_total_fitur": prepared.total,
     }
 
 
@@ -177,10 +180,13 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
             replaced = db.execute(text("""
                 DELETE FROM spatial.tree_censuses tc
                 WHERE tc.period = :p AND (
-                    tc.block_id IN (SELECT DISTINCT block_id FROM _sawit_stage)
+                    -- blok di part ini, kecuali sensus yang baru disimpan part lain dari grup upload yang sama
+                    (tc.block_id IN (SELECT DISTINCT block_id FROM _sawit_stage)
+                     AND (tc.upload_batch_id IS NULL
+                          OR NOT (tc.upload_batch_id = ANY(CAST(:protected_batches AS uuid[])))))
                     OR tc.palm_tree_id IN (SELECT pt.id FROM spatial.palm_trees pt JOIN _sawit_stage s USING (objectid))
                 )
-            """), {"p": period}).rowcount
+            """), {"p": period, **part_context.protected_params()}).rowcount
             db.execute(text("""
                 INSERT INTO spatial.tree_censuses (palm_tree_id, period, block_id, category_id, diameter, spacing, upload_batch_id)
                 SELECT pt.id, :p, s.block_id, s.category_id, s.diameter, s.spacing, :batch
