@@ -224,6 +224,8 @@ def layer_data_areal(db: Session, flt: BlockFilter, as_of: date | None, tanam_al
             "landuse": non_tanam["periode"] if non_tanam else None,
         },
         "areal_tanam": tanam,
+        "populasi": summary["populasi"] if summary else None,
+        "tidak_tertanam_dalam_blok": summary["tidak_tertanam_dalam_blok"] if summary else None,
         "areal_non_tanam": non_tanam,
         "total": total,
     }

@@ -658,14 +658,14 @@ def test_year_to_date_bjr_is_total_tbs_over_total_bunches(client, auth, sample_b
                          {"b": sample_block["id"]})
 
 
-def test_area_statement_summary_matches_history_and_is_consistent(client, auth, sample_block):
+def test_layer_data_areal_matches_history_and_is_consistent(client, auth, sample_block):
     params = {"kode_est": sample_block["estate"]}
-    summary = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params=params)
+    summary = client.get("/api/v1/spatial/layer-data/areal", headers=auth, params=params)
     assert summary.status_code == 200, summary.text
     summary = summary.json()
     history = client.get("/api/v1/spatial/history", headers=auth,
                          params={"table": "trx_areal_statement", **params}).json()["data"]
-    tanam = summary["tanam"]
+    tanam = summary["areal_tanam"]
     assert tanam["total_luas_tanam"] == history["group_tahun_tanam"]["total_luas_tanam"]
     assert [(r["tahun_tanam"], r["luas_tanam"]) for r in tanam["per_tahun_tanam"]] == [
         (r["tahun_tanam"], r["luas_tanam"]) for r in history["group_tahun_tanam"]["details"]]
@@ -677,7 +677,7 @@ def test_area_statement_summary_matches_history_and_is_consistent(client, auth, 
     classified = sum(c["luas_tanam"] for c in populasi["kelas"]) + populasi["tanpa_sph"]["luas_tanam"]
     assert abs(classified - tanam["total_luas_tanam"]) < 0.05
     assert summary["tidak_tertanam_dalam_blok"]["luas"] >= 0
-    non_tanam = summary["non_tanam"]
+    non_tanam = summary["areal_non_tanam"]
     if non_tanam is not None:  # null bila belum ada data landuse di database
         rows = non_tanam["per_baris"]
         detail = [d["kategori"].lower() for r in rows for d in r["rincian"]]
@@ -686,24 +686,18 @@ def test_area_statement_summary_matches_history_and_is_consistent(client, auth, 
         assert all(round(sum(d["luas"] for d in r["rincian"]), 1) == round(r["luas"], 1) for r in rows)
         assert abs(non_tanam["grand_total_areal"] - (tanam["total_luas_tanam"] + non_tanam["total_luas"])) < 0.02
 
-    old = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth,
+    old = client.get("/api/v1/spatial/layer-data/areal", headers=auth,
                      params={**params, "bulan": 1, "tahun": 1900}).json()
-    assert old["periode"] is None and old["tanam"]["jumlah_blok"] == 0 and old["tanam"]["per_status"] == []
-    assert old["non_tanam"] is None
+    assert old["periode"]["areal_statement"] is None and old["areal_tanam"]["jumlah_blok"] == 0
+    assert old["areal_tanam"]["per_status"] == [] and old["areal_non_tanam"] is None
 
 
-def test_layer_data_areal_is_consistent_with_summary(client, auth, sample_block):
+def test_layer_data_areal_is_internally_consistent(client, auth, sample_block):
     params = {"kode_est": sample_block["estate"]}
     response = client.get("/api/v1/spatial/layer-data/areal", headers=auth, params=params)
     assert response.status_code == 200, response.text
     data = response.json()
-    summary = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params=params).json()
 
-    assert data["areal_tanam"] == {
-        **summary["tanam"],
-        "per_status": data["areal_tanam"]["per_status"], "per_tahun_tanam": data["areal_tanam"]["per_tahun_tanam"],
-    }
-    assert data["periode"]["areal_statement"] == summary["periode"]
     tanam = data["areal_tanam"]
     assert round(sum(r["luas_tanam"] for r in tanam["per_tahun_tanam"]), 1) == round(tanam["total_luas_tanam"], 1)
 
@@ -742,6 +736,7 @@ def test_layer_data_areal_hides_sections_without_access(sample_block):
         flt = BlockFilter(kode_est=sample_block["estate"])
         only_non_tanam = layer_data_areal(db, flt, None, tanam_allowed=False, non_tanam_allowed=True)
         assert only_non_tanam["areal_tanam"] is None and only_non_tanam["total"] is None
+        assert only_non_tanam["populasi"] is None and only_non_tanam["tidak_tertanam_dalam_blok"] is None
         assert only_non_tanam["periode"]["areal_statement"] is None
         if only_non_tanam["areal_non_tanam"] is not None:  # luas tanam tidak diketahui tanpa hak areal statement
             assert only_non_tanam["areal_non_tanam"]["grand_total_areal"] is None
@@ -783,6 +778,6 @@ def test_block_detail_non_tanam_matches_landuse(client, auth):
     assert non_tanam is not None and non_tanam["per_baris"]
     assert round(sum(r["luas"] for r in non_tanam["per_baris"]), 1) == round(non_tanam["total_luas"], 1)
     assert abs(non_tanam["grand_total_areal"] - (detail["informasi_blok"]["luas_tanam"] + non_tanam["total_luas"])) < 0.02
-    only = client.get("/api/v1/spatial/areal-statement/ringkasan", headers=auth, params={
+    only = client.get("/api/v1/spatial/layer-data/areal", headers=auth, params={
         "blok_id": row.block_id, "bulan": row.period.month, "tahun": row.period.year}).json()
-    assert only["non_tanam"]["total_luas"] == non_tanam["total_luas"]
+    assert only["areal_non_tanam"]["total_luas"] == non_tanam["total_luas"]

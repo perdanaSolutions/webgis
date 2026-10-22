@@ -215,6 +215,6 @@ def get_block_detail(
                 "kode_afd": master["division_code"], "nama_afd": master["division_code"],
             },
         },
-        # Areal non-tanam blok dari layer landuse (baris laporan sama dengan /areal-statement/ringkasan); null bila tanpa data landuse.
+        # Areal non-tanam blok dari layer landuse (baris laporan sama dengan /layer-data/areal); null bila tanpa data landuse.
         "non_tanam": non_tanam_summary(db, "SELECT CAST(:bid AS bigint)", {"bid": block_id}, period, luas),
     }
