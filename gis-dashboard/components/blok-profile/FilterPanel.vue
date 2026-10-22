@@ -32,6 +32,8 @@ const props = defineProps<{
   scopeLevel: ScopeLevel;
   blockCount: number;
   loading: boolean;
+  /** Ada isian yang berbeda dari filter terapan (perlu Apply). */
+  dirty: boolean;
   layers: OverlayLayer[];
   showBlocks: boolean;
   showYieldGap: boolean;
@@ -53,6 +55,7 @@ const emit = defineEmits<{
   (e: "update:bulanComparison" | "update:tahunComparison", value: string): void;
   (e: "update:yearToDate", value: boolean): void;
   (e: "reset"): void;
+  (e: "apply"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
   (e: "toggle-yield-gap"): void;
@@ -104,7 +107,9 @@ const scopeInfo = computed(() => {
   const base = props.scopeLevel === "blok"
     ? `Pilihan: Blok${suffix}`
     : `Pilihan: ${SCOPE_TEXT[props.scopeLevel]}${suffix} · ${props.blockCount.toLocaleString("id-ID")} blok di peta terapan`;
-  return `${base}. Peta dan data transaksi dimuat otomatis mengikuti pilihan ini.`;
+  return props.dirty
+    ? `${base}. Ada perubahan yang belum diterapkan, klik Apply untuk memuat peta dan data transaksi.`
+    : `${base}. Peta dan data transaksi sudah mengikuti pilihan ini.`;
 });
 
 /** Pembanding dipakai hanya bila bulan dan tahunnya diisi. */
@@ -170,8 +175,18 @@ function onField(key: FieldKey, value: unknown) {
           </svg>
           Filter Kebun
         </h2>
-        <button type="button" class="text-13 font-semibold text-[#638840] hover:underline disabled:opacity-40"
-          :disabled="loading" @click="emit('reset')">Reset</button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button type="button" class="text-13 font-semibold text-[#638840] hover:underline disabled:opacity-40"
+            :disabled="loading" @click="emit('reset')">Reset</button>
+          <button type="button" data-filter-apply
+            class="relative rounded-lg bg-[#638840] px-3 py-1.5 text-13 font-semibold text-white hover:bg-[#557536] disabled:opacity-40"
+            :disabled="loading" :title="dirty ? 'Terapkan perubahan filter' : 'Muat ulang dengan filter ini'"
+            @click="emit('apply')">
+            Apply
+            <span v-if="dirty" class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[#f59e0b] ring-2 ring-white"
+              aria-label="Ada perubahan yang belum diterapkan" />
+          </button>
+        </div>
       </div>
 
       <template v-for="field in fields" :key="`${filterGeneration}-${field.key}`">

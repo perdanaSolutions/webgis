@@ -22,6 +22,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.area_statement_summary_service import PLANTING_YEAR_COLORS
 from app.services.block_detail_service import _yield_ton_ha, bjr_sql, gap_kategori, gap_value
 from app.services.block_filter import BlockFilter, statement_as_of_join
 from app.services.hierarchy_service import BLOCK_ATTRIBUTE_COLUMNS
@@ -44,17 +45,6 @@ def _money(value) -> float:
 
 def _optional_money(value) -> float:
     return _money(value) if value is not None else 0.0
-
-
-# Warna blok per tahun tanam (layer Tahun Tanam), sesuai tabel warna laporan areal statement.
-# Tahun di luar tabel tidak punya warna (null).
-PLANTING_YEAR_COLORS = {
-    2005: "#008000", 2006: "#FF6600", 2007: "#0000FF", 2008: "#FF0000", 2009: "#FFFF00",
-    2010: "#800080", 2011: "#CCFFCC", 2012: "#FFAF79", 2013: "#66FFFF", 2014: "#FF99FF",
-    2015: "#FFFF99", 2016: "#CC66FF", 2017: "#808080", 2018: "#964B00", 2019: "#00FF00",
-    2020: "#FF0080", 2021: "#000080", 2022: "#FFD700", 2023: "#800000", 2024: "#FFC0CB",
-    2025: "#C0C0C0",
-}
 
 
 def _statement_payload(period: date, row) -> dict:

@@ -128,7 +128,7 @@ def test_blocks_geojson_month_matches_block_detail(client, auth, sample_block):
         "blok_id": sample_block["id"], "bulan": period.month, "tahun": period.year,
     }).json()["informasi_blok"]
     assert props["areal_statement"]["luas_tanam"] == detail["luas_tanam"]
-    from app.services.map_service import PLANTING_YEAR_COLORS
+    from app.services.area_statement_summary_service import PLANTING_YEAR_COLORS
     tahun_tanam = props["areal_statement"]["tahun_tanam"]
     assert props["areal_statement"]["warna_tahun_tanam"] == PLANTING_YEAR_COLORS.get(tahun_tanam)
     assert prod["luas_tanam"] == detail["luas_tanam"]
@@ -705,6 +705,8 @@ def test_layer_data_areal_is_internally_consistent(client, auth, sample_block):
 
     tanam = data["areal_tanam"]
     assert round(sum(r["luas_tanam"] for r in tanam["per_tahun_tanam"]), 1) == round(tanam["total_luas_tanam"], 1)
+    from app.services.area_statement_summary_service import PLANTING_YEAR_COLORS
+    assert all(r["warna"] == PLANTING_YEAR_COLORS.get(r["tahun_tanam"]) for r in tanam["per_tahun_tanam"])
 
     non_tanam = data["areal_non_tanam"]
     if non_tanam is None:  # null bila belum ada data landuse di database

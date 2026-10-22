@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 
 import type { AreaStatementHistory } from "~/stores/blokProfileStore";
+import { buildArealReport } from "~/utils/arealStatementReport";
 
 const PAGE_SIZE = 10;
 
@@ -19,6 +20,29 @@ const areaCode = computed(() => {
   const code = groups.value?.group_tahun_tanam?.area_code || groups.value?.group_divisi?.area_code;
   return code ? String(code) : "";
 });
+
+const summary = computed(() => props.data?.ringkasan_areal ?? null);
+const reportRows = computed(() => buildArealReport(summary.value));
+const reportPeriod = computed(() => {
+  const period = summary.value?.periode;
+  if (!period) return "";
+  const parts = [
+    period.areal_statement ? `AS ${period.areal_statement}` : "",
+    period.landuse ? `Landuse ${period.landuse}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+});
+const landuseMissing = computed(() => Boolean(summary.value) && !summary.value?.areal_non_tanam);
+
+function reportHa(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value === 0) return "-";
+  return value.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function reportPct(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  return `${Math.round(value).toLocaleString("id-ID")}%`;
+}
 
 const yearPageCount = computed(() => Math.max(1, Math.ceil(years.value.length / PAGE_SIZE)));
 const divisionPageCount = computed(() => Math.max(1, Math.ceil(divisions.value.length / PAGE_SIZE)));
@@ -127,6 +151,51 @@ watch(divisionPageCount, (count) => {
           </div>
         </div>
       </template>
+    </section>
+
+    <section v-if="summary" class="bp-card flex flex-col gap-3 p-4" data-areal-report>
+      <div class="flex items-baseline justify-between gap-3">
+        <h2 class="text-16 font-bold text-[#1f2a18]">Informasi Areal Statement</h2>
+        <span v-if="reportPeriod" class="shrink-0 text-12 text-[#6e7866]">{{ reportPeriod }}</span>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-[#d5dcc8]">
+        <table class="w-full border-collapse text-left text-12">
+          <thead class="bg-[#e7ecdf] text-[#3d4a34]">
+            <tr>
+              <th class="w-8 px-2 py-2 text-center font-semibold">No</th>
+              <th class="px-2 py-2 font-semibold">Uraian</th>
+              <th class="px-2 py-2 text-right font-semibold">Luas (Ha)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in reportRows" :key="index" class="border-t border-[#e4eadc] text-[#1f2a18]"
+              :class="{
+                'bg-[#f6f8f2] font-bold italic': row.kind === 'total' || row.kind === 'section',
+                'bg-[#e7ecdf] font-bold italic': row.kind === 'grand',
+              }">
+              <td class="px-2 py-1.5 text-center tabular-nums text-[#55604c]">{{ row.no ?? "" }}</td>
+              <td class="px-2 py-1.5" :class="row.kind === 'sub' && 'pl-4'">
+                <span class="inline-flex items-center gap-2">
+                  <span v-if="row.swatch !== undefined" class="h-3 w-5 shrink-0 rounded-[2px] ring-1 ring-black/15"
+                    :style="{ background: row.swatch ?? 'transparent' }" />
+                  <span v-if="row.dot" class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15"
+                    :style="{ background: row.dot }" />
+                  <span class="uppercase">{{ row.label }}</span>
+                </span>
+              </td>
+              <td class="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">
+                <template v-if="row.kind !== 'section'">{{ reportHa(row.luas) }}</template>
+                <span v-if="reportPct(row.persen)" class="ml-1.5 text-11 font-semibold text-[#55604c]">{{
+                  reportPct(row.persen) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="landuseMissing" class="text-11 text-[#6e7866]">
+        Areal non-tanam kosong: belum ada data landuse untuk scope ini atau Anda tidak punya akses layer landuse.
+      </p>
     </section>
 
     <section class="bp-card flex flex-col gap-3 p-4">

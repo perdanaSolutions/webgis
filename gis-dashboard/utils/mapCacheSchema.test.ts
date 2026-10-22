@@ -56,8 +56,8 @@ describe("skema cache peta", () => {
   })
 
   it("memakai versi skema yang sama dengan Redis", () => {
-    expect(MAP_CACHE_SCHEMA).toBe("5")
-    expect(MAP_PWA_CACHE).toBe("gis-map-pwa-v5-api")
+    expect(MAP_CACHE_SCHEMA).toBe("6")
+    expect(MAP_PWA_CACHE).toBe("gis-map-pwa-v6-api")
   })
 
   it("mengenali URL baca spatial dan mengurutkan query", () => {
