@@ -678,8 +678,8 @@ function renderOverlays() {
     const isLine = layer.geometryType.toUpperCase().includes("LINE");
     const geo = Lf.geoJSON(layer.data, {
       pane,
-      renderer: pane === "bp-polygons" ? polygonRenderer ?? undefined : undefined,
       style: (f) => ({
+        ...(pane === "bp-polygons" && polygonRenderer ? { renderer: polygonRenderer } : {}),
         color: isLine ? getOverlayColor(layer.style, f?.properties) : "#ffffff",
         weight: layer.style.weight ?? 1,
         opacity: props.opacity,
