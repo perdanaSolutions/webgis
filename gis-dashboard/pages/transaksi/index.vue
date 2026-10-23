@@ -17,15 +17,20 @@ const currentPage = ref(1);
 const itemsPerPage = 8;
 
 const kind = computed(() => trxUploadStore.kind);
+const busyLabel = computed(() => {
+  if (trxUploadStore.isReading) return "Membaca file...";
+  if (trxUploadStore.isAnalyzing) return "Menganalisis, data belum disimpan...";
+  return "Mengimpor data...";
+});
 const analysis = computed(() => trxUploadStore.analysis);
 const hasNoValidData = computed(() => analysis.value?.status_analisis === "TIDAK_ADA_DATA_VALID");
 const previewRows = computed(() => trxUploadStore.previewRows);
 
-const missingHeaders = computed(() =>
-  trxUploadStore.fileMode && trxUploadStore.headers.length
-    ? missingHeaderGroups(trxUploadStore.headers, kind.value)
-    : [],
-);
+const missingHeaders = computed(() => {
+  const spec = kind.value;
+  if (!trxUploadStore.fileMode || !trxUploadStore.headers.length || !spec) return [];
+  return missingHeaderGroups(trxUploadStore.headers, spec);
+});
 
 const filteredRows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -95,7 +100,12 @@ function formatScalar(value: unknown) {
   return String(value);
 }
 
-const extraDetails = computed(() => {
+type ImportExtraDetail =
+  | { key: string; label: string; kind: "scalar"; value: string }
+  | { key: string; label: string; kind: "list"; items: string[] }
+  | { key: string; label: string; kind: "object"; entries: { key: string; label: string; value: string }[] };
+
+const extraDetails = computed((): ImportExtraDetail[] => {
   const hidden = new Set([
     ...PRIMARY_FIELDS.map((field) => field.key),
     "batch_id",
@@ -106,7 +116,7 @@ const extraDetails = computed(() => {
     "data_lama_ditemukan",
     "data_lama_dihapus",
   ]);
-  return Object.entries(importDetails.value).flatMap(([key, value]) => {
+  return Object.entries(importDetails.value).flatMap(([key, value]): ImportExtraDetail[] => {
     if (hidden.has(key) || value == null || value === "") return [];
     if (Array.isArray(value)) {
       if (!value.length) return [];
@@ -260,16 +270,15 @@ async function gotoDashboard() {
           </button>
           <p v-if="trxUploadStore.selectedFile" class="mt-3 text-size-sm text-label">
             File: <span class="font-semibold">{{ trxUploadStore.selectedFile.name }}</span>
-            <span v-if="trxUploadStore.fileMode === 'excel'"> · Excel<span v-if="trxUploadStore.sheetName"> / {{ trxUploadStore.sheetName }}</span></span>
+            <span v-if="trxUploadStore.fileMode === 'excel'"> · Excel<span v-if="trxUploadStore.sheetName"> / {{
+              trxUploadStore.sheetName }}</span></span>
             <span v-else-if="trxUploadStore.fileMode === 'json'"> · JSON</span>
           </p>
         </div>
 
         <div v-if="trxUploadStore.isReading || trxUploadStore.isAnalyzing || trxUploadStore.isImporting"
           class="mt-5 rounded-xl border border-default bg-surface p-4">
-          <p class="mb-2 font-semibold text-brand">
-            {{ trxUploadStore.isReading ? "Membaca file..." : trxUploadStore.isAnalyzing ? "Menganalisis, data belum disimpan..." : "Mengimpor data..." }}
-          </p>
+          <p class="mb-2 font-semibold text-brand">{{ busyLabel }}</p>
           <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
             <div class="h-full w-full animate-pulse rounded-full bg-gradient-to-r gradient-brand-alt" />
           </div>
@@ -285,7 +294,8 @@ async function gotoDashboard() {
               <h3 class="text-18 font-bold text-brand">Pratinjau data</h3>
               <p class="text-size-sm text-muted">
                 {{ trxUploadStore.rowCount.toLocaleString("id-ID") }} baris
-                <span v-if="trxUploadStore.fileMode === 'excel'">pada sheet pertama. Nomor baris sama dengan baris Excel.</span>
+                <span v-if="trxUploadStore.fileMode === 'excel'">pada sheet pertama. Nomor baris sama dengan baris
+                  Excel.</span>
                 <span v-else>. Import JSON langsung disimpan; endpoint ini tidak punya uji coba.</span>
               </p>
             </div>
@@ -294,7 +304,7 @@ async function gotoDashboard() {
           </div>
 
           <p v-if="missingHeaders.length" class="mb-3 rounded-xl bg-warning-light px-4 py-3 text-size-sm text-warning">
-            Header yang belum terlihat: {{ missingHeaders.map((item) => item.label).join("; ") }}.
+            Header yang belum terlihat: {{missingHeaders.map((item) => item.label).join("; ")}}.
             <template v-if="trxUploadStore.fileMode === 'excel'">
               Analisis tetap bisa dijalankan; laporan server yang menentukan baris mana yang masuk.
             </template>
@@ -312,14 +322,16 @@ async function gotoDashboard() {
               <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">Baris</th>
-                  <th v-for="header in trxUploadStore.headers" :key="header" class="whitespace-nowrap px-3 py-2 font-bold">
+                  <th v-for="header in trxUploadStore.headers" :key="header"
+                    class="whitespace-nowrap px-3 py-2 font-bold">
                     {{ header }}
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="pageRows.length === 0">
-                  <td :colspan="trxUploadStore.headers.length + 1" class="px-3 py-3 text-muted">Tidak ada data yang cocok.</td>
+                  <td :colspan="trxUploadStore.headers.length + 1" class="px-3 py-3 text-muted">Tidak ada data yang
+                    cocok.</td>
                 </tr>
                 <tr v-for="item in pageRows" :key="item.excelRow" class="border-t border-row">
                   <td class="px-3 py-2">{{ item.excelRow }}</td>
@@ -331,7 +343,8 @@ async function gotoDashboard() {
             </table>
           </div>
 
-          <div v-if="filteredRows.length" class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div v-if="filteredRows.length"
+            class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p class="text-size-sm text-muted">
               Menampilkan {{ startItem }} - {{ endItem }} dari {{ filteredRows.length.toLocaleString("id-ID") }} data
             </p>
@@ -382,8 +395,7 @@ async function gotoDashboard() {
               :disabled="trxUploadStore.isBusy" @click="clearFile">
               Batal
             </button>
-            <button type="button"
-              class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
+            <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
               :disabled="trxUploadStore.isBusy || hasNoValidData" @click="askImport">
               Impor data
             </button>
@@ -404,7 +416,8 @@ async function gotoDashboard() {
             </div>
           </div>
           <div v-if="extraDetails.length" class="mt-3 space-y-3">
-            <div v-for="detail in extraDetails" :key="detail.key" class="rounded-xl border border-default-60 bg-surface p-3">
+            <div v-for="detail in extraDetails" :key="detail.key"
+              class="rounded-xl border border-default-60 bg-surface p-3">
               <p class="mb-2 text-size-sm font-semibold text-brand">{{ detail.label }}</p>
               <p v-if="detail.kind === 'scalar'" class="text-size-sm text-label">{{ detail.value }}</p>
               <div v-else-if="detail.kind === 'list'" class="flex flex-wrap gap-2">
@@ -459,8 +472,7 @@ async function gotoDashboard() {
           @click="isOpenConfirm = false">
           Batal
         </button>
-        <button type="button"
-          class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand"
+        <button type="button" class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand"
           @click="confirmImport">
           Impor
         </button>

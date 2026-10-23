@@ -176,7 +176,8 @@ async function gotoDashboard() {
 
 <template>
   <main class="min-h-screen bg-page text-14 text-content">
-    <Header brand-title="Riwayat Upload" brand-subtitle="Jejak file GeoJSON & Excel yang diunggah beserta pengunggahnya" />
+    <Header brand-title="Riwayat Upload"
+      brand-subtitle="Jejak file GeoJSON & Excel yang diunggah beserta pengunggahnya" />
     <div class="mx-auto max-w-[1400px] px-6 py-6 lg:px-10">
       <div class="mb-4 flex items-center justify-between gap-3">
         <div class="flex items-center gap-3">
@@ -205,15 +206,13 @@ async function gotoDashboard() {
             class="h-11 rounded-xl border border-default px-4 outline-none placeholder-text-placeholder md:col-span-2"
             @keyup.enter="onSearch" />
           <select v-model="statusFilter"
-            class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
-            @change="onSearch">
+            class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1" @change="onSearch">
             <option v-for="option in STATUS_OPTIONS" :key="option.label" :value="option.value">
               {{ option.label }}
             </option>
           </select>
           <select v-model="sourceFilter"
-            class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
-            @change="onSearch">
+            class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1" @change="onSearch">
             <option v-for="option in SOURCE_OPTIONS" :key="option.label" :value="option.value">
               {{ option.label }}
             </option>
@@ -289,8 +288,7 @@ async function gotoDashboard() {
                 </td>
               </tr>
 
-              <tr v-if="!uploadHistoryStore.loadingList && !uploadHistoryStore.hasItems"
-                class="border-t border-row">
+              <tr v-if="!uploadHistoryStore.loadingList && !uploadHistoryStore.hasItems" class="border-t border-row">
                 <td colspan="8" class="px-4 py-8 text-center text-muted">
                   Belum ada riwayat upload.
                 </td>

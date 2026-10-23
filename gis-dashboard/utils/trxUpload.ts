@@ -209,8 +209,12 @@ const BLANK_MARKERS = new Set([
   "nan",
 ]);
 
-export function findTrxKind(id: string) {
-  return TRX_KINDS.find((item) => item.id === id) ?? TRX_KINDS[0];
+export function findTrxKind(id: string): TrxKindSpec {
+  const match = TRX_KINDS.find((item) => item.id === id);
+  if (match) return match;
+  const fallback = TRX_KINDS[0];
+  if (!fallback) throw new Error("Katalog jenis transaksi kosong.");
+  return fallback;
 }
 
 export function normalizeCell(value: unknown): string {
