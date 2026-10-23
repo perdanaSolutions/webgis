@@ -2,6 +2,9 @@
   FROM node:22-alpine AS build
   WORKDIR /app
   COPY package*.json ./
+  # postinstall (sync-vendor-security-deps) butuh scripts/ dan vendor/ saat npm ci
+  COPY scripts ./scripts
+  COPY vendor ./vendor
   RUN npm ci --legacy-peer-deps
   COPY . .
   RUN npm run build

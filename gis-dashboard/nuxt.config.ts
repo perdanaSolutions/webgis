@@ -67,6 +67,9 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+      // hand-deskripsi.svg ~9 MB (> limit 2 MiB workbox) bikin build gagal;
+      // tetap dilayani biasa, hanya tidak di-precache service worker.
+      globIgnores: ["**/hand-deskripsi.*.svg"],
       // JSON API peta tidak masuk service worker: isinya tergantung user dan
       // disimpan lewat Cache Storage di utils/mapCacheSchema.ts.
       runtimeCaching: [
