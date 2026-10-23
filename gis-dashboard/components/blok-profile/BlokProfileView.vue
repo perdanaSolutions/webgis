@@ -329,8 +329,6 @@ async function waitForExportData() {
       || (!!store.selectedBlokId && store.loadingDetail)
       || (store.canViewProduction && store.loadingProduction)
       || (store.canViewAreaStatement && store.loadingAreaStatement)
-      || (store.canViewAreaStatement && store.loadingLayerAreal)
-      || (store.canViewAreaStatement && store.loadingAreaSummary)
       || (store.canViewRotation && store.loadingRotation)
       || Boolean(slope?.enabled && slope.loading);
     if (!busy) return;
@@ -729,9 +727,7 @@ onBeforeUnmount(() => {
             :error="slopeLayer?.error ?? ''" :period="slopeLayer?.period ?? ''" />
         </div>
         <div v-else-if="activeRight === 'area'" id="bp-panel-area" class="bp-collapse-panel bp-collapse-stack">
-          <AreaStatementCard :data="store.areaStatementView" :loading="store.loadingAreaStatement"
-            :layer-areal="store.layerAreal" :layer-loading="store.loadingLayerAreal"
-            :area-summary="store.areaSummary" :summary-loading="store.loadingAreaSummary" />
+          <AreaStatementCard :data="store.areaStatementView" :loading="store.loadingAreaStatement" />
         </div>
         <div v-else-if="activeRight === 'rotasi'" id="bp-panel-rotasi" class="bp-collapse-panel">
           <RotationCard :data="store.rotationView" :loading="store.loadingRotation" />
@@ -751,8 +747,6 @@ onBeforeUnmount(() => {
         :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
         :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
         :area-statement="store.areaStatementView" :area-loading="store.loadingAreaStatement"
-        :layer-areal="store.layerAreal" :layer-loading="store.loadingLayerAreal"
-        :area-summary="store.areaSummary" :summary-loading="store.loadingAreaSummary"
         :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
         :rotation-loading="store.loadingRotation" />
 
