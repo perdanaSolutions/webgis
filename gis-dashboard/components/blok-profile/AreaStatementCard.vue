@@ -9,10 +9,6 @@ const PAGE_SIZE = 10;
 const props = defineProps<{
   data: AreaStatementHistory | null;
   loading: boolean;
-  layerAreal: LayerArealData | null;
-  layerLoading: boolean;
-  areaSummary: AreaStatementSummary | null;
-  summaryLoading: boolean;
   expanded?: boolean;
 }>();
 
