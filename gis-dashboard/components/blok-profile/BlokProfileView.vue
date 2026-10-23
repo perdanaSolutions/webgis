@@ -18,7 +18,7 @@ import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
 import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
 import { isAccessTokenExpired } from "~/utils/authSession";
@@ -91,7 +91,18 @@ function onBasemapStatus(status: BasemapStatus) {
 const opacity = ref(80);
 const showBlocks = ref(true);
 const showYieldGap = ref(false);
-const yieldComparisonOn = computed(() => Boolean(store.bulanComparison && store.tahunComparison));
+const showPlantingYear = ref(false);
+/** Yield Gap dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala. */
+function toggleYieldGap() {
+  showYieldGap.value = !showYieldGap.value;
+  if (showYieldGap.value) showPlantingYear.value = false;
+}
+function togglePlantingYear() {
+  showPlantingYear.value = !showPlantingYear.value;
+  if (showPlantingYear.value) showYieldGap.value = false;
+}
+const plantingYears = computed(() => plantingYearLegend(store.visibleBlocks?.features ?? []));
+const yieldComparisonOn = computed(() => Boolean(store.appliedFilter.bulanComparison && store.appliedFilter.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
   OPTIMUM: true,
   "GAP I": true,
@@ -263,20 +274,25 @@ watch(slopeLayerOn, (on) => {
 
 // ------------------------------------------------------------------ aksi
 function onSelectBlock(id: string) {
-  if (!id || store.blokId === id) return;
+  if (!id || store.selectedBlokId === id) return;
   void store.selectBlock(id, "map");
 }
 
 function onDeselectBlock() {
-  const before = store.blokId;
+  const before = store.selectedBlokId;
   mapRef.value?.suppressNextPan();
   store.restoreLastSearch();
-  if (store.blokId === before) mapRef.value?.releasePanSkip();
+  if (store.selectedBlokId === before) mapRef.value?.releasePanSkip();
+}
+
+function onApplyFilters() {
+  void store.applyFilters();
 }
 
 function resetMapLayers() {
   showBlocks.value = true;
   showYieldGap.value = false;
+  showPlantingYear.value = false;
   overlays.disableAll();
 }
 
@@ -285,16 +301,18 @@ async function onResetFilters() {
   await store.reset();
 }
 
+// Baris filter PDF mengikuti filter terapan (yang tergambar di peta), bukan isian yang belum di-Apply.
 const pdfFilterLine = computed(() => {
   const filter = store.summary.filter;
-  const ownership = store.ownershipOptions.find((item) => item.value === store.ownership)?.label || "Semua";
-  const ytdEnd = store.tahun === String(new Date().getFullYear()) ? new Date().getMonth() : 11;
-  const month = store.bulan
-    ? MONTHS[Number(store.bulan) - 1] ?? store.bulan
-    : store.yearToDate
+  const applied = store.appliedFilter;
+  const ownership = store.ownershipOptions.find((item) => item.value === applied.ownership)?.label || "Semua";
+  const ytdEnd = applied.tahun === String(new Date().getFullYear()) ? new Date().getMonth() : 11;
+  const month = applied.bulan
+    ? MONTHS[Number(applied.bulan) - 1] ?? applied.bulan
+    : applied.yearToDate
       ? `Jan s/d ${MONTHS[ytdEnd]}`
       : "Semua bulan";
-  const year = store.tahun || String(new Date().getFullYear());
+  const year = applied.tahun || String(new Date().getFullYear());
   return `Grup ${filter.grup} · PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
 });
 
@@ -308,7 +326,7 @@ async function waitForExportData() {
     const slope = layers.value.find((layer) => layer.code === "slope");
     const busy = layers.value.some((layer) => layer.enabled && layer.loading)
       || store.loadingBlocks
-      || (!!store.blokId && store.loadingDetail)
+      || (!!store.selectedBlokId && store.loadingDetail)
       || (store.canViewProduction && store.loadingProduction)
       || (store.canViewAreaStatement && store.loadingAreaStatement)
       || (store.canViewAreaStatement && store.loadingLayerAreal)
@@ -360,8 +378,10 @@ async function downloadPdf() {
       basemap: basemap.value,
       showBlocks: showBlocks.value,
       showYieldGap: showYieldGap.value,
+      showPlantingYear: showPlantingYear.value,
+      plantingYears: plantingYears.value,
       budgetColors: { ...budgetColors.value },
-      selectedId: store.blokId,
+      selectedId: store.selectedBlokId,
       blocks: showBlocks.value ? store.visibleBlocks : null,
       overlays: layers.value.filter((layer) => layer.enabled && layer.data).map((layer) => ({
         code: layer.code,
@@ -484,8 +504,9 @@ onBeforeUnmount(() => {
     <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
       <section class="absolute inset-0 z-0">
-        <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.blokId" :show-blocks="showBlocks"
-          :show-yield-gap="showYieldGap" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
+        <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId" :show-blocks="showBlocks"
+          :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear" :overlays="layers" :basemap="basemap"
+          :opacity="opacity / 100"
           :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
           :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock"
           @basemap-status="onBasemapStatus" />
@@ -507,7 +528,7 @@ onBeforeUnmount(() => {
           role="status">
           Tanpa jaringan. Menampilkan data peta terakhir yang tersimpan di perangkat ini.
         </div>
-        <div v-else-if="!store.blockFeatures.length && store.area && !store.loadingBlocks"
+        <div v-else-if="!store.blockFeatures.length && store.appliedFilter.area && !store.loadingBlocks"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] max-w-[calc(100%-6rem)] -translate-x-1/2 truncate rounded-full bg-white/95 px-4 py-2 text-13 shadow-lg">
           Belum ada batas blok untuk scope ini.
         </div>
@@ -525,6 +546,16 @@ onBeforeUnmount(() => {
                 class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
                 <span class="h-3 w-3 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />{{
                   item.label }}
+              </span>
+            </div>
+          </div>
+          <div v-if="showPlantingYear && plantingYears.length" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Tahun Tanam</p>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <span v-for="item in plantingYears" :key="item.label"
+                class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
+                <span class="h-3 w-3 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />{{
+                  item.label.replace("Tahun Tanam ", "") }}
               </span>
             </div>
           </div>
@@ -619,16 +650,18 @@ onBeforeUnmount(() => {
             :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
             :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate"
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
-            :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length"
+            :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
-            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :basemap="basemap" :opacity="opacity"
+            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
+            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity"
             :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
             @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
             @update:afdeling="store.setAfdeling" @update:blok="store.setBlok" @update:ownership="store.setOwnership"
             @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
-            @reset="onResetFilters" @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
-            @toggle-yield-gap="showYieldGap = !showYieldGap" @update:basemap="basemap = $event"
+            @reset="onResetFilters" @apply="onApplyFilters" @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
+            @toggle-yield-gap="toggleYieldGap" @toggle-planting-year="togglePlantingYear"
+            @update:basemap="basemap = $event"
             @update:opacity="opacity = $event" />
         </div>
       </aside>

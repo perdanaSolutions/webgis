@@ -22,6 +22,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.area_statement_summary_service import PLANTING_YEAR_COLORS
 from app.services.block_detail_service import _yield_ton_ha, bjr_sql, gap_kategori, gap_value
 from app.services.block_filter import BlockFilter, statement_as_of_join
 from app.services.hierarchy_service import BLOCK_ATTRIBUTE_COLUMNS
@@ -47,11 +48,14 @@ def _optional_money(value) -> float:
 
 
 def _statement_payload(period: date, row) -> dict:
+    tahun_tanam = int(row["planting_year"]) if row and row["planting_year"] else None
     return {
         "luas_tanam": _optional_money(row["planted_area_ha"] if row else None),
         "luas_tanah": _optional_money(row["land_area_ha"] if row else None),
         "total_pokok": whole(row["tree_count"]) if row and row["tree_count"] is not None else 0,
         "sph": _optional_money(row["sph"] if row else None),
+        "tahun_tanam": tahun_tanam,
+        "warna_tahun_tanam": PLANTING_YEAR_COLORS.get(tahun_tanam),
         "periode": period_label(period),
     }
 
@@ -98,7 +102,11 @@ def _produksi_payload(period: date, luas: float, row, window: TrxWindow | None =
         "tbs_budget": tbs_budget,
         "tbs_sensus": tbs_sensus,
         "janjang_aktual": whole(row["bunches_actual"]) if row else 0,
+        "janjang_budget": whole(row["bunches_budget"]) if row else 0,
+        "janjang_sensus": whole(row["bunches_census"]) if row else 0,
         "bjr_aktual": _money(row["bjr_actual"]) if row else 0.0,
+        "bjr_budget": _money(row["bjr_budget"]) if row else 0.0,
+        "bjr_sensus": _money(row["bjr_census"]) if row else 0.0,
         "luas_tanam": luas,
         "y_aktual": y_aktual,
         "y_budget": y_budget,
@@ -118,7 +126,7 @@ def _window_summaries(db: Session, block_ids: list[int], window: TrxWindow) -> d
     rows = db.execute(text(f"""
         WITH statements AS (
             SELECT DISTINCT ON (a.block_id)
-                   a.block_id, a.period, a.planted_area_ha, a.land_area_ha, a.tree_count, a.sph
+                   a.block_id, a.period, a.planted_area_ha, a.land_area_ha, a.tree_count, a.sph, a.planting_year
             FROM trx.area_statements a
             WHERE a.block_id = ANY(:ids) AND a.period BETWEEN :year_start AND :end
             ORDER BY a.block_id, a.period DESC
@@ -129,14 +137,20 @@ def _window_summaries(db: Session, block_ids: list[int], window: TrxWindow) -> d
                    SUM(p.ffb_budget_kg) AS ffb_budget_kg,
                    SUM(p.ffb_census_kg) AS ffb_census_kg,
                    SUM(p.bunches_actual) AS bunches_actual,
-                   {bjr_sql("p.ffb_actual_kg", "p.bunches_actual", "p.bjr_actual")} AS bjr_actual
+                   SUM(p.bunches_budget) AS bunches_budget,
+                   SUM(p.bunches_census) AS bunches_census,
+                   {bjr_sql("p.ffb_actual_kg", "p.bunches_actual", "p.bjr_actual")} AS bjr_actual,
+                   {bjr_sql("p.ffb_budget_kg", "p.bunches_budget", "p.bjr_budget")} AS bjr_budget,
+                   {bjr_sql("p.ffb_census_kg", "p.bunches_census", "p.bjr_census")} AS bjr_census
             FROM trx.block_productions p
             WHERE p.block_id = ANY(:ids) AND p.period BETWEEN :start AND :end
             GROUP BY p.block_id
         )
         SELECT COALESCE(s.block_id, pr.block_id) AS block_id, s.period AS statement_period,
-               s.planted_area_ha, s.land_area_ha, s.tree_count, s.sph, (s.block_id IS NOT NULL) AS has_statement,
-               pr.ffb_actual_kg, pr.ffb_budget_kg, pr.ffb_census_kg, pr.bunches_actual, pr.bjr_actual,
+               s.planted_area_ha, s.land_area_ha, s.tree_count, s.sph, s.planting_year,
+               (s.block_id IS NOT NULL) AS has_statement,
+               pr.ffb_actual_kg, pr.ffb_budget_kg, pr.ffb_census_kg, pr.bunches_actual, pr.bunches_budget,
+               pr.bunches_census, pr.bjr_actual, pr.bjr_budget, pr.bjr_census,
                (pr.block_id IS NOT NULL) AS has_production
         FROM statements s FULL JOIN productions pr ON pr.block_id = s.block_id
     """), {"ids": block_ids, "year_start": date(window.end.year, 1, 1), "start": window.start,

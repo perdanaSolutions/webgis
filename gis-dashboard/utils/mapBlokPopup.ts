@@ -256,9 +256,12 @@ export function popupPeriodFromProperties(
   return parsePeriodLabel(plainRecord(properties?.produksi_tbs)?.periode) ?? fallback;
 }
 
-export type PopupComparison = { periode: string; kategoriBudget: string; kategoriSensus: string };
+export type PopupComparison = Pick<
+  BlokPopupData,
+  "tbs" | "jjg" | "bjr" | "yieldHa" | "gapBudget" | "kategoriBudget" | "gapSensus" | "kategoriSensus"
+> & { periode: string };
 
-/** Kategori gap periode pembanding (`produksi_tbs_comparison` dari GeoJSON), bila filter pembanding dipakai. */
+/** Produksi dan gap periode pembanding (`produksi_tbs_comparison` dari GeoJSON), bila filter pembanding dipakai. */
 export function comparisonFromProperties(properties: Record<string, any> | undefined): PopupComparison | null {
   const comparison = plainRecord(properties?.produksi_tbs_comparison);
   if (!comparison) return null;
@@ -266,7 +269,13 @@ export function comparisonFromProperties(properties: Record<string, any> | undef
   const end = String(comparison.periode_akhir ?? comparison.periode ?? "");
   return {
     periode: start && start !== end ? `${start} s/d ${end}` : end,
+    tbs: metricOf(comparison.tbs_aktual, comparison.tbs_budget, comparison.tbs_sensus),
+    jjg: metricOf(comparison.janjang_aktual, comparison.janjang_budget, comparison.janjang_sensus),
+    bjr: metricOf(comparison.bjr_aktual, comparison.bjr_budget, comparison.bjr_sensus),
+    yieldHa: metricOf(comparison.y_aktual, comparison.y_budget, comparison.y_sensus),
+    gapBudget: displayGap(comparison.gap_budget_pct),
     kategoriBudget: toDisplayText(comparison.kategori_budget),
+    gapSensus: displayGap(comparison.gap_sensus_pct),
     kategoriSensus: toDisplayText(comparison.kategori_sensus),
   };
 }
@@ -598,12 +607,21 @@ export function buildBlokPopupHtml(
   data: BlokPopupData,
   options?: { loading?: boolean; errorMessage?: string; notice?: string; comparison?: PopupComparison | null },
 ) {
-  const comparison = options?.comparison
+  const compared = options?.comparison;
+  const comparison = compared
     ? `
-      <div style="display:grid;gap:4px;margin:-4px 0 10px;padding-top:6px;border-top:1px dashed #e5e7eb;">
-        ${popupRow("Pembanding", escapeHtml(options.comparison.periode))}
-        ${popupRow("Kat. Budget", categorySwatch(escapeHtml(options.comparison.kategoriBudget)), "", true)}
-        ${popupRow("Kat. Sensus", categorySwatch(escapeHtml(options.comparison.kategoriSensus)), "", true)}
+      <div data-popup-comparison style="margin:-4px 0 10px;padding-top:6px;border-top:1px dashed #e5e7eb;">
+        <div style="margin-bottom:6px;">${popupRow("Pembanding", compared.periode)}</div>
+        ${metricTable([
+          { label: "TBS", metric: compared.tbs },
+          { label: "JJG", metric: compared.jjg },
+          { label: "BJR", metric: compared.bjr },
+          { label: "Yield", metric: compared.yieldHa },
+        ])}
+        <div style="display:grid;gap:4px;">
+          ${gapLine("Gap Budget", compared.gapBudget, compared.kategoriBudget)}
+          ${gapLine("Gap Sensus", compared.gapSensus, compared.kategoriSensus)}
+        </div>
       </div>`
     : "";
   const banner = options?.errorMessage

@@ -11,8 +11,7 @@ import {
   probeWmsReachable,
   type BasemapStatus,
 } from "~/utils/mapBasemap";
-import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory } from "~/utils/mapLayers";
-import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
+import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory, readPlantingYear } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -33,6 +32,8 @@ const props = defineProps<{
   showBlocks: boolean;
   /** Garis batas saja. Pewarnaan kategori yield baru dipakai saat ini nyala. */
   showYieldGap: boolean;
+  /** Blok diwarnai menurut tahun tanam. Tidak menyala bersamaan dengan yield gap. */
+  showPlantingYear: boolean;
   overlays: OverlayLayer[];
   basemap: BasemapKey;
   opacity: number; // 0..1
@@ -348,7 +349,9 @@ function featureProperties(feature: { properties?: Record<string, any> | null } 
   return toRaw(properties);
 }
 
-function budgetFill(properties: Record<string, any> | null | undefined) {
+/** Warna isi blok: tahun tanam atau kategori yield gap, tergantung layer yang menyala. */
+function blockFill(properties: Record<string, any> | null | undefined) {
+  if (props.showPlantingYear) return readPlantingYear(properties)?.color ?? null;
   if (!props.showYieldGap) return null;
   const category = readBudgetCategory(properties);
   if (!category || props.budgetColors?.[category] === false) return null;
@@ -374,7 +377,7 @@ function blockAnchor(layer: any): import("leaflet").LatLng | null {
 function blockStyle(feature: { properties?: Record<string, any> | null } | null | undefined) {
   const properties = featureProperties(feature);
   const selected = String(properties.blok_id ?? "") === props.selectedId;
-  const fill = budgetFill(properties);
+  const fill = blockFill(properties);
   const opacity = props.opacity > 0 ? props.opacity : 1;
   if (!fill) {
     return {
@@ -407,7 +410,7 @@ function paintBlock(layer: any, feature: { properties?: Record<string, any> | nu
   layer?.setStyle?.(style);
   const path = layer?._path as SVGElement | undefined;
   if (!path) return;
-  const fill = budgetFill(featureProperties(feature));
+  const fill = blockFill(featureProperties(feature));
   if (fill) {
     path.style.setProperty("fill", fill, "important");
     path.style.setProperty("fill-opacity", String(style.fillOpacity), "important");
@@ -830,7 +833,7 @@ watch(() => props.budgetColors, () => {
   renderBlockMarks();
   renderSelected();
 }, { deep: true });
-watch(() => props.showYieldGap, () => {
+watch(() => [props.showYieldGap, props.showPlantingYear], () => {
   renderBlockMarks();
   renderSelected();
 });

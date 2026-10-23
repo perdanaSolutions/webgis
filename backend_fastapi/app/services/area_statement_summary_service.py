@@ -18,6 +18,15 @@ from app.services.block_filter import BlockFilter
 from app.utils.parsing import num
 from app.utils.period import period_label
 
+# Warna per tahun tanam (layer Tahun Tanam dan legenda laporan areal statement). Tahun di luar tabel = null.
+PLANTING_YEAR_COLORS = {
+    2005: "#008000", 2006: "#FF6600", 2007: "#0000FF", 2008: "#FF0000", 2009: "#FFFF00",
+    2010: "#800080", 2011: "#CCFFCC", 2012: "#FFAF79", 2013: "#66FFFF", 2014: "#FF99FF",
+    2015: "#FFFF99", 2016: "#CC66FF", 2017: "#808080", 2018: "#964B00", 2019: "#00FF00",
+    2020: "#FF0080", 2021: "#000080", 2022: "#FFD700", 2023: "#800000", 2024: "#FFC0CB",
+    2025: "#C0C0C0",
+}
+
 STATUS_ORDER = ("TM", "TBM", "LC")
 STATUS_LABEL = {"TM": "Tanaman Menghasilkan", "TBM": "Tanaman Belum Menghasilkan", "LC": "Pembukaan Lahan (LC)"}
 
@@ -123,7 +132,8 @@ def area_statement_summary(db: Session, flt: BlockFilter, as_of: date | None, wi
                 for s in statuses
             ],
             "per_tahun_tanam": [
-                {"tahun_tanam": y, "luas_tanam": _ha(v), "persen": _pct(v, planted)} for y, v in sorted(by_year.items())
+                {"tahun_tanam": y, "warna": PLANTING_YEAR_COLORS.get(y), "luas_tanam": _ha(v), "persen": _pct(v, planted)}
+                for y, v in sorted(by_year.items())
             ],
         },
         "populasi": {
@@ -224,6 +234,8 @@ def layer_data_areal(db: Session, flt: BlockFilter, as_of: date | None, tanam_al
             "landuse": non_tanam["periode"] if non_tanam else None,
         },
         "areal_tanam": tanam,
+        "populasi": summary["populasi"] if summary else None,
+        "tidak_tertanam_dalam_blok": summary["tidak_tertanam_dalam_blok"] if summary else None,
         "areal_non_tanam": non_tanam,
         "total": total,
     }
