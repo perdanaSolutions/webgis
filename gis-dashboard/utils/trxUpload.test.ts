@@ -10,7 +10,7 @@ import {
 } from "./trxUpload"
 
 describe("katalog upload transaksi", () => {
-  it("menyediakan 25 kolom areal statement dan 14 kolom rotasi", () => {
+  it("menyediakan 25 kolom areal statement dan 13 kolom rotasi", () => {
     const areal = TRX_KINDS[0]
     const rotasi = TRX_KINDS[1]
     expect(areal.columns).toHaveLength(25)
@@ -18,7 +18,7 @@ describe("katalog upload transaksi", () => {
     expect(areal.columns).toContain("Curam")
     expect(rotasi.columns).toEqual([
       "Periode", "Area", "PT", "Estate", "Afdeling", "Blok", "Luas", "Pokok",
-      "Rotasi", "Pusingan", "Status Pusingan", "Bulan", "BulanID", "Tanggal",
+      "Rotasi", "Pusingan", "Status Pusingan", "Bulan", "Tanggal",
     ])
     expect(Object.keys(areal.example)).toEqual(areal.columns)
     expect(Object.keys(rotasi.example)).toEqual(rotasi.columns)

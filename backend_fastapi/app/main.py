@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
+from app.core.mtls import MtlsGuardMiddleware
 from app.core.database import engine
 from app.core.map_cache import MapRedisCacheMiddleware, set_store_versions_reader
 from app.core.middleware import DropEmptyQueryParamsMiddleware
@@ -132,6 +133,8 @@ app.add_middleware(MapRedisCacheMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(ClientIpMiddleware)
+if settings.MTLS_ENFORCE:
+    app.add_middleware(MtlsGuardMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGIN_LIST,

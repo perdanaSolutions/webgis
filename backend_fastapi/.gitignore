@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
+
+# mTLS: kunci pribadi tidak masuk git. ca.key hanya untuk menandatangani sertifikat baru.
+certs/private/
+certs/client/
+certs/runtime/*
+!certs/runtime/.gitkeep

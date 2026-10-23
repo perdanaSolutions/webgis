@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
+import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
+import { TRX_ROWS_PER_PART } from "~/utils/trxExcelParts";
 import { TRX_KINDS, missingHeaderGroups } from "~/utils/trxUpload";
 
 defineOptions({
@@ -22,8 +24,68 @@ const busyLabel = computed(() => {
   if (trxUploadStore.isAnalyzing) return "Menganalisis, data belum disimpan...";
   return "Mengimpor data...";
 });
-const analysis = computed(() => trxUploadStore.analysis);
-const hasNoValidData = computed(() => analysis.value?.status_analisis === "TIDAK_ADA_DATA_VALID");
+
+const QUEUE_WARNING_SECONDS = 60;
+const activeJob = computed(() => trxUploadStore.activeJob);
+const multipart = computed(() => trxUploadStore.multipart);
+
+const jobTitle = computed(() => {
+  const base = activeJob.value?.kind === "execute" || multipart.value?.kind === "execute"
+    ? "Menyimpan data transaksi"
+    : "Menganalisa file Excel";
+  const part = multipart.value;
+  if (part && part.partTotal > 1) {
+    return `${base} (part ${part.partIndex}/${part.partTotal})`;
+  }
+  const job = activeJob.value;
+  if (job?.part_total && job.part_total > 1 && job.part_index) {
+    return `${base} (part ${job.part_index}/${job.part_total})`;
+  }
+  return base;
+});
+
+const jobStatusText = computed(() => {
+  const job = activeJob.value;
+  if (!job) {
+    const part = multipart.value;
+    if (part && part.partTotal > 1) {
+      return `Menyiapkan part ${part.partIndex} dari ${part.partTotal} (max ${TRX_ROWS_PER_PART.toLocaleString("id-ID")} baris/part)`;
+    }
+    return "";
+  }
+  if (job.cancel_requested || trxUploadStore.multipartAbort) return "Membatalkan proses...";
+  if (job.status === "queued") {
+    return job.queue_ahead
+      ? `Menunggu giliran (${job.queue_ahead} proses di depan)`
+      : "Menunggu giliran diproses";
+  }
+  const message = job.message ?? "Memproses";
+  if (job.total) {
+    const current = (job.current ?? 0).toLocaleString("id-ID");
+    return `${message} ${current} / ${job.total.toLocaleString("id-ID")}`;
+  }
+  return message;
+});
+
+const jobPercent = computed(() => {
+  const job = activeJob.value;
+  if (!job?.total) return null;
+  return Math.min(100, Math.round(((job.current ?? 0) / job.total) * 100));
+});
+
+const jobElapsed = computed(() => {
+  const seconds = activeJob.value?.elapsed_seconds ?? 0;
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes} menit ${seconds % 60} detik` : `${seconds} detik`;
+});
+
+const jobQueuedTooLong = computed(
+  () => activeJob.value?.status === "queued" && (activeJob.value.elapsed_seconds ?? 0) > QUEUE_WARNING_SECONDS,
+);
+
+const analysis = computed(() => trxUploadStore.liveAnalyze ?? trxUploadStore.analysis);
+const displayAnalysis = computed(() => trxUploadStore.analysis);
+const hasNoValidData = computed(() => displayAnalysis.value?.status_analisis === "TIDAK_ADA_DATA_VALID");
 const previewRows = computed(() => trxUploadStore.previewRows);
 
 const missingHeaders = computed(() => {
@@ -183,6 +245,18 @@ function selectKind(kindId: typeof TRX_KINDS[number]["id"]) {
 async function gotoDashboard() {
   await navigateTo("/dashboard");
 }
+
+function onCancelJob() {
+  trxUploadStore.cancelJob();
+}
+
+function analysisForRow(excelRow: number) {
+  return trxUploadStore.previewAnalysis[excelRow];
+}
+
+onMounted(async () => {
+  await trxUploadStore.resumeActiveJob();
+});
 </script>
 
 <template>
@@ -262,7 +336,10 @@ async function gotoDashboard() {
           <input ref="fileInputRef" type="file" accept=".xlsx,.xls,.json,application/vnd.ms-excel,application/json"
             class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">Drag & drop file Excel atau JSON di sini</p>
-          <p class="mt-1 text-size-sm text-muted">.xlsx, .xls, atau .json · maksimal 50 MB</p>
+          <p class="mt-1 text-size-sm text-muted">
+            .xlsx, .xls, atau .json · Excel besar dipecah otomatis per {{ TRX_ROWS_PER_PART.toLocaleString("id-ID") }}
+            baris lalu diproses lewat antrian
+          </p>
           <button type="button"
             class="mt-3 rounded-xl bg-brand px-5 py-2.5 font-semibold text-on-brand disabled:opacity-50"
             :disabled="trxUploadStore.isBusy" @click="openFilePicker">
@@ -276,11 +353,41 @@ async function gotoDashboard() {
           </p>
         </div>
 
-        <div v-if="trxUploadStore.isReading || trxUploadStore.isAnalyzing || trxUploadStore.isImporting"
-          class="mt-5 rounded-xl border border-default bg-surface p-4">
+        <div v-if="trxUploadStore.isReading" class="mt-5 rounded-xl border border-default bg-surface p-4">
           <p class="mb-2 font-semibold text-brand">{{ busyLabel }}</p>
           <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
             <div class="h-full w-full animate-pulse rounded-full bg-gradient-to-r gradient-brand-alt" />
+          </div>
+        </div>
+
+        <div v-else-if="trxUploadStore.isUploading" class="mt-5 rounded-xl border border-default bg-surface p-4">
+          <div class="mb-1 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <span class="font-semibold text-brand">{{ activeJob ? jobTitle : busyLabel }}</span>
+            <span v-if="activeJob" class="text-size-sm text-muted">Berjalan {{ jobElapsed }}</span>
+          </div>
+          <p class="mb-2 text-size-sm text-label">
+            {{ activeJob ? jobStatusText : "Mengirim part ke antrian server" }}
+            <span v-if="jobPercent !== null" class="text-muted"> ({{ jobPercent }}%)</span>
+          </p>
+          <div class="h-2 overflow-hidden rounded-full bg-progress-bar">
+            <div v-if="jobPercent !== null"
+              class="h-full rounded-full bg-gradient-to-r gradient-brand-alt transition-all duration-500 ease-out"
+              :style="{ width: `${jobPercent}%` }" />
+            <div v-else class="h-full w-full animate-pulse rounded-full bg-gradient-to-r gradient-brand-alt" />
+          </div>
+          <p class="mt-3 text-size-sm text-muted">
+            Setiap part masuk antrian worker terpisah agar server tidak menerima seluruh file sekaligus.
+            Halaman boleh ditinggal; batal di tengah jalan menghentikan part berikutnya.
+          </p>
+          <p v-if="jobQueuedTooLong" class="mt-2 rounded-lg bg-warning-light px-3 py-2 text-size-sm text-warning">
+            Proses belum diambil server. Bila tetap menunggu, hubungi admin: worker upload mungkin belum berjalan.
+          </p>
+          <div v-if="activeJob" class="mt-3 flex justify-end">
+            <button type="button"
+              class="rounded-xl border border-tan bg-cream px-4 py-2 text-size-sm font-semibold text-brand disabled:opacity-50"
+              :disabled="activeJob.cancel_requested || trxUploadStore.isCancellingJob" @click="onCancelJob">
+              {{ activeJob.cancel_requested || trxUploadStore.isCancellingJob ? "Membatalkan..." : "Batalkan" }}
+            </button>
           </div>
         </div>
 
@@ -322,6 +429,10 @@ async function gotoDashboard() {
               <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">Baris</th>
+                  <th v-if="Object.keys(trxUploadStore.previewAnalysis).length"
+                    class="whitespace-nowrap px-3 py-2 font-bold">
+                    Status analisa
+                  </th>
                   <th v-for="header in trxUploadStore.headers" :key="header"
                     class="whitespace-nowrap px-3 py-2 font-bold">
                     {{ header }}
@@ -335,6 +446,9 @@ async function gotoDashboard() {
                 </tr>
                 <tr v-for="item in pageRows" :key="item.excelRow" class="border-t border-row">
                   <td class="px-3 py-2">{{ item.excelRow }}</td>
+                  <td v-if="Object.keys(trxUploadStore.previewAnalysis).length" class="px-3 py-2">
+                    {{ analysisForRow(item.excelRow)?.status_analisa ?? "BELUM DIANALISA" }}
+                  </td>
                   <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`" class="px-3 py-2">
                     {{ item.row[header] || "-" }}
                   </td>
@@ -363,7 +477,7 @@ async function gotoDashboard() {
             </div>
           </div>
 
-          <div v-if="!analysis && !trxUploadStore.importResult" class="mt-4 flex justify-end gap-2">
+          <div v-if="!displayAnalysis && !trxUploadStore.importResult" class="mt-4 flex justify-end gap-2">
             <button type="button" class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
               :disabled="trxUploadStore.isBusy" @click="clearFile">
               Batal
@@ -381,13 +495,24 @@ async function gotoDashboard() {
           </div>
         </section>
 
-        <div v-if="analysis" class="mt-6 space-y-4">
+        <div v-if="trxUploadStore.isUploading && trxUploadStore.analyzeParts.length && !displayAnalysis"
+          class="mt-6 rounded-2xl border border-default bg-surface p-6 shadow-sm">
+          <h3 class="mb-1 text-18 font-bold text-brand">Hasil analisis sementara</h3>
+          <p class="mb-4 text-size-sm text-muted">
+            {{ trxUploadStore.analyzeParts.length }} part selesai dianalisa; ringkasan digabung bertahap.
+          </p>
+          <UploadAnalysisGroups v-if="analysis" :analysis="analysis" :parts="trxUploadStore.analyzeParts" />
+        </div>
+
+        <div v-if="displayAnalysis" class="mt-6 space-y-4">
           <div class="rounded-2xl border border-default bg-surface p-6 shadow-sm">
             <h3 class="mb-1 text-18 font-bold text-brand">Hasil analisis</h3>
             <p class="mb-4 text-size-sm text-muted">
               Uji coba ini tidak menyimpan data. Angkanya sama dengan hasil import sungguhan.
             </p>
-            <UploadAnalysisResult :analysis="analysis" />
+            <UploadAnalysisResult :analysis="displayAnalysis" />
+            <UploadAnalysisGroups v-if="trxUploadStore.analyzeParts.length > 1" class="mt-4"
+              :analysis="displayAnalysis" :parts="trxUploadStore.analyzeParts" />
           </div>
 
           <div v-if="!trxUploadStore.importResult" class="flex justify-end gap-2">
@@ -396,7 +521,8 @@ async function gotoDashboard() {
               Batal
             </button>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
-              :disabled="trxUploadStore.isBusy || hasNoValidData" @click="askImport">
+              :disabled="trxUploadStore.isBusy || hasNoValidData"
+              @click="askImport">
               Impor data
             </button>
           </div>
@@ -453,7 +579,7 @@ async function gotoDashboard() {
     <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
       <h3 class="text-size-lg font-semibold text-gray-title-alt">Konfirmasi import</h3>
       <div class="mt-3 space-y-2 text-size-sm text-gray-body">
-        <p v-if="analysis?.kesimpulan">{{ analysis.kesimpulan }}</p>
+        <p v-if="displayAnalysis?.kesimpulan">{{ displayAnalysis.kesimpulan }}</p>
         <p v-if="trxUploadStore.fileMode === 'excel'">
           File yang sama akan diimpor. Baris valid ditambah atau diperbarui per blok dan bulan.
           Baris yang ditolak masuk karantina. Blok yang tidak ada di file tidak dihapus.
@@ -461,8 +587,8 @@ async function gotoDashboard() {
         <p v-else>
           Import JSON tidak punya uji coba. Validasi dan upsert-nya sama dengan Excel, dan data langsung disimpan.
         </p>
-        <p v-if="Number(analysis?.data_diperbarui) > 0">
-          {{ Number(analysis?.data_diperbarui).toLocaleString("id-ID") }} baris akan memperbarui data yang sudah ada
+        <p v-if="Number(displayAnalysis?.data_diperbarui) > 0">
+          {{ Number(displayAnalysis?.data_diperbarui).toLocaleString("id-ID") }} baris akan memperbarui data yang sudah ada
           karena nilainya berbeda.
         </p>
       </div>

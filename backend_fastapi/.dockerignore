@@ -4,3 +4,6 @@ __pycache__
 .ruff_cache
 .env
 tests
+certs/private
+certs/client
+certs/runtime/*.key

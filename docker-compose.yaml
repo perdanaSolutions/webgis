@@ -9,8 +9,15 @@ services:
     env_file:
       - path: ./backend_fastapi/.env
         required: false
-    command:
-      ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
+    command: ["python", "-m", "app.serve"]
+    environment:
+      HTTP_HOST: 127.0.0.1
+      HTTP_PORT: "8000"
+      MTLS_HOST: 0.0.0.0
+      MTLS_PORT: "8443"
+    # Hanya berkas server. ca.key dan sertifikat klien tidak ikut ke container.
+    volumes:
+      - ./backend_fastapi/certs/runtime:/app/certs/runtime:ro
 
   # Mengerjakan antrian upload GeoJSON (audit.upload_jobs). Tanpa service ini job tetap 'queued'.
   upload_worker:

@@ -50,6 +50,32 @@ class Settings(BaseSettings):
     def CORS_ORIGIN_LIST(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()] or ["*"]
 
+    # HTTP untuk dashboard. Tidak diubah saat mTLS dinyalakan.
+    HTTP_HOST: str = "127.0.0.1"
+    HTTP_PORT: int = 8000
+
+    # mTLS untuk backend-external. Listener HTTPS hanya naik bila ketiga file sertifikat ada
+    # dan MTLS_ENABLED=true. MTLS_ENFORCE dipasang proses HTTPS saja, bukan proses HTTP dashboard.
+    MTLS_ENABLED: bool = True
+    MTLS_ENFORCE: bool = False
+    MTLS_HOST: str = "0.0.0.0"
+    MTLS_PORT: int = 8443
+    MTLS_CERTFILE: str = "certs/runtime/server.crt"
+    MTLS_KEYFILE: str = "certs/runtime/server.key"
+    MTLS_CA_FILE: str = "certs/runtime/ca.crt"
+    MTLS_ALLOWED_CNS: str = "backend-external"
+    # Prefix pada listener HTTPS yang menolak permintaan tanpa sertifikat klien.
+    # /health tetap terbuka. Kosongkan untuk tidak mewajibkan sertifikat pada path mana pun.
+    MTLS_REQUIRED_PATHS: str = "/api/"
+
+    @property
+    def MTLS_ALLOWED_CN_LIST(self) -> list[str]:
+        return [name.strip() for name in self.MTLS_ALLOWED_CNS.split(",") if name.strip()]
+
+    @property
+    def MTLS_REQUIRED_PATH_LIST(self) -> list[str]:
+        return [path.strip() for path in self.MTLS_REQUIRED_PATHS.split(",") if path.strip()]
+
     # Cache Redis untuk API baca halaman peta / blok profile.
     # Backend jalan dengan network_mode: host, jadi Redis di container
     # yang mem-publish port 6379 dijangkau lewat 127.0.0.1.

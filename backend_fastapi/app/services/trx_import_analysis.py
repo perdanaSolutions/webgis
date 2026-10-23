@@ -112,7 +112,14 @@ def analyze_excel(db: Session, kind: TrxKind, filename: str | None, content: byt
                 "VALUES ('EXCEL_ANALYZE', :t, :n) RETURNING id"),
                 {"t": kind.target, "n": (filename or "")[:255] or None}).scalar_one()
             written = kind.load(db, result.rows, batch_id)
-        return _report(db, kind, filename, headers, result, new_refs, written, len(rows))
+        report = _report(db, kind, filename, headers, result, new_refs, written, len(rows))
+        first_row = 2
+        report["_total_fitur"] = len(rows)
+        report["_penolakan"] = [
+            {"no_preview": r.no - first_row + 1, "kode": r.code, "alasan": r.reason}
+            for r in result.rejected
+        ]
+        return report
     finally:
         db.rollback()  # tidak ada yang disimpan
 

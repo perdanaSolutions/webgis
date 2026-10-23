@@ -46,9 +46,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "
 const activeModule = computed(() =>
   dashboardService.flatModuleItems.find((item) => item.to && (route.path === item.to || route.path.startsWith(`${item.to}/`))) ?? null,
 );
-const headerBrandTitle = computed(() => dashboardService.dashboardConfig.brandTitle);
-const headerBrandSubtitle = computed(() => activeModule.value?.description || dashboardService.dashboardConfig.brandSubtitle);
 const pageTitle = computed(() => activeModule.value?.title || "Blok Profile");
+const pageDescription = computed(() => `Tampilan peta layar penuh · scope: ${store.scopeLabel}`);
 
 // ------------------------------------------------------------------ preferensi tampilan
 const BASEMAP_KEY = "blok-profile-basemap";
@@ -123,6 +122,7 @@ watch(basemap, (value) => {
 // ------------------------------------------------------------------ tata letak
 const isDesktop = ref(false);
 const isMobile = ref(false);
+const showMapDownload = computed(() => !(isMobile.value && (activeLeft.value || activeRight.value)));
 const online = ref(true);
 const stageRef = ref<HTMLElement | null>(null);
 const stageW = ref(0);
@@ -457,57 +457,16 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="bp-map-shell flex min-h-0 flex-col overflow-hidden bg-[#f4f6f1] text-14 text-[#1f2a18]">
-    <div v-show="!isFullscreen" class="contents">
-      <Header :brand-title="headerBrandTitle" :brand-subtitle="headerBrandSubtitle" />
-
-      <!-- PAGE HEADER -->
-      <div
-        class="bp-map-chrome flex shrink-0 items-center justify-between gap-2 border-b border-[#d5dcc8] bg-white px-3 py-1.5 sm:px-4 lg:px-6">
-        <div class="min-w-0">
-          <nav class="hidden text-11 leading-none text-[#6e7866] sm:block" aria-label="Breadcrumb">
-            <NuxtLink to="/dashboard" class="hover:underline">Beranda</NuxtLink>
-            <span class="mx-1">/</span>
-            <span>{{ pageTitle }}</span>
-          </nav>
-          <div class="flex min-w-0 items-baseline gap-x-2 sm:mt-0.5">
-            <h1 class="truncate text-base font-bold leading-none tracking-tight text-[#1f2a18] sm:text-lg">{{ pageTitle
-            }}
-            </h1>
-            <p class="hidden min-w-0 truncate text-12 leading-none text-[#6e7866] md:block">Tampilan peta layar penuh ·
-              scope: {{ store.scopeLabel }}</p>
-          </div>
-        </div>
-        <div class="flex shrink-0 items-center gap-1.5">
-          <button type="button" class="bp-btn max-sm:w-9 max-sm:justify-center max-sm:px-0"
-            title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
-            :aria-busy="exporting" @click="downloadPdf">
-            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8"
-              aria-hidden="true">
-              <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
-            </svg>
-            <span class="hidden sm:inline">Unduh Peta</span>
-          </button>
-          <NuxtLink to="/document" class="bp-btn bp-btn-primary max-sm:w-9 max-sm:justify-center max-sm:px-0"
-            aria-label="Tambah blok">
-            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"
-              aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            <span class="hidden sm:inline">Tambah Blok</span>
-          </NuxtLink>
-        </div>
-      </div>
-    </div>
+    <Header v-show="!isFullscreen" :brand-title="pageTitle" :brand-subtitle="pageDescription" />
 
     <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
       <section class="absolute inset-0 z-0">
-        <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId" :show-blocks="showBlocks"
-          :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear" :overlays="layers" :basemap="basemap"
-          :opacity="opacity / 100"
-          :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
-          :popup-period="store.popupPeriod" @select="onSelectBlock" @deselect="onDeselectBlock"
-          @basemap-status="onBasemapStatus" />
+        <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId"
+          :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
+          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
+          :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
+          @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -533,7 +492,7 @@ onBeforeUnmount(() => {
 
         <!-- Legenda + zoom: pojok kanan bawah -->
         <div v-show="!(isMobile && (activeLeft || activeRight))"
-          class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:items-end">
+          class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
           <div v-if="showYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
             <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
@@ -566,7 +525,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div class="flex flex-col items-end gap-2">
+          <div class="flex shrink-0 flex-col items-end gap-2">
             <button type="button"
               class="bp-card flex h-11 w-11 items-center justify-center !rounded-2xl hover:bg-[#eef3e7] sm:h-12 sm:w-12"
               :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
@@ -581,29 +540,40 @@ onBeforeUnmount(() => {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
               </svg>
             </button>
-            <div class="bp-card flex overflow-hidden !rounded-2xl">
-              <button type="button"
-                class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-                aria-label="Perbesar" @click="mapRef?.zoomIn()">
-                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 5v14M5 12h14" />
+            <div class="flex items-end gap-2">
+              <button v-show="showMapDownload" type="button" class="bp-btn bp-map-download"
+                title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
+                :aria-busy="exporting" @click="downloadPdf">
+                <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8"
+                  aria-hidden="true">
+                  <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" />
                 </svg>
+                <span class="bp-map-download-label">Unduh Peta</span>
               </button>
-              <button type="button"
-                class="flex h-11 w-11 items-center justify-center border-x border-[#d5dcc8] hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-                aria-label="Perkecil" @click="mapRef?.zoomOut()">
-                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14" />
-                </svg>
-              </button>
-              <button type="button"
-                class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
-                aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
-                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-                </svg>
-              </button>
+              <div class="bp-card flex shrink-0 overflow-hidden !rounded-2xl">
+                <button type="button"
+                  class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                  aria-label="Perbesar" @click="mapRef?.zoomIn()">
+                  <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <button type="button"
+                  class="flex h-11 w-11 items-center justify-center border-x border-[#d5dcc8] hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                  aria-label="Perkecil" @click="mapRef?.zoomOut()">
+                  <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14" />
+                  </svg>
+                </button>
+                <button type="button"
+                  class="flex h-11 w-11 items-center justify-center hover:bg-[#eef3e7] sm:h-12 sm:w-12"
+                  aria-label="Fokus ke scope / blok terpilih" @click="mapRef?.fitScope()">
+                  <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -651,15 +621,15 @@ onBeforeUnmount(() => {
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
-            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity"
-            :allow-all="store.allowAllScope" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
-            @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
-            @update:afdeling="store.setAfdeling" @update:blok="store.setBlok" @update:ownership="store.setOwnership"
-            @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
+            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
+            :filter-generation="store.filterGeneration" @update:grup="store.setGrup" @update:area="store.setArea"
+            @update:pt="store.setPt" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
+            @update:blok="store.setBlok" @update:ownership="store.setOwnership" @update:bulan="store.setBulan"
+            @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
-            @reset="onResetFilters" @apply="onApplyFilters" @toggle-layer="overlays.toggle" @toggle-blocks="showBlocks = !showBlocks"
-            @toggle-yield-gap="toggleYieldGap" @toggle-planting-year="togglePlantingYear"
-            @update:basemap="basemap = $event"
+            @reset="onResetFilters" @apply="onApplyFilters" @toggle-layer="overlays.toggle"
+            @toggle-blocks="showBlocks = !showBlocks" @toggle-yield-gap="toggleYieldGap"
+            @toggle-planting-year="togglePlantingYear" @update:basemap="basemap = $event"
             @update:opacity="opacity = $event" />
         </div>
       </aside>

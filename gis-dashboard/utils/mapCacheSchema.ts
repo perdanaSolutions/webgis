@@ -31,7 +31,7 @@ export const MAP_PWA_CACHES = [MAP_PWA_CACHE, MAP_PAGE_CACHE, MAP_TILE_CACHE] as
 export const MAP_PWA_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Host ubin yang dipakai `BASEMAPS` di utils/mapLayers.ts. */
-export const MAP_TILE_URL = /^https:\/\/([abc]\.tile\.openstreetmap\.org|server\.arcgisonline\.com|[abc]\.tile\.opentopomap\.org)\//
+export const MAP_TILE_URL = /^https:\/\/([abc]\.tile\.openstreetmap\.org|server\.arcgisonline\.com|[abc]\.tile\.opentopomap\.org|digilink\.teladanprima\.com)\//
 
 /** Dokumen halaman peta saja: `https://host/map`. */
 export const MAP_PAGE_URL = /^https?:\/\/[^/?#]+\/map\/?(?:\?[^#]*)?$/

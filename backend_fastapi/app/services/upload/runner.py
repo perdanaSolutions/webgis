@@ -22,6 +22,7 @@ from app.services.layers import catalog_service, layer_service, sawit_service
 from app.services.layers.specs import LAYER_SPECS, LayerSpec
 from app.services.upload import context as part_context
 from app.services.upload import part_response
+from app.services.upload import trx_runner
 from app.services.upload.progress import SILENT, Progress
 
 Kind = Literal["analyze", "execute"]
@@ -93,12 +94,16 @@ def generic(db: Session, kind: Kind, layer: dict, data: UploadInput, progress: P
 
 def check_layer(db: Session, code: str) -> None:
     """Tolak kode layer yang tidak dikenal (404) sebelum job dibuat."""
+    if trx_runner.is_trx_layer(code):
+        return
     if code not in (BLOK, SAWIT) and code not in LAYER_SPECS:
         catalog_service.get_generic_layer(db, code)
 
 
 def run(db: Session, kind: Kind, code: str, data: UploadInput, progress: Progress = SILENT) -> dict:
     """`code` = kode katalog (spatial.layer_types), sama dengan `value` kategori di halaman upload."""
+    if trx_runner.is_trx_layer(code):
+        return trx_runner.run(db, kind, code, data, progress)
     if code == BLOK:
         return blok(db, kind, data, progress)
     if code == SAWIT:

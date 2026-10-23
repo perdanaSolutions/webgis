@@ -25,6 +25,8 @@ export type BasemapTile = {
   format?: string;
   version?: string;
   transparent?: boolean;
+  /** Query token akses. Nilainya tidak disimpan di sini; diambil dari env TOKEN_BASE_MAP. */
+  tokenParam?: string;
 };
 
 export type BasemapOption = {
@@ -95,17 +97,18 @@ export const BASEMAPS: BasemapOption[] = [
   },
   {
     key: "tpa-sga",
-    label: "TPA-SGA",
+    label: "Foto Udata",
     preview: "linear-gradient(135deg,#1f3b24 0%,#6d8a45 55%,#c4b48a 100%)",
     tiles: [
       {
         service: "wms",
-        url: "http://192.168.1.17:8081/geoserver/tpgis/wms",
+        url: "https://digilink.teladanprima.com/fu/wms",
         layers: "tpgis:TPA-SGA",
         format: "image/png",
-        version: "1.1.1",
+        version: "1.1.0",
         transparent: false,
-        attribution: "Foto udara TPA-SGA",
+        tokenParam: "token",
+        attribution: "Foto Udata",
         maxZoom: 22,
       },
     ],

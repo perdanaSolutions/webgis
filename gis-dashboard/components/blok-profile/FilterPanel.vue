@@ -161,10 +161,10 @@ function onField(key: FieldKey, value: unknown) {
 </script>
 
 <template>
-  <div class="bp-card overflow-hidden">
+  <div class="bp-card" :class="section === 'filter' ? 'overflow-visible' : 'overflow-hidden'">
     <!-- FILTER -->
-    <section v-if="section === 'filter'" class="px-5 pb-5 pt-5">
-      <div class="mb-3 flex items-center justify-between">
+    <section v-if="section === 'filter'" class="pb-5">
+      <div class="bp-filter-toolbar">
         <h2 class="bp-section-title">
           <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"
             aria-hidden="true">
@@ -175,11 +175,11 @@ function onField(key: FieldKey, value: unknown) {
           </svg>
           Filter Kebun
         </h2>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="bp-filter-toolbar-actions">
           <button type="button" class="text-13 font-semibold text-[#638840] hover:underline disabled:opacity-40"
             :disabled="loading" @click="emit('reset')">Reset</button>
           <button type="button" data-filter-apply
-            class="relative rounded-lg bg-[#638840] px-3 py-1.5 text-13 font-semibold text-white hover:bg-[#557536] disabled:opacity-40"
+            class="bp-filter-apply relative rounded-lg bg-[#638840] px-3 py-1.5 text-13 font-semibold hover:bg-[#557536] disabled:opacity-40"
             :disabled="loading" :title="dirty ? 'Terapkan perubahan filter' : 'Muat ulang dengan filter ini'"
             @click="emit('apply')">
             Apply
@@ -188,6 +188,7 @@ function onField(key: FieldKey, value: unknown) {
           </button>
         </div>
       </div>
+      <div class="px-5">
 
       <template v-for="field in fields" :key="`${filterGeneration}-${field.key}`">
         <label class="mb-3 block w-full">
@@ -196,7 +197,8 @@ function onField(key: FieldKey, value: unknown) {
             item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading"
             variant="solo" flat density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
-            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }" @update:model-value="onField(field.key, $event)" />
+            :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
+            @update:model-value="onField(field.key, $event)" />
         </label>
 
       </template>
@@ -214,10 +216,10 @@ function onField(key: FieldKey, value: unknown) {
         </div>
         <div class="grid grid-cols-2 gap-2">
           <v-autocomplete :key="`${filterGeneration}-bulan-${yearToDate}-${bulan || 'kosong'}`"
-            class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions"
-            item-title="label" item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat
-            density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
-            menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
+            class="bp-autocomplete min-w-0" :model-value="bulan || null" :items="monthOptions" item-title="label"
+            item-value="value" placeholder="Bulan" :disabled="loading" variant="solo" flat density="comfortable"
+            hide-details single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down"
+            autocomplete="off" no-data-text="Tidak ditemukan"
             :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:bulan', $event == null ? '' : String($event))" />
           <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahun || null" :items="yearOptions"
@@ -241,8 +243,8 @@ function onField(key: FieldKey, value: unknown) {
             @update:model-value="emit('update:bulanComparison', $event == null ? '' : String($event))" />
           <v-autocomplete class="bp-autocomplete min-w-0" :model-value="tahunComparison || null"
             :items="[{ label: 'Tahun', value: '' }, ...yearOptions]" item-title="label" item-value="value"
-            placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details
-            single-line color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
+            placeholder="Tahun" :disabled="loading" variant="solo" flat density="comfortable" hide-details single-line
+            color="#638840" base-color="#d5dcc8" menu-icon="mdi-chevron-down" autocomplete="off"
             no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
         </div>
@@ -258,6 +260,7 @@ function onField(key: FieldKey, value: unknown) {
           <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
         </svg>
         <span>{{ scopeInfo }}</span>
+      </div>
       </div>
     </section>
 
@@ -300,13 +303,14 @@ function onField(key: FieldKey, value: unknown) {
             </span>
             <div class="min-w-0 flex-1" :class="!showYieldGap && 'opacity-60'">
               <p class="bp-layer-name">Yield Gap</p>
-              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield") : showPlantingYear ? "Mati · layer Tahun Tanam sedang menyala" : "Mati · batas blok tetap garis abu-abu" }}</p>
+              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield ") : showPlantingYear ? "Mati · layer Tahun Tanam sedang menyala" : "Mati · batas blok tetap garis abu-abu" }}</p>
             </div>
             <button type="button" role="switch" :aria-checked="showYieldGap" aria-label="Yield Gap" class="bp-switch"
               :class="showYieldGap && 'is-on'" @click="emit('toggle-yield-gap')"><span /></button>
           </div>
           <ul v-if="showYieldGap" class="mb-2 ml-12 space-y-1.5 pr-1">
-            <li v-for="item in BUDGET_GAP_LAYERS" :key="item.key" class="flex items-center gap-2 text-12 text-[#55604c]">
+            <li v-for="item in BUDGET_GAP_LAYERS" :key="item.key"
+              class="flex items-center gap-2 text-12 text-[#55604c]">
               <span class="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />
               <span class="font-semibold text-[#1f2a18]">{{ item.label }}</span>
               <span class="truncate">{{ item.hint }}</span>
@@ -326,15 +330,17 @@ function onField(key: FieldKey, value: unknown) {
               <p class="bp-layer-name">Tahun Tanam</p>
               <p class="bp-layer-sub">{{ showPlantingYear ? "Blok diwarnai menurut tahun tanam" : showYieldGap ? "Mati · layer Yield Gap sedang menyala" : "Mati" }}</p>
             </div>
-            <button type="button" role="switch" :aria-checked="showPlantingYear" aria-label="Tahun Tanam" class="bp-switch"
-              :class="showPlantingYear && 'is-on'" @click="emit('toggle-planting-year')"><span /></button>
+            <button type="button" role="switch" :aria-checked="showPlantingYear" aria-label="Tahun Tanam"
+              class="bp-switch" :class="showPlantingYear && 'is-on'"
+              @click="emit('toggle-planting-year')"><span /></button>
           </div>
           <ul v-if="showPlantingYear" class="mb-2 ml-12 space-y-1.5 pr-1">
             <li v-for="item in plantingYears" :key="item.label" class="flex items-center gap-2 text-12 text-[#55604c]">
               <span class="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />
               <span class="font-semibold text-[#1f2a18]">{{ item.label }}</span>
             </li>
-            <li v-if="!plantingYears.length" class="text-12 text-[#6e7866]">Belum ada tahun tanam berwarna di blok peta.</li>
+            <li v-if="!plantingYears.length" class="text-12 text-[#6e7866]">Belum ada tahun tanam berwarna di blok peta.
+            </li>
           </ul>
         </li>
 

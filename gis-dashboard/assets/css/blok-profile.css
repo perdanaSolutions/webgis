@@ -10,6 +10,37 @@
   color: #1f2a18;
 }
 
+/* Filter: header tetap di atas saat isi form di-scroll. */
+.bp-filter-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 20px 20px 12px;
+  border-radius: 20px 20px 0 0;
+  background: rgba(255, 253, 249, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 10px 14px -12px rgba(31, 42, 24, 0.45);
+}
+.bp-filter-toolbar-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+.bp-filter-toolbar .bp-section-title {
+  min-width: 0;
+  white-space: nowrap;
+}
+.bp-map-shell .bp-card button.bp-filter-apply {
+  color: #fff !important;
+}
+
 .bp-section-title {
   display: inline-flex;
   align-items: center;
@@ -316,6 +347,33 @@
   right: max(0.75rem, env(safe-area-inset-right, 0px));
   bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }
+
+.bp-map-download {
+  position: static;
+  z-index: auto;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  justify-content: center;
+  border-radius: 1rem;
+  padding: 0;
+  box-shadow: 0 10px 30px rgba(31, 42, 24, 0.12);
+}
+.bp-map-download-label {
+  display: none;
+}
+@media (min-width: 640px) {
+  .bp-map-download {
+    height: 3rem;
+    width: auto;
+    gap: 6px;
+    padding: 0 14px;
+  }
+  .bp-map-download-label {
+    display: inline;
+    white-space: nowrap;
+  }
+}
 @media (min-width: 768px) {
   .bp-rail {
     max-height: calc(100% - 5.25rem);
@@ -464,6 +522,9 @@
   }
   .bp-collapse-panel .bp-card {
     border-radius: 16px;
+  }
+  .bp-filter-toolbar {
+    border-radius: 16px 16px 0 0;
   }
 }
 @media (max-height: 520px) {

@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css'
 
 import BasemapAccessDialog from '~/components/map/BasemapAccessDialog.vue'
 import MapLayerPanel, { type OverlayListItem } from '~/components/map/MapLayerPanel.vue'
-import { applyBasemapZoom, basemapAccessMessage, basemapHost, createBasemapTileLayer, observeBasemapTiles, probeWmsReachable } from '~/utils/mapBasemap'
+import { applyBasemapZoom, basemapAccessMessage, basemapHost, createBasemapTileLayer, observeBasemapTiles, probeWmsReachable, WMS_TILE_TIMEOUT_MS } from '~/utils/mapBasemap'
 import { useMapStore } from '~/stores/mapStore'
 import {
   BASEMAPS,
@@ -552,7 +552,7 @@ async function applyBasemap(key: BasemapKey) {
   stopBasemapWatch = observeBasemapTiles(basemapLayers, () => {
     if (token === basemapToken)
       basemapNotice.value = { ...basemapAccessMessage('unavailable', option), pending: false }
-  })
+  }, WMS_TILE_TIMEOUT_MS)
 }
 
 // ===========================================================================

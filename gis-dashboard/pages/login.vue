@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import bannerImage from '~/assets/image/banner-login.png'
-import logoImage from '~/assets/image/logo-1.png'
+import logoImage from '~/assets/image/logo-1.svg'
 import { useAuthStore } from '~/stores/authStore'
 import { isAccessTokenExpired } from '~/utils/authSession'
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import logoImage from '~/assets/image/logo-1.png'
+import logoImage from '~/assets/image/logo-1.svg'
 import { useAuthStore } from '~/stores/authStore'
 import { isAccessTokenExpired } from '~/utils/authSession'
 

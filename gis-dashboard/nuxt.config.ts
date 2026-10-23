@@ -20,6 +20,7 @@ export default defineNuxtConfig({
     public: {
       apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL,
       apiBaseUrlPython: process.env.NUXT_PUBLIC_API_BASE_URL_PYTHON,
+      tokenBaseMap: process.env.TOKEN_BASE_MAP || "",
     },
   },
   // Dev proxy (opsional, via env): set NUXT_DEV_API_PROXY_TARGET=http://144.91.90.112:8083

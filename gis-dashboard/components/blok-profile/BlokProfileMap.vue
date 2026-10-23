@@ -7,6 +7,7 @@ import type { BlockCollection } from "~/stores/blokProfileStore";
 import {
   applyBasemapZoom,
   createBasemapTileLayer,
+  WMS_TILE_TIMEOUT_MS,
   observeBasemapTiles,
   probeWmsReachable,
   type BasemapStatus,
@@ -194,7 +195,7 @@ async function applyBasemap() {
   if (!gated) return;
   stopBasemapWatch = observeBasemapTiles(basemapLayers, () => {
     if (token === basemapToken) emit("basemap-status", "unavailable");
-  });
+  }, WMS_TILE_TIMEOUT_MS);
 }
 
 // ------------------------------------------------------------------ popup blok

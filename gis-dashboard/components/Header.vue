@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, reactive, ref, onUnmounted } from 'vue'
-import logoImage from '~/assets/image/logo-1.png'
+import logoImage from '~/assets/image/logo-1.svg'
 import { useAuthStore } from '~/stores/authStore'
 import { dashboardStore } from '~/stores/dashboardStore'
 import { useManagePengumumanStore, type PengumumanItem } from '~/stores/managePengumumanStore'
@@ -491,7 +491,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between gap-3">
           <div class="flex min-w-0 items-center gap-2.5">
             <img :src="logoImage" alt="TLDN Productivity Technology Science"
-              class="h-auto w-[200px] shrink-0 object-contain">
+              class="h-[80px] w-auto shrink-0 object-contain">
           </div>
           <button @click="closeSidebar"
             class="flex h-9 w-9 items-center justify-center rounded-full border border-menu bg-surface text-label transition hover-bg-cream"

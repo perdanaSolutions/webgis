@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import logoImage from '~/assets/image/logo-1.png'
-import sloganImage from '~/assets/image/slogan-palm.png'
-import handsImage from '~/assets/image/hand-deskripsi-overlay.png'
-import modulesImage from '~/assets/image/base-modul-overlay.png'
-import estateImage from '~/assets/image/Palm.jpeg'
+import logoImage from '~/assets/image/logo-1.svg'
+import handsImage from '~/assets/image/hand-deskripsi.svg'
+import modulesImage from '~/assets/image/base_modul_overlay.svg'
+import estateImage from '~/assets/image/kebun_dashboard.svg'
 import { useAuthStore } from '~/stores/authStore'
 import Header from '~/components/Header.vue'
 import BannerCharts from '~/components/dashboard/BannerCharts.vue'
@@ -25,6 +24,7 @@ onMounted(async () => {
 
 <template>
   <main class="dash-page">
+    <img :src="estateImage" alt="" class="dash-home__estate">
     <Header />
     <section class="dash-home" aria-label="Ringkasan perkebunan">
       <div class="dash-home__panel">
@@ -34,15 +34,14 @@ onMounted(async () => {
         <BannerCharts />
       </div>
       <div class="dash-home__hero">
-        <img :src="estateImage" alt="" class="dash-home__estate">
         <div class="dash-home__story">
-          <img :src="sloganImage" alt="When Every Palm Matters" class="dash-home__slogan">
+          <!-- <img :src="sloganImage" alt="When Every Palm Matters" class="dash-home__slogan">
           <p class="dash-home__lead">
             Optimalisasi produktivitas dan sumber daya
             dengan pendekatan teknologi dan ilmu pengetahuan terkini
             yang terhubung dengan tata kelola dan teknis budidaya
             perkebunan kelapa sawit terbaik dan berkelanjutan.
-          </p>
+          </p> -->
         </div>
         <img :src="handsImage" alt="" class="dash-home__hands">
         <img :src="modulesImage" alt="Modul teknologi perkebunan Teladan Prima Agro" class="dash-home__modules">
@@ -53,19 +52,23 @@ onMounted(async () => {
 
 <style scoped>
 .dash-page {
+  position: relative;
+  z-index: 0;
   display: flex;
   min-height: 100dvh;
   flex-direction: column;
-  background: #fff;
+  background: transparent;
   color: #1f2a18;
 }
 
 .dash-home {
+  position: relative;
+  z-index: 1;
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  background: #fff;
+  background: transparent;
 }
 
 .dash-home__panel {
@@ -93,12 +96,14 @@ onMounted(async () => {
 }
 
 .dash-home__estate {
-  position: absolute;
+  position: fixed;
+  z-index: 0;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center 72%;
+  pointer-events: none;
 }
 
 .dash-home__story {

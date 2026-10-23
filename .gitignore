@@ -78,6 +78,10 @@ backend_fastapi/htmlcov/
 backend_fastapi/build/
 backend_fastapi/dist/
 backend_fastapi/*.egg-info/
+backend_fastapi/certs/private/
+backend_fastapi/certs/client/
+backend_fastapi/certs/runtime/*
+!backend_fastapi/certs/runtime/.gitkeep
 
 # =========================
 # gis-dashboard (Vue 3 / Nuxt)

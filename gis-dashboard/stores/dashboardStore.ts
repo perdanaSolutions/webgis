@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 import { menuIconPath } from "~/utils/menuThemeOptions";
+import { normalizeMenuId } from "~/utils/menuRouteAccess";
 import { flattenMenuTree } from "~/utils/menuTree";
 import { useAuthStore } from "./authStore";
 
@@ -120,20 +121,27 @@ export const dashboardStore = defineStore("dashboard", () => {
 
   const loading = ref(false);
   const errorMessage = ref("");
+  const menuCatalog = ref<ModuleItem[]>([]);
+  const menuCatalogReady = ref(false);
   const moduleItems = ref<ModuleItem[]>([]);
+  let catalogRequest: Promise<ModuleItem[]> | null = null;
   const flatModuleItems = computed(() => flattenMenuTree(moduleItems.value));
   const favoriteMenus = computed(() => {
     const user = authStore.user;
     const isSuperAdmin = authStore.isSuperAdmin;
     const allowedIds = isSuperAdmin
       ? null
-      : new Set(Array.isArray(user?.akses_menu) ? user.akses_menu : []);
+      : new Set(
+          (Array.isArray(user?.akses_menu) ? user.akses_menu : []).map((id) =>
+            normalizeMenuId(id),
+          ),
+        );
 
     return flatModuleItems.value
       .filter((item) => {
         if (!item.isFavorite || !item.to) return false;
         if (!allowedIds) return true;
-        return allowedIds.has(item.id);
+        return allowedIds.has(normalizeMenuId(item.id));
       })
       .slice()
       .sort((a, b) => {
@@ -173,7 +181,7 @@ export const dashboardStore = defineStore("dashboard", () => {
   ): ModuleItem[] {
     return items.flatMap((item) => {
       const children = filterMenuTree(item.children ?? [], allowedIds);
-      const selfAllowed = !allowedIds || allowedIds.has(item.id);
+      const selfAllowed = !allowedIds || allowedIds.has(normalizeMenuId(item.id));
       if (!selfAllowed && !children.length) return [];
       return [
         {
@@ -185,36 +193,60 @@ export const dashboardStore = defineStore("dashboard", () => {
     });
   }
 
+  function applyVisibleMenus(tree: ModuleItem[]) {
+    if (authStore.isSuperAdmin) {
+      moduleItems.value = tree;
+      return;
+    }
+    const akses = authStore.user?.akses_menu;
+    if (!Array.isArray(akses)) {
+      moduleItems.value = [];
+      return;
+    }
+    moduleItems.value = filterMenuTree(
+      tree,
+      new Set(akses.map((id) => normalizeMenuId(id))),
+    );
+  }
+
+  async function fetchMenuCatalog() {
+    const baseUrl = getApiBaseUrl();
+    const response = await $api<any[]>(`${baseUrl}/v1/menus/`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "Content-Type": "application/json",
+      },
+    });
+    const menuTree = Array.isArray(response) ? response.map(normalizeModule) : [];
+    menuCatalog.value = menuTree;
+    menuCatalogReady.value = true;
+    applyVisibleMenus(menuTree);
+    return menuTree;
+  }
+
+  async function ensureMenuCatalog() {
+    if (menuCatalogReady.value) {
+      applyVisibleMenus(menuCatalog.value);
+      return menuCatalog.value;
+    }
+    if (!catalogRequest) {
+      catalogRequest = fetchMenuCatalog().finally(() => {
+        catalogRequest = null;
+      });
+    }
+    return catalogRequest;
+  }
+
   async function initDataMenu() {
     loading.value = true;
     errorMessage.value = "";
     try {
-      const baseUrl = getApiBaseUrl();
-
-      const response = await $api<any[]>(`${baseUrl}/v1/menus/`, {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          "Content-Type": "application/json",
-        },
-      });
-      const informasiUser = authStore.user;
-      const menuTree = Array.isArray(response)
-        ? response.map(normalizeModule)
-        : [];
-
-      if (authStore.isSuperAdmin) {
-        moduleItems.value = menuTree;
-      } else if (informasiUser && Array.isArray(informasiUser.akses_menu)) {
-        moduleItems.value = filterMenuTree(
-          menuTree,
-          new Set(informasiUser.akses_menu),
-        );
-      } else {
-        moduleItems.value = [];
-      }
-      return response;
+      return await fetchMenuCatalog();
     } catch (error: any) {
+      menuCatalog.value = [];
+      menuCatalogReady.value = false;
+      moduleItems.value = [];
       errorMessage.value = getErrorMessage(
         error,
         "Terjadi kesalahan saat memuat data menu. Silakan coba lagi.",
@@ -235,9 +267,12 @@ export const dashboardStore = defineStore("dashboard", () => {
     announcements,
     loading,
     errorMessage,
+    menuCatalog,
+    menuCatalogReady,
     moduleItems,
     flatModuleItems,
     favoriteMenus,
+    ensureMenuCatalog,
     initDataMenu,
     iconPath,
   };

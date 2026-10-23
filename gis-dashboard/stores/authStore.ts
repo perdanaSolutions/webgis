@@ -159,6 +159,10 @@ export const useAuthStore = defineStore("auth", () => {
     localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(value));
   }
 
+  function hasStoredFullProfile() {
+    return Boolean(readStoredUser()?.id);
+  }
+
   function hydrateUser() {
     const stored = readStoredUser();
     if (stored?.id) {
@@ -326,6 +330,7 @@ export const useAuthStore = defineStore("auth", () => {
     logout,
     clearAuthData,
     hydrateUser,
+    hasStoredFullProfile,
     ensureSession,
   };
 });

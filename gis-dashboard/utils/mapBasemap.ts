@@ -6,6 +6,7 @@ export type BasemapStatus = "checking" | "blocked" | "ready" | "unavailable";
 
 const REACHABILITY_TIMEOUT_MS = 8000;
 const TILE_TIMEOUT_MS = 7000;
+export const WMS_TILE_TIMEOUT_MS = 20000;
 
 function wmsTile(option: BasemapOption) {
   return option.tiles.find((tile) => tile.service === "wms") ?? null;
@@ -21,15 +22,36 @@ export function basemapHost(option: BasemapOption) {
   }
 }
 
-function capabilitiesUrl(raw: string) {
+function basemapAccessToken() {
   try {
-    const url = new URL(raw);
+    const value = useRuntimeConfig().public.tokenBaseMap;
+    return typeof value === "string" ? value.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Menempelkan token akses ke URL WMS tanpa menyimpan rahasia di kode. */
+export function basemapServiceUrl(tile: BasemapTile, token = basemapAccessToken()) {
+  if (!tile.tokenParam || !token) return tile.url;
+  try {
+    const url = new URL(tile.url);
+    url.searchParams.set(tile.tokenParam, token);
+    return url.toString();
+  } catch {
+    return tile.url;
+  }
+}
+
+export function basemapCapabilitiesUrl(tile: BasemapTile, token = basemapAccessToken()) {
+  try {
+    const url = new URL(basemapServiceUrl(tile, token));
     url.searchParams.set("service", "WMS");
-    url.searchParams.set("version", "1.1.1");
+    url.searchParams.set("version", tile.version || "1.1.1");
     url.searchParams.set("request", "GetCapabilities");
     return url.toString();
   } catch {
-    return raw;
+    return tile.url;
   }
 }
 
@@ -40,14 +62,16 @@ export async function probeWmsReachable(option: BasemapOption) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
   try {
-    await fetch(capabilitiesUrl(tile.url), {
+    await fetch(basemapCapabilitiesUrl(tile), {
       mode: "no-cors",
       cache: "no-store",
       signal: controller.signal,
     });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+    // Capabilities yang lambat tetap dilanjutkan ke permintaan ubin.
+    return name === "AbortError";
   } finally {
     clearTimeout(timer);
   }
@@ -78,7 +102,7 @@ export function createBasemapTileLayer(
     const factory = leaflet.tileLayer as typeof leaflet.tileLayer & {
       wms: (url: string, options: Record<string, unknown>) => import("leaflet").TileLayer;
     };
-    return factory.wms(tile.url, {
+    return factory.wms(basemapServiceUrl(tile), {
       layers: tile.layers ?? "",
       styles: "",
       format: tile.format ?? "image/png",
@@ -105,7 +129,11 @@ export function applyBasemapZoom(map: import("leaflet").Map, option: BasemapOpti
 }
 
 /** Memanggil `onFailed` bila tidak ada ubin yang berhasil dimuat. */
-export function observeBasemapTiles(layers: import("leaflet").TileLayer[], onFailed: () => void) {
+export function observeBasemapTiles(
+  layers: import("leaflet").TileLayer[],
+  onFailed: () => void,
+  timeoutMs = TILE_TIMEOUT_MS,
+) {
   let loaded = 0;
   let errors = 0;
   let settled = false;
@@ -115,7 +143,7 @@ export function observeBasemapTiles(layers: import("leaflet").TileLayer[], onFai
     window.clearTimeout(timer);
     if (failed) onFailed();
   };
-  const timer = window.setTimeout(() => finish(loaded === 0), TILE_TIMEOUT_MS);
+  const timer = window.setTimeout(() => finish(loaded === 0), timeoutMs);
   for (const layer of layers) {
     layer.on("tileload", () => {
       loaded += 1;

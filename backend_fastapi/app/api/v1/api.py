@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     geo_catalog,
     layers,
     menu,
+    mtls,
     quarantine,
     role,
     spatial,
@@ -19,6 +20,8 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+
+api_router.include_router(mtls.router, prefix="/mtls", tags=["mTLS"])
 
 # Router Auth
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

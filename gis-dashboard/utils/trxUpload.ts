@@ -1,6 +1,7 @@
 /** Katalog upload transaksi Excel/JSON. Nama kolom mengikuti header yang diterima backend. */
 
-export const TRX_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+/** Tidak dibatasi di browser; file besar dipecah per part lalu antre ke worker. */
+export const TRX_UPLOAD_MAX_BYTES = Number.POSITIVE_INFINITY;
 
 export type TrxKindId = "areal-statement" | "rotasi-pusingan";
 export type TrxFileMode = "excel" | "json";
@@ -22,6 +23,8 @@ export type TrxKindSpec = {
     excel: string;
     json: string;
   };
+  /** Kode `layer` untuk POST /v1/upload-jobs (sama dengan id jenis). */
+  uploadJobLayer: TrxKindId;
   columns: string[];
   requiredGroups: TrxColumnGroup[];
   example: Record<string, JsonScalar>;
@@ -45,6 +48,7 @@ export const TRX_KINDS: TrxKindSpec[] = [
       excel: "/v1/areal-statement/import-excel",
       json: "/v1/areal-statement/import-json",
     },
+    uploadJobLayer: "areal-statement",
     columns: [
       "Year",
       "Month",
@@ -110,7 +114,7 @@ export const TRX_KINDS: TrxKindSpec[] = [
       JenisTanah: "TANAH MINERAL",
     },
     rules: [
-      "File .xlsx atau .xls, maksimal 50 MB. Yang dibaca hanya sheet pertama (sheet Data pada template). Baris pertama harus nama kolom.",
+      "File .xlsx atau .xls tanpa batas ukuran di browser; server menerima per part lewat antrian. Yang dibaca hanya sheet pertama (sheet Data pada template). Baris pertama harus nama kolom.",
       "Setiap baris dicocokkan ke master dari estate + afdeling (DivisionCode) + blok (KodeBlok). Ketiganya harus ada dan cocok persis. Sistem tidak menebak.",
       "Wajib diisi: Year, Month, AreaCode, StatusTanam, KodeBlok, DivisionCode, dan satu penanda estate (UnitCode, EstateShortName, atau Estate). StatusTanam kosong membuat baris ditolak.",
       "Nama alternatif yang diterima antara lain Tahun/Bulan untuk Year/Month. Periode dari kolom Tanggal (YYYY-MM-DD) juga dikenali bila Year dan Month tidak ada.",
@@ -140,6 +144,7 @@ export const TRX_KINDS: TrxKindSpec[] = [
       excel: "/v1/trx-rotasi-pusingan/import-rotasi-pusingan",
       json: "/v1/trx-rotasi-pusingan/import-json",
     },
+    uploadJobLayer: "rotasi-pusingan",
     columns: [
       "Periode",
       "Area",
@@ -153,7 +158,6 @@ export const TRX_KINDS: TrxKindSpec[] = [
       "Pusingan",
       "Status Pusingan",
       "Bulan",
-      "BulanID",
       "Tanggal",
     ],
     requiredGroups: [
@@ -177,15 +181,14 @@ export const TRX_KINDS: TrxKindSpec[] = [
       Pusingan: 3,
       "Status Pusingan": "Normal",
       Bulan: "Jan",
-      BulanID: 1,
       Tanggal: "2026-01-01",
     },
     rules: [
-      "File .xlsx atau .xls, maksimal 50 MB. Yang dibaca hanya sheet pertama (sheet Data pada template). Baris pertama harus nama kolom.",
+      "File .xlsx atau .xls tanpa batas ukuran di browser; server menerima per part lewat antrian. Yang dibaca hanya sheet pertama (sheet Data pada template). Baris pertama harus nama kolom.",
       "Setiap baris dicocokkan ke master dari estate + afdeling + blok. Ketiganya harus ada dan cocok persis. Sistem tidak menebak.",
       "Wajib diisi: tahun (kolom Periode), bulan, Blok, Afdeling, dan estate. Bulan boleh angka atau nama (1, Jan, Januari). Bila kolom Bulan kosong, bulan diambil dari kolom Tanggal (YYYY-MM-DD).",
       "Estate dikenali dari kode estate (UnitCode), singkatan (EstateShortName), atau nama estate.",
-      "Area, PT, dan BulanID boleh ada di file tetapi tidak disimpan.",
+      "Area dan PT boleh ada di file tetapi tidak disimpan. Kolom BulanID (jika ada) juga diabaikan.",
       "Luas, Pokok, Rotasi, dan Pusingan tidak boleh negatif dan boleh kosong.",
       "Status Pusingan yang belum terdaftar dibuat otomatis. Periksa nilai_referensi_baru agar tidak ada salah ketik.",
       "Baris yang ditolak masuk karantina. Baris yang benar tetap masuk. Error sistem di tengah proses tidak menyimpan data setengah-setengah.",

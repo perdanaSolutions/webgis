@@ -241,12 +241,12 @@ onMounted(async () => {
   try {
     await dashboardService.initDataMenu();
   } catch {
-    await navigateTo("/dashboard");
+    await navigateTo("/dashboard", { replace: true });
     return;
   }
 
   if (!treeHasRoute(dashboardService.moduleItems, "/menus")) {
-    await navigateTo("/dashboard");
+    await navigateTo("/dashboard", { replace: true });
     return;
   }
 

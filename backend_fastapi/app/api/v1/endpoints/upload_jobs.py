@@ -1,8 +1,8 @@
 """
-Upload GeoJSON lewat antrian: POST membalas 202 + job_id setelah file disimpan, worker
-mengerjakan analisis/simpan, FE membaca status tiap 1-2 detik.
+Upload GeoJSON atau Excel transaksi lewat antrian: POST membalas 202 + job_id setelah file disimpan,
+worker mengerjakan analisis/simpan, FE membaca status tiap 1-2 detik.
 
-FE boleh memecah FeatureCollection menjadi beberapa part (mis. 1.000 feature/part) dan
+FE boleh memecah file jadi beberapa part (GeoJSON: feature/part; Excel transaksi: baris/part) dan
 mengirim beruntun dengan upload_group_id + part_index/part_total. Tiap part = satu job.
 
 Sengaja TIDAK di bawah /spatial: semua GET /spatial/... di-cache Redis per user
@@ -11,24 +11,39 @@ Sengaja TIDAK di bawah /spatial: semua GET /spatial/... di-cache Redis per user
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Form, status
+from fastapi import APIRouter, Form, HTTPException, status
 
-from app.api.deps import CanUploadGeojson, DbSession
+from app.api.deps import CurrentUser, DbSession, user_has_permission
 from app.api.params import UploadedFile, read_upload
 from app.services.upload import jobs, runner
+from app.services.upload.trx_runner import is_trx_layer
 
 router = APIRouter()
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED, summary="Antrekan analisis/simpan file GeoJSON")
+def _ensure_upload_access(db, user, layer: str) -> None:
+    if is_trx_layer(layer):
+        return
+    if not user_has_permission(db, user, "upload:geojson"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki hak akses (upload:geojson) untuk fitur ini",
+        )
+
+
+@router.post("", status_code=status.HTTP_202_ACCEPTED, summary="Antrekan analisis/simpan upload (GeoJSON atau Excel transaksi)")
 def create_job(
     db: DbSession,
-    user: CanUploadGeojson,
+    user: CurrentUser,
     file: UploadedFile,
     kind: Annotated[Literal["analyze", "execute"], Form(description="analyze = TAHAP 1, execute = TAHAP 2 (simpan)")],
-    layer: Annotated[str, Form(description="Kode jenis dari GET /spatial/geo/catalog (blok, sawit, jalan, ...)")],
-    bulan: Annotated[int, Form(ge=1, le=12)],
-    tahun: Annotated[int, Form(ge=1900, le=2100)],
+    layer: Annotated[
+        str,
+        Form(description="GeoJSON: kode katalog spatial (blok, sawit, ...). "
+                           "Excel transaksi: areal-statement | rotasi-pusingan"),
+    ],
+    bulan: Annotated[int, Form(ge=1, le=12)] = 1,
+    tahun: Annotated[int, Form(ge=1900, le=2100)] = 2000,
     upload_group_id: Annotated[
         UUID | None,
         Form(description="ID grup bila FE memecah file jadi beberapa part Feature"),
@@ -48,6 +63,7 @@ def create_job(
     ] = 0,
 ):
     content = read_upload(file)
+    _ensure_upload_access(db, user, layer)
     runner.check_layer(db, layer)
     return jobs.create(
         db,
@@ -66,15 +82,15 @@ def create_job(
 
 
 @router.get("/active", summary="Job antre/berjalan milik user (untuk melanjutkan setelah pindah halaman)")
-def active_jobs(db: DbSession, user: CanUploadGeojson):
+def active_jobs(db: DbSession, user: CurrentUser):
     return jobs.active(db, user.id)
 
 
 @router.get("/{job_id}", summary="Status job; `result` berisi respons upload-analyze/upload-execute setelah selesai")
-def get_job(job_id: UUID, db: DbSession, user: CanUploadGeojson):
+def get_job(job_id: UUID, db: DbSession, user: CurrentUser):
     return jobs.get(db, job_id, user.id)
 
 
 @router.post("/{job_id}/cancel", summary="Batalkan job (data tidak disimpan)")
-def cancel_job(job_id: UUID, db: DbSession, user: CanUploadGeojson):
+def cancel_job(job_id: UUID, db: DbSession, user: CurrentUser):
     return jobs.cancel(db, job_id, user.id)
