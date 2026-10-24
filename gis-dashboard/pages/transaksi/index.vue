@@ -5,6 +5,7 @@ import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
 import { TRX_ROWS_PER_PART } from "~/utils/trxExcelParts";
+import { PAGE_SIZES } from "~/utils/tablePagination";
 import { TRX_KINDS, missingHeaderGroups } from "~/utils/trxUpload";
 
 defineOptions({
@@ -16,7 +17,7 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const isOpenConfirm = ref(false);
 const searchQuery = ref("");
 const currentPage = ref(1);
-const itemsPerPage = 8;
+const itemsPerPage = ref<number>(10);
 
 const kind = computed(() => trxUploadStore.kind);
 const busyLabel = computed(() => {
@@ -108,19 +109,22 @@ const filteredRows = computed(() => {
     });
 });
 
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / itemsPerPage)));
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / itemsPerPage.value)));
 const pageRows = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage;
-  return filteredRows.value.slice(start, start + itemsPerPage);
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return filteredRows.value.slice(start, start + itemsPerPage.value);
 });
-const startItem = computed(() => (filteredRows.value.length ? (currentPage.value - 1) * itemsPerPage + 1 : 0));
-const endItem = computed(() => Math.min(currentPage.value * itemsPerPage, filteredRows.value.length));
+const startItem = computed(() => (filteredRows.value.length ? (currentPage.value - 1) * itemsPerPage.value + 1 : 0));
+const endItem = computed(() => Math.min(currentPage.value * itemsPerPage.value, filteredRows.value.length));
 
 watch(previewRows, () => {
   currentPage.value = 1;
   searchQuery.value = "";
 });
 
+watch(itemsPerPage, () => {
+  currentPage.value = 1;
+});
 watch(searchQuery, () => {
   currentPage.value = 1;
 });
@@ -425,7 +429,7 @@ onMounted(async () => {
           </p>
 
           <div v-else class="overflow-x-auto rounded-xl border border-default">
-            <table class="min-w-full bg-surface text-size-sm">
+            <table class="w-max min-w-full bg-surface text-size-sm">
               <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">Baris</th>
@@ -445,11 +449,11 @@ onMounted(async () => {
                     cocok.</td>
                 </tr>
                 <tr v-for="item in pageRows" :key="item.excelRow" class="border-t border-row">
-                  <td class="px-3 py-2">{{ item.excelRow }}</td>
-                  <td v-if="Object.keys(trxUploadStore.previewAnalysis).length" class="px-3 py-2">
+                  <td class="whitespace-nowrap px-3 py-2">{{ item.excelRow }}</td>
+                  <td v-if="Object.keys(trxUploadStore.previewAnalysis).length" class="whitespace-nowrap px-3 py-2">
                     {{ analysisForRow(item.excelRow)?.status_analisa ?? "BELUM DIANALISA" }}
                   </td>
-                  <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`" class="px-3 py-2">
+                  <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`" class="whitespace-nowrap px-3 py-2">
                     {{ item.row[header] || "-" }}
                   </td>
                 </tr>
@@ -462,7 +466,14 @@ onMounted(async () => {
             <p class="text-size-sm text-muted">
               Menampilkan {{ startItem }} - {{ endItem }} dari {{ filteredRows.length.toLocaleString("id-ID") }} data
             </p>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="flex items-center gap-1 text-size-sm text-label">
+                Per halaman
+                <select v-model.number="itemsPerPage"
+                  class="rounded-lg border border-tan bg-surface px-2 py-1 text-size-sm text-brand">
+                  <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }}</option>
+                </select>
+              </label>
               <button type="button"
                 class="rounded-lg border border-tan bg-surface px-3 py-1.5 text-size-sm font-semibold text-brand disabled:opacity-50"
                 :disabled="currentPage === 1" @click="currentPage -= 1">
