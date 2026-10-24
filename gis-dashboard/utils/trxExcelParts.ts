@@ -2,7 +2,8 @@
 
 import type { ExcelPreview } from "./trxExcelFile";
 
-export const TRX_ROWS_PER_PART = 2000;
+/** Sama dengan GeoJSON: 1.000 baris per part. */
+export const TRX_ROWS_PER_PART = 1000;
 
 export type TrxRowPart = {
   headers: string[];
@@ -22,10 +23,12 @@ export function chunkTrxRows(
   return parts;
 }
 
-/** Offset baris Excel (nomor baris data pertama part) untuk `feature_offset` backend. */
+/**
+ * `feature_offset` backend = jumlah baris data SEBELUM part ini (0 untuk part 1), sama dengan GeoJSON.
+ * Backend menambahkan nomor baris di part (mulai 1), jadi no_preview = nomor baris data di file asli.
+ */
 export function partRowOffset(partIndex: number, size = TRX_ROWS_PER_PART): number {
-  const dataRowsBefore = Math.max(0, (partIndex - 1) * size);
-  return dataRowsBefore + 1;
+  return Math.max(0, (partIndex - 1) * size);
 }
 
 export async function rowsToExcelFile(

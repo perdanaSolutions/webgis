@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.services.trx_import_service import (
     BLOCK_COLUMNS, COMPANY_COLUMNS, DIVISION_COLUMNS, ESTATE_COLUMNS, GROUP_COLUMNS, MONTH_COLUMNS, YEAR_COLUMNS,
-    TrxKind, _PROD_SOURCES, _collect, _period_summary,
+    TrxKind, _PROD_SOURCES, _collect, _period_summary, canonicalize_rows,
 )
 from app.services.upload.report import DETAIL_LIMIT, estate_summary
 from app.utils.excel import pick, read_excel_rows
@@ -99,7 +99,7 @@ def _column_report(kind: TrxKind, headers: list[str]) -> tuple[list[str], list[s
 
 
 def analyze_excel(db: Session, kind: TrxKind, filename: str | None, content: bytes) -> dict:
-    rows = read_excel_rows(filename, content)
+    rows = canonicalize_rows(read_excel_rows(filename, content))
     headers = list(rows[0].keys()) if rows else []
     try:
         build, refs = kind.build_factory(db)

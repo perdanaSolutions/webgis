@@ -251,9 +251,14 @@ function isPeriodGroup(group: TrxColumnGroup) {
 }
 
 /** Kelompok wajib yang header-nya belum ada. Periode cukup tahun + bulan, atau kolom Tanggal. */
+/** Kunci header longgar: tanpa beda huruf besar/kecil, spasi, dan garis bawah ("Kode Blok" == "kodeblok"). */
+export function headerKey(name: string): string {
+  return String(name ?? "").replace(/[\s_]+/g, "").toLowerCase();
+}
+
 export function missingHeaderGroups(headers: string[], spec: TrxKindSpec) {
-  const present = new Set(headers);
-  const has = (group: TrxColumnGroup) => group.names.some((name) => present.has(name));
+  const present = new Set(headers.map(headerKey));
+  const has = (group: TrxColumnGroup) => group.names.some((name) => present.has(headerKey(name)));
   const year = spec.requiredGroups.find((group) => group.names.includes("Year") || group.names.includes("Periode"));
   const month = spec.requiredGroups.find((group) => group.names.includes("Month") || group.names.includes("Bulan"));
   const hasPeriod = Boolean((year && month && has(year) && has(month)) || has(PERIOD_BY_DATE));

@@ -46,6 +46,54 @@ GROUP_COLUMNS = ("Group", "Grup", "group")
 AREA_COLUMNS = ("AreaCode", "Area", "KodeArea")
 
 
+DATE_COLUMNS = ("Tanggal", "tanggal", "Date")
+
+# Semua nama header yang dikenali importer transaksi (areal statement, produksi, rotasi).
+# Header di file dicocokkan TANPA membedakan huruf besar/kecil, spasi, dan garis bawah,
+# lalu diganti ke nama di sini supaya `pick(...)` menemukannya.
+KNOWN_HEADERS = (
+    *ESTATE_COLUMNS, *DIVISION_COLUMNS, *BLOCK_COLUMNS, *MONTH_COLUMNS, *YEAR_COLUMNS, *COMPANY_COLUMNS,
+    *GROUP_COLUMNS, *AREA_COLUMNS, *DATE_COLUMNS,
+    "StatusTanam", "TahunTanam", "BulanTanam", "TanahDatar", "Pct Datar", "Berbukit", "Pct Berbukit", "Gelombang",
+    "Pct Gelombang", "Curam", "Pct Curam", "JenisBibit", "JenisTanah", "JenisTopografi", "LuasTanam", "LuasTanah",
+    "TotalPokok", "SPH", "TipeBlok", "Ownership",
+    "TbsAktual", "TbsBudget", "TbsSensus", "JanjangAktual", "JanjangBudget", "JanjangSensus", "BjrAktual",
+    "BjrBudget", "BjrSensus",
+    "Luas", "Pokok", "Rotasi", "rotasi_ke", "Pusingan", "pusingan_hari", "Status Pusingan", "PT", "BulanID",
+)
+
+
+def header_key(name) -> str:
+    return re.sub(r"[\s_]+", "", str(name or "")).lower()
+
+
+_CANONICAL = {}
+for _name in KNOWN_HEADERS:
+    _CANONICAL.setdefault(header_key(_name), _name)
+
+
+def canonical_header(name: str) -> str:
+    """'kode blok', 'KODEBLOK', ' Kode_Blok ' -> 'KodeBlok'. Header tak dikenal dikembalikan apa adanya."""
+    return _CANONICAL.get(header_key(name), str(name).strip())
+
+
+def canonicalize_rows(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return rows
+    mapping = {k: canonical_header(k) for k in rows[0].keys()}
+    if all(k == v for k, v in mapping.items()):
+        return rows
+    out = []
+    for row in rows:
+        new: dict = {}
+        for k, v in row.items():
+            key = mapping.get(k) or canonical_header(k)
+            if key not in new or new[key] is None:
+                new[key] = v
+        out.append(new)
+    return out
+
+
 class RowError(ValueError):
     pass
 
@@ -627,7 +675,7 @@ ROTATION = TrxKind(
 
 def import_excel(db: Session, kind: TrxKind, filename: str | None, content: bytes, user_id: UUID | None,
                  scope: ImportScope | None = None) -> dict:
-    rows = read_excel_rows(filename, content)
+    rows = canonicalize_rows(read_excel_rows(filename, content))
     return _run(db, kind, rows=rows, source_type="EXCEL_UPLOAD", source_name=filename, user_id=user_id, first_row=2,
                 scope=scope)  # Excel: upsert saja, tanpa menghapus blok yang tidak ikut dikirim
 
@@ -635,7 +683,7 @@ def import_excel(db: Session, kind: TrxKind, filename: str | None, content: byte
 def import_json(db: Session, kind: TrxKind, rows: list[dict], source_name: str | None, user_id: UUID | None,
                 scope: ImportScope | None = None) -> dict:
     """Baris JSON memakai nama kolom yang sama dengan header Excel (spasi di tepi nama kolom diabaikan)."""
-    rows = [{str(k).strip(): v for k, v in row.items()} for row in rows]
+    rows = canonicalize_rows([{str(k).strip(): v for k, v in row.items()} for row in rows])
     return _run(db, kind, rows=rows, source_type="JSON_API", source_name=source_name or "JSON API",
                 user_id=user_id, first_row=1, scope=scope, replace_mode=True)
 

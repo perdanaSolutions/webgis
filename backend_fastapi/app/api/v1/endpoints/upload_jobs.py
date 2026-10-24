@@ -9,7 +9,7 @@ Sengaja TIDAK di bawah /spatial: semua GET /spatial/... di-cache Redis per user
 (app/core/map_cache.py), sehingga status job yang di-poll akan terbaca basi.
 """
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Form, HTTPException, status
 
@@ -31,6 +31,18 @@ def _ensure_upload_access(db, user, layer: str) -> None:
         )
 
 
+def group_uuid(value: str | None) -> UUID | None:
+    """UUID apa adanya; ID non-UUID dari FE lama (mis. `grp-<waktu>-<acak>` saat crypto.randomUUID tidak ada
+    karena halaman dibuka lewat HTTP) dipetakan stabil ke UUIDv5 sehingga semua part tetap satu grup."""
+    text_value = (value or "").strip()
+    if not text_value:
+        return None
+    try:
+        return UUID(text_value)
+    except ValueError:
+        return uuid5(NAMESPACE_URL, f"webgis-upload-group:{text_value}")
+
+
 @router.post("", status_code=status.HTTP_202_ACCEPTED, summary="Antrekan analisis/simpan upload (GeoJSON atau Excel transaksi)")
 def create_job(
     db: DbSession,
@@ -45,8 +57,9 @@ def create_job(
     bulan: Annotated[int, Form(ge=1, le=12)] = 1,
     tahun: Annotated[int, Form(ge=1900, le=2100)] = 2000,
     upload_group_id: Annotated[
-        UUID | None,
-        Form(description="ID grup bila FE memecah file jadi beberapa part Feature"),
+        str | None,
+        Form(max_length=200, description="ID grup (UUID) bila FE memecah file jadi beberapa part. "
+                                         "ID lama non-UUID (grp-...) diubah deterministik ke UUIDv5."),
     ] = None,
     part_index: Annotated[
         int | None,
@@ -74,7 +87,7 @@ def create_job(
         tahun=tahun,
         filename=file.filename,
         content=content,
-        upload_group_id=upload_group_id,
+        upload_group_id=group_uuid(upload_group_id),
         part_index=part_index,
         part_total=part_total,
         feature_offset=feature_offset,

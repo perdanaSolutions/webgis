@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { newUploadGroupId } from "~/utils/uploadGroupId";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 import {
   GEOJSON_FEATURES_PER_PART,
@@ -160,13 +161,6 @@ function readUploadError(error: unknown, fallback: string) {
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function newUploadGroupId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `grp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export const useDocumentUploadStore = defineStore("document-upload", {
