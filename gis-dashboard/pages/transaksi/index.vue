@@ -100,12 +100,20 @@ type PreviewItem = { row: Record<string, string>; excelRow: number };
 
 /** Filter kolom gaya Excel (sama dengan preview GeoJSON): null = semua nilai. Berlaku ke SEMUA baris. */
 const STATUS_COLUMN = "__status_analisa";
+const KODE_COLUMN = "__kode_gagal";
+const ALASAN_COLUMN = "__alasan_gagal";
+const ANALYSIS_COLUMNS = [
+  { key: KODE_COLUMN, label: "Kode Gagal" },
+  { key: ALASAN_COLUMN, label: "Alasan Gagal" },
+];
 const columnFilters = reactive<Record<string, string[] | null>>({});
 const hasAnalysisColumn = computed(() => Object.keys(trxUploadStore.previewAnalysis).length > 0);
 const groupColumns = computed(() => findGroupColumns(trxUploadStore.headers));
 
 function cellValue(item: PreviewItem, column: string): string {
   if (column === STATUS_COLUMN) return String(analysisForRow(item.excelRow)?.status_analisa ?? "BELUM DIANALISA");
+  if (column === KODE_COLUMN) return String(analysisForRow(item.excelRow)?.kode_gagal ?? "");
+  if (column === ALASAN_COLUMN) return String(analysisForRow(item.excelRow)?.alasan_gagal ?? "");
   return item.row[column] ?? "";
 }
 
@@ -152,7 +160,10 @@ const searchedRows = computed<PreviewItem[]>(() => {
     .filter(({ row, excelRow }) => {
       if (!query) return true;
       if (String(excelRow).includes(query)) return true;
-      return Object.values(row).some((value) => value.toLowerCase().includes(query));
+      if (Object.values(row).some((value) => value.toLowerCase().includes(query))) return true;
+      const result = analysisForRow(excelRow);
+      return [result?.status_analisa, result?.kode_gagal, result?.alasan_gagal]
+        .some((value) => value != null && String(value).toLowerCase().includes(query));
     });
 });
 
@@ -305,8 +316,13 @@ function onCancelJob() {
   trxUploadStore.cancelJob();
 }
 
+/**
+ * Hasil analisa per baris. Backend memberi `no_preview` = nomor baris DATA di file (1 = baris data pertama),
+ * sedangkan kolom "Baris" di Excel menghitung header (baris data pertama = 2).
+ */
 function analysisForRow(excelRow: number) {
-  return trxUploadStore.previewAnalysis[excelRow];
+  const no = trxUploadStore.fileMode === "json" ? excelRow : excelRow - 1;
+  return trxUploadStore.previewAnalysis[no];
 }
 
 onMounted(async () => {
@@ -487,6 +503,9 @@ onMounted(async () => {
             <UploadColumnFilter v-if="hasAnalysisColumn" label="Status analisa"
               :model-value="columnFilters[STATUS_COLUMN] ?? null" :load-options="() => filterOptions(STATUS_COLUMN)"
               @update:model-value="(v) => setColumnFilter(STATUS_COLUMN, v)" />
+            <UploadColumnFilter v-if="hasAnalysisColumn" label="Kode Gagal"
+              :model-value="columnFilters[KODE_COLUMN] ?? null" :load-options="() => filterOptions(KODE_COLUMN)"
+              @update:model-value="(v) => setColumnFilter(KODE_COLUMN, v)" />
             <button v-if="activeFilterCount" type="button"
               class="ml-auto text-size-xs font-semibold text-brand underline" @click="clearAllFilters">
               Hapus semua filter ({{ activeFilterCount }})
@@ -507,6 +526,16 @@ onMounted(async () => {
                         @update:model-value="(v) => setColumnFilter(STATUS_COLUMN, v)" />
                     </div>
                   </th>
+                  <template v-if="hasAnalysisColumn">
+                    <th v-for="col in ANALYSIS_COLUMNS" :key="col.key" class="whitespace-nowrap px-3 py-2 font-bold">
+                      <div class="flex items-center gap-1">
+                        {{ col.label }}
+                        <UploadColumnFilter compact :label="col.label" :model-value="columnFilters[col.key] ?? null"
+                          :load-options="() => filterOptions(col.key)"
+                          @update:model-value="(v) => setColumnFilter(col.key, v)" />
+                      </div>
+                    </th>
+                  </template>
                   <th v-for="header in trxUploadStore.headers" :key="header"
                     class="whitespace-nowrap px-3 py-2 font-bold">
                     <div class="flex items-center gap-1">
@@ -520,7 +549,7 @@ onMounted(async () => {
               </thead>
               <tbody>
                 <tr v-if="pageRows.length === 0">
-                  <td :colspan="trxUploadStore.headers.length + 1" class="px-3 py-3 text-muted">Tidak ada data yang
+                  <td :colspan="trxUploadStore.headers.length + (hasAnalysisColumn ? 4 : 1)" class="px-3 py-3 text-muted">Tidak ada data yang
                     cocok.</td>
                 </tr>
                 <tr v-for="item in pageRows" :key="item.excelRow" class="border-t border-row">
@@ -528,6 +557,10 @@ onMounted(async () => {
                   <td v-if="Object.keys(trxUploadStore.previewAnalysis).length" class="whitespace-nowrap px-3 py-2">
                     {{ analysisForRow(item.excelRow)?.status_analisa ?? "BELUM DIANALISA" }}
                   </td>
+                  <template v-if="hasAnalysisColumn">
+                    <td class="whitespace-nowrap px-3 py-2">{{ analysisForRow(item.excelRow)?.kode_gagal || "-" }}</td>
+                    <td class="whitespace-nowrap px-3 py-2">{{ analysisForRow(item.excelRow)?.alasan_gagal || "-" }}</td>
+                  </template>
                   <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`" class="whitespace-nowrap px-3 py-2">
                     {{ item.row[header] || "-" }}
                   </td>
