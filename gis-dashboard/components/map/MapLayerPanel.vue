@@ -53,7 +53,7 @@ function geometryIcon(type: string) {
     </button>
 
     <div v-if="isOpen"
-      class="w-[300px] max-h-[70vh] overflow-y-auto rounded-2xl border border-map-light bg-surface p-3 shadow-xl">
+      class="app-pop w-[min(300px,var(--app-popup-max-width))] rounded-2xl border border-map-light bg-surface p-3 shadow-xl">
       <p class="mb-2 text-11 font-semibold uppercase tracking-wide text-gray-muted">
         Peta Dasar
       </p>

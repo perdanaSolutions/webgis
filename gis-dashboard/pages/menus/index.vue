@@ -395,8 +395,9 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
-      <div class="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-surface p-5">
+    <AppModalTeleport>
+    <div v-if="showFormModal" class="app-modal-backdrop bg-overlay">
+      <div class="app-modal-panel app-modal-size-2xl w-full rounded-2xl bg-surface">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
           <button class="text-muted" @click="closeFormModal">✕</button>
@@ -524,8 +525,8 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
-      <div class="w-full max-w-md rounded-2xl bg-surface p-5">
+    <div v-if="showDeleteModal" class="app-modal-backdrop bg-overlay">
+      <div class="app-modal-panel app-modal-size-sm w-full rounded-2xl bg-surface">
         <h3 class="text-18 font-bold">Konfirmasi Hapus</h3>
         <p v-if="deleteHasChildren" class="mt-2 text-error">
           "{{ selectedMenu?.title }}" masih punya submenu. Hapus submenu di bawahnya terlebih dahulu.
@@ -550,5 +551,6 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+    </AppModalTeleport>
   </main>
 </template>

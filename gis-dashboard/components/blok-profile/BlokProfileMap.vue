@@ -23,6 +23,7 @@ import {
   periodAvailabilityNotice,
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
+import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 type L = typeof import("leaflet");
@@ -303,9 +304,8 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
     () => buildBlokPopupHtml(blokPopupFromFeature((feature.properties ?? {}) as Record<string, any>,
       props.popupPeriod(feature.properties as Record<string, any>))),
     {
-      maxWidth: 380,
-      minWidth: 360,
-      maxHeight: 460,
+      maxWidth: viewportPopupMaxWidth(360),
+      minWidth: Math.min(280, viewportPopupMaxWidth(360)),
       className: "map-blok-popup-wrapper",
       closeOnClick: false,
       autoClose: true,
@@ -704,7 +704,7 @@ function renderOverlays() {
         l.on("click", (event) => Lf?.DomEvent.stopPropagation(event));
         l.bindPopup(() => overlayPopup(layer, (f.properties ?? {}) as Record<string, any>), {
           className: "bp-popup-wrap",
-          maxWidth: 300,
+          maxWidth: viewportPopupMaxWidth(280),
           autoClose: true,
           ...popupPanPadding(),
         });
@@ -925,7 +925,9 @@ watch(() => props.insets, applyInsets, { deep: true });
 }
 
 .bp-popup-wrap .leaflet-popup-content-wrapper { border-radius: 10px; padding: 0; }
-.bp-popup-wrap .leaflet-popup-content { margin: 0; width: 280px !important; max-height: 70vh; overflow: auto; }
+.bp-popup-wrap .leaflet-popup-content {
+  margin: 0;
+}
 .bp-popup { padding: 12px 12px 10px; color: #1f2937; }
 .bp-popup .bp-popup-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-right: 16px; font-size: 13px; font-weight: 700; color: #111827; }
 .bp-popup .bp-dot { width: 10px; height: 10px; border-radius: 9999px; flex-shrink: 0; }
@@ -936,8 +938,10 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-popup .bp-detail-row span:last-child { color: #111827; font-weight: 600; word-break: break-word; }
 .bp-popup .bp-empty { margin: 0; font-size: 12px; color: #6b7280; }
 
-.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content-wrapper { border-radius: 10px; padding: 0; overflow: hidden; }
-.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content { margin: 0; width: 360px !important; max-height: 72vh; overflow: auto; }
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content-wrapper { border-radius: 10px; padding: 0; overflow: visible; }
+.leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content {
+  margin: 0;
+}
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip { background: #fff; }
 
 @keyframes map-blok-skeleton-shine {

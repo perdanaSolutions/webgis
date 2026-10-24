@@ -12,9 +12,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-[6000] flex items-center justify-center bg-[#1f2a18]/45 p-4" role="alertdialog"
+  <AppModalTeleport>
+  <div v-if="open" class="app-modal-backdrop app-modal-backdrop--top bg-[#1f2a18]/45" role="alertdialog"
     aria-modal="true" aria-labelledby="basemap-access-title" @click.self="pending ? undefined : emit('close')">
-    <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+    <div class="app-modal-panel app-modal-size-sm w-full rounded-2xl bg-white shadow-2xl">
       <div class="flex items-start gap-3">
         <span v-if="pending"
           class="mt-0.5 h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[#638840] border-t-transparent"
@@ -32,4 +33,5 @@ const emit = defineEmits<{
       </div>
     </div>
   </div>
+  </AppModalTeleport>
 </template>

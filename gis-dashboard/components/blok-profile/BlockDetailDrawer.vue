@@ -46,7 +46,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 <template>
   <Transition name="bp-drawer">
     <div v-if="open" class="fixed inset-0 z-[3000] flex justify-end bg-black/30" @click.self="emit('close')">
-      <aside class="flex h-full w-full max-w-[460px] flex-col bg-[#fbfcf9] shadow-2xl" role="dialog" aria-modal="true"
+      <aside class="flex h-full max-h-[100dvh] w-[min(100%,460px)] flex-col bg-[#fbfcf9] shadow-2xl" role="dialog"
+        aria-modal="true"
         :aria-label="`Detail blok ${info.kode_blok ?? ''}`">
         <header class="flex items-start justify-between gap-3 border-b border-[#d5dcc8] px-6 py-5">
           <div>

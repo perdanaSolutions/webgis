@@ -374,7 +374,7 @@ onUnmounted(() => {
               Belum ada pengumuman aktif.
             </p>
 
-            <div v-else class="max-h-[min(70vh,24rem)] overflow-y-auto">
+            <div v-else>
               <button v-for="item in pengumumanStore.activeItems" :key="`announcement-${item.id}`" type="button"
                 class="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
                 @click="toggleAnnouncementItem(item.id)">
@@ -540,9 +540,10 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <div v-if="showProfileModal" class="fixed inset-0 z-[1700] flex items-center justify-center bg-overlay p-4"
+    <AppModalTeleport>
+    <div v-if="showProfileModal" class="app-modal-backdrop bg-overlay"
       @click.self="closeProfileModal">
-      <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-5 text-content">
+      <div class="app-modal-panel app-modal-size-md w-full rounded-2xl bg-surface text-content">
         <div class="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 class="text-18 font-bold">Profil Saya</h3>
@@ -644,6 +645,7 @@ onUnmounted(() => {
         </form>
       </div>
     </div>
+    </AppModalTeleport>
   </header>
 </template>
 
@@ -776,10 +778,7 @@ onUnmounted(() => {
     left: 0.65rem;
     width: auto;
     max-width: none;
-    max-height: min(70dvh, 28rem);
     margin-top: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
   }
 
   .app-header__nav {

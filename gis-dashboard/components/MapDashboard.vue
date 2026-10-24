@@ -25,6 +25,7 @@ import {
   type BlokDetailResponse,
   type BlokPopupData,
 } from '~/utils/mapBlokPopup'
+import { viewportPopupMaxWidth } from '~/utils/viewportLayout'
 
 type LeafletModule = typeof import('leaflet')
 type LeafletMap = import('leaflet').Map
@@ -455,9 +456,10 @@ function updateGeoJSONLayer(L: LeafletModule) {
       style: (feature) => resolveFeatureStyle(feature as Feature),
       onEachFeature: (feature, leafletLayer) => {
         const popupHtml = buildInitialPopupContent(feature as Feature)
+        const blokPopupWidth = viewportPopupMaxWidth(360)
         leafletLayer.bindPopup(popupHtml, {
-          maxWidth: 380,
-          minWidth: 360,
+          maxWidth: blokPopupWidth,
+          minWidth: Math.min(280, blokPopupWidth),
           ...popupPanPadding(),
           className: 'map-blok-popup-wrapper',
           closeOnClick: false,
@@ -676,7 +678,7 @@ function buildOverlayLayer(L: LeafletModule, overlay: OverlayState, data: Featur
     onEachFeature: (feature, layer) => {
       layer.bindPopup(() => buildOverlayPopup(overlay, (feature.properties ?? {}) as Record<string, unknown>), {
         className: 'map-overlay-popup',
-        maxWidth: 280,
+        maxWidth: viewportPopupMaxWidth(280),
         ...popupPanPadding(),
       })
     },
@@ -888,16 +890,11 @@ watch(() => props.insets, () => applyInsets(), { deep: true })
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content-wrapper {
   border-radius: 10px;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-content {
   margin: 0;
-  width: 360px !important;
-  max-width: 360px;
-  max-height: 72vh;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .leaflet-popup.map-blok-popup-wrapper .leaflet-popup-tip {

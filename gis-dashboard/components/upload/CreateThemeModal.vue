@@ -81,8 +81,9 @@ async function submit() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
-    <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-surface p-6 shadow-2xl">
+  <AppModalTeleport>
+  <div class="app-modal-backdrop bg-overlay-dark">
+    <div class="app-modal-panel app-modal-size-xl w-full rounded-xl bg-surface shadow-2xl">
       <h3 class="text-18 font-bold text-brand">Buat Tema Baru</h3>
       <p class="mt-1 text-size-sm text-muted">
         Upload file GeoJSON contoh. Skema kolom disarankan otomatis dan bisa Anda sesuaikan sebelum tema dibuat.
@@ -175,4 +176,5 @@ async function submit() {
       </div>
     </div>
   </div>
+  </AppModalTeleport>
 </template>

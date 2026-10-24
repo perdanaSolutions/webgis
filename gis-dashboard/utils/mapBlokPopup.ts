@@ -535,7 +535,7 @@ export function buildBlokPopupSkeletonHtml(options: {
   kodeBlok?: string;
 }) {
   return `
-    <div class="map-blok-popup" style="width:360px;max-width:360px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+    <div class="map-blok-popup" style="width:100%;max-width:100%;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
       <div style="display:grid;gap:8px;margin-bottom:12px;">
         ${Array.from({ length: 14 }, () => skeletonRow()).join("")}
       </div>
@@ -631,7 +631,7 @@ export function buildBlokPopupHtml(
       : "";
 
   return `
-    <div class="map-blok-popup" style="width:360px;max-width:360px;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
+    <div class="map-blok-popup" style="width:100%;max-width:100%;box-sizing:border-box;padding:12px 12px 10px;font-family:inherit;color:#1f2937;">
       ${banner}
       <div style="display:grid;gap:4px;margin-bottom:10px;">
         ${popupRow("Area", data.area)}

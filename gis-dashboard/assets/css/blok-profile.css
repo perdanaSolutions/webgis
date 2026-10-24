@@ -159,6 +159,8 @@
   border: 1px solid #d5dcc8;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(31, 42, 24, 0.14);
+  max-height: calc(100dvh - 6rem);
+  overflow-y: auto;
 }
 .bp-filter-menu .v-list {
   background: #fbfcf9;
@@ -663,7 +665,8 @@
 }
 .bp-pdf-loader-panel {
   display: flex;
-  max-width: 360px;
+  width: min(360px, calc(100vw - 2rem));
+  max-width: min(360px, calc(100vw - 2rem));
   flex-direction: column;
   align-items: center;
   gap: 10px;

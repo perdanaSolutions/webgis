@@ -1545,8 +1545,9 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showFormModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4">
-      <div class="w-full max-w-4xl rounded-2xl bg-surface p-5">
+    <AppModalTeleport>
+    <div v-if="showFormModal" class="app-modal-backdrop bg-overlay">
+      <div class="app-modal-panel app-modal-size-2xl w-full rounded-2xl bg-surface">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-18 font-bold">{{ pageTitle }}</h3>
           <button class="text-muted" @click="closeFormModal">✕</button>
@@ -1569,8 +1570,8 @@ onMounted(async () => {
               class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
           </div>
 
-          <div class="md:col-span-2 rounded-xl border border-default p-4 max-h-[70vh] overflow-y-auto">
-            <div class="mb-4 flex flex-wrap gap-2 border-b border-default pb-3">
+          <div class="app-modal-permission-box md:col-span-2 rounded-xl border border-default p-4">
+            <div class="app-modal-tabs mb-4 border-b border-default pb-3">
               <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'menu'
                 ? 'bg-brand text-on-brand'
                 : 'border border-tan bg-cream text-brand'" @click="changeContent('menu')">
@@ -1863,5 +1864,6 @@ onMounted(async () => {
         </form>
       </div>
     </div>
+    </AppModalTeleport>
   </main>
 </template>

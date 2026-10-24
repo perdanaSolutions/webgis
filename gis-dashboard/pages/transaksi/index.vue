@@ -701,8 +701,9 @@ onMounted(async () => {
     </div>
   </main>
 
-  <div v-if="isOpenConfirm" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
-    <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
+  <AppModalTeleport>
+  <div v-if="isOpenConfirm" class="app-modal-backdrop bg-overlay-dark">
+    <div class="app-modal-panel app-modal-size-sm w-full rounded-xl bg-surface shadow-2xl">
       <h3 class="text-size-lg font-semibold text-gray-title-alt">Konfirmasi import</h3>
       <div class="mt-3 space-y-2 text-size-sm text-gray-body">
         <p v-if="displayAnalysis?.kesimpulan">{{ displayAnalysis.kesimpulan }}</p>
@@ -731,4 +732,5 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+  </AppModalTeleport>
 </template>

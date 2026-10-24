@@ -331,9 +331,10 @@ async function gotoDashboard() {
       </section>
     </div>
 
-    <div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4"
+    <AppModalTeleport>
+    <div v-if="showDetailModal" class="app-modal-backdrop bg-overlay"
       @click.self="closeDetailModal">
-      <div class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-surface p-5">
+      <div class="app-modal-panel app-modal-size-lg w-full rounded-2xl bg-surface">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-18 font-bold">Detail Riwayat Upload</h3>
           <button class="text-muted" @click="closeDetailModal">✕</button>
@@ -414,5 +415,6 @@ async function gotoDashboard() {
         </div>
       </div>
     </div>
+    </AppModalTeleport>
   </main>
 </template>

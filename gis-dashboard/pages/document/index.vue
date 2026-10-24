@@ -966,48 +966,44 @@ watch(
 
   <CreateThemeModal v-if="isOpenCreateTheme" @close="isOpenCreateTheme = false" />
 
-  <div v-if="isOpenModalValidasi" class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4">
-    <!-- Modal Card -->
-    <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl">
-      <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-overlay-dark p-4 transition-opacity duration-200">
-        <!-- Dialog Card -->
-        <div class="w-full max-w-md rounded-xl bg-surface p-6 shadow-2xl transition-all">
-          <!-- Header Modal -->
-          <div class="flex items-center space-x-3 text-warning">
-            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-warning-light">
-              <!-- Icon Peringatan/Tanya -->
-              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-              </svg>
-            </div>
-            <h3 class="text-size-lg font-semibold text-gray-title-alt">
-              Konfirmasi Analisis
-            </h3>
-          </div>
-
-          <!-- Isi Pesan Pertanyaan -->
-          <div class="mt-3 pl-13 space-y-2">
-            <p v-if="analysis.kesimpulan" class="text-size-sm text-gray-body">{{ analysis.kesimpulan }}</p>
-            <p v-if="isThereReplaceData" class="text-size-sm text-gray-body">
-              Apakah Anda yakin untuk submit analisis ini? {{ replaceCount.toLocaleString("id-ID") }} data lama
-              periode ini akan diganti dengan data dari file.
-            </p>
-            <p v-else class="text-size-sm text-gray-body">
-              Apakah Anda yakin untuk submit analisis ini?
-            </p>
-          </div>
-
-          <div class="mt-4 w-full flex justify-end space-x-3">
-            <button @click="isOpenModalValidasi = false"
-              class="rounded-lg border border-gray bg-surface px-4 py-2 text-size-sm font-medium text-gray-label-alt hover-bg-gray-light focus:outline-none focus:ring-2 focus-ring-gray focus:ring-offset-1 transition">Cancel</button>
-            <button @click="actionSubmit"
-              class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand hover-bg-blue-darker focus:outline-none focus:ring-2 focus-ring-blue focus:ring-offset-1 transition shadow-sm">Submit</button>
-          </div>
+  <AppModalTeleport>
+  <div v-if="isOpenModalValidasi" class="app-modal-backdrop bg-overlay-dark">
+    <div class="app-modal-panel app-modal-size-sm w-full rounded-xl bg-surface shadow-2xl">
+      <div class="flex items-center space-x-3 text-warning">
+        <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-warning-light">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
         </div>
+        <h3 class="text-size-lg font-semibold text-gray-title-alt">
+          Konfirmasi Analisis
+        </h3>
+      </div>
+
+      <div class="mt-3 space-y-2 pl-13">
+        <p v-if="analysis.kesimpulan" class="text-size-sm text-gray-body">{{ analysis.kesimpulan }}</p>
+        <p v-if="isThereReplaceData" class="text-size-sm text-gray-body">
+          Apakah Anda yakin untuk submit analisis ini? {{ replaceCount.toLocaleString("id-ID") }} data lama
+          periode ini akan diganti dengan data dari file.
+        </p>
+        <p v-else class="text-size-sm text-gray-body">
+          Apakah Anda yakin untuk submit analisis ini?
+        </p>
+      </div>
+
+      <div class="mt-4 flex w-full justify-end space-x-3">
+        <button type="button" @click="isOpenModalValidasi = false"
+          class="rounded-lg border border-gray bg-surface px-4 py-2 text-size-sm font-medium text-gray-label-alt hover-bg-gray-light focus:outline-none focus:ring-2 focus-ring-gray focus:ring-offset-1 transition">
+          Cancel
+        </button>
+        <button type="button" @click="actionSubmit"
+          class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand hover-bg-blue-darker focus:outline-none focus:ring-2 focus-ring-blue focus:ring-offset-1 transition shadow-sm">
+          Submit
+        </button>
       </div>
     </div>
   </div>
+  </AppModalTeleport>
 
 </template>
