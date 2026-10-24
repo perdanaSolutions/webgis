@@ -1,0 +1,39 @@
+# Stack UAT (terpisah dari production). Jalankan: docker compose -f docker-compose.uat.yaml up -d --build
+name: webgis-uat
+services:
+  backend_fastapi:
+    build: {context: ./backend_fastapi, dockerfile: Dockerfile}
+    image: webgis-uat-backend:latest
+    container_name: gis-backend-uat
+    restart: unless-stopped
+    network_mode: host
+    env_file: [./backend_fastapi/.env]
+    command: ["python", "-m", "app.serve"]
+    environment:
+      HTTP_HOST: 127.0.0.1
+      HTTP_PORT: "8002"
+      MTLS_ENABLED: "false"   # 8443 dipakai production
+  upload_worker:
+    image: webgis-uat-backend:latest
+    container_name: gis-upload-worker-uat
+    restart: unless-stopped
+    network_mode: host
+    env_file: [./backend_fastapi/.env]
+    environment:
+      MTLS_ENABLED: "false"
+    command: ["python", "-m", "app.workers.upload_jobs"]
+    stop_grace_period: 10m
+    depends_on: [backend_fastapi]
+  gis-dashboard:
+    build: {context: ./gis-dashboard, dockerfile: Dockerfile}
+    image: webgis-uat-dashboard:latest
+    container_name: gis-dashboard-uat
+    restart: unless-stopped
+    network_mode: host
+    env_file: [./gis-dashboard/.env]
+    environment:
+      NUXT_API_BASE_URL_PYTHON_SERVER: http://127.0.0.1:8002/api
+      NODE_ENV: production
+      HOST: 127.0.0.1
+      PORT: "3002"
+    depends_on: [backend_fastapi]
