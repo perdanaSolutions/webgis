@@ -19,6 +19,38 @@ export const PROTECTED_PAGE_PATHS = [
 
 export const MENU_ROUTE_UNLOCKED_KEY = "menu-route-unlocked";
 export const MENU_ROUTE_CHECKING_KEY = "menu-route-checking";
+export const MENU_ACCESS_DENIED_KEY = "menu-access-denied";
+
+export type MenuRouteDecision = {
+  allowed: boolean;
+  redirectTo: string | null;
+  /** true bila user memang tidak punya hak menu ini, bukan karena katalog gagal dimuat. */
+  denied: boolean;
+};
+
+const ALLOWED: MenuRouteDecision = Object.freeze({
+  allowed: true,
+  redirectTo: null,
+  denied: false,
+});
+
+export function markMenuAccessDenied() {
+  const denied = useState(MENU_ACCESS_DENIED_KEY, () => false);
+  denied.value = true;
+  if (import.meta.client) sessionStorage.setItem(MENU_ACCESS_DENIED_KEY, "1");
+}
+
+export function menuAccessDeniedPending() {
+  const denied = useState(MENU_ACCESS_DENIED_KEY, () => false);
+  if (denied.value) return true;
+  return import.meta.client && sessionStorage.getItem(MENU_ACCESS_DENIED_KEY) === "1";
+}
+
+export function clearMenuAccessDenied() {
+  const denied = useState(MENU_ACCESS_DENIED_KEY, () => false);
+  denied.value = false;
+  if (import.meta.client) sessionStorage.removeItem(MENU_ACCESS_DENIED_KEY);
+}
 
 const PATH_ALIASES: Record<string, string> = {
   "/transaski": "/transaksi",
@@ -91,16 +123,11 @@ export function resolveMenuRouteAccess(options: {
   allowedMenuIds: Iterable<string>;
   isSuperAdmin?: boolean;
   catalogReady: boolean;
-}) {
+}): MenuRouteDecision {
   const path = canonicalMenuRoute(options.path);
-  if (!path || SHELL_PATHS.has(path)) {
-    return { allowed: true, redirectTo: null as string | null };
-  }
-  if (options.isSuperAdmin) {
-    return { allowed: true, redirectTo: null };
-  }
+  if (!path || SHELL_PATHS.has(path) || options.isSuperAdmin) return ALLOWED;
   if (!options.catalogReady) {
-    return { allowed: false, redirectTo: "/dashboard" };
+    return { allowed: false, redirectTo: "/dashboard", denied: false };
   }
 
   const allowed = new Set(
@@ -113,14 +140,12 @@ export function resolveMenuRouteAccess(options: {
     const permitted = controlling.some((item) =>
       allowed.has(normalizeMenuId(item.id)),
     );
-    return permitted
-      ? { allowed: true, redirectTo: null }
-      : { allowed: false, redirectTo: "/dashboard" };
+    return permitted ? ALLOWED : { allowed: false, redirectTo: "/dashboard", denied: true };
   }
 
   if (isProtectedPage(path)) {
-    return { allowed: false, redirectTo: "/dashboard" };
+    return { allowed: false, redirectTo: "/dashboard", denied: true };
   }
 
-  return { allowed: true, redirectTo: null };
+  return ALLOWED;
 }

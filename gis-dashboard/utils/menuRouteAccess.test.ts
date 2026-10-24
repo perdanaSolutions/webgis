@@ -44,6 +44,7 @@ describe("resolveMenuRouteAccess", () => {
     expect(access("/roles", ["map-menu"])).toEqual({
       allowed: false,
       redirectTo: "/dashboard",
+      denied: true,
     });
     expect(access("/roles/", ["user-menu"]).allowed).toBe(false);
     expect(access("/USERS", ["user-menu"]).allowed).toBe(true);
@@ -63,6 +64,7 @@ describe("resolveMenuRouteAccess", () => {
     expect(access("/transaski", ["map-menu"])).toEqual({
       allowed: false,
       redirectTo: "/dashboard",
+      denied: true,
     });
     expect(
       resolveMenuRouteAccess({
@@ -83,8 +85,12 @@ describe("resolveMenuRouteAccess", () => {
   });
 
   it("menolak halaman aplikasi bila katalog belum siap atau tidak terdaftar", () => {
-    expect(access("/permissions", ["map-menu"], false).allowed).toBe(false);
+    expect(access("/permissions", ["map-menu"], false)).toMatchObject({
+      allowed: false,
+      denied: false,
+    });
     expect(access("/permissions", ["map-menu"]).allowed).toBe(false);
+    expect(access("/permissions", []).denied).toBe(true);
     expect(access("/laporan-khusus", ["map-menu"]).allowed).toBe(true);
   });
 

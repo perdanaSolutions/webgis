@@ -1,17 +1,41 @@
 <script setup lang="ts">
-import { MENU_ROUTE_CHECKING_KEY, MENU_ROUTE_UNLOCKED_KEY } from "~/utils/menuRouteAccess";
+import { onMounted, watch } from "vue";
+import {
+  clearMenuAccessDenied,
+  isShellPath,
+  MENU_ACCESS_DENIED_KEY,
+  MENU_ROUTE_CHECKING_KEY,
+  MENU_ROUTE_UNLOCKED_KEY,
+  menuAccessDeniedPending,
+} from "~/utils/menuRouteAccess";
 
-const route = useRoute();
+const router = useRouter();
 const menuRouteUnlocked = useState(MENU_ROUTE_UNLOCKED_KEY, () => false);
 const menuRouteChecking = useState(MENU_ROUTE_CHECKING_KEY, () => false);
+const menuAccessDenied = useState(MENU_ACCESS_DENIED_KEY, () => false);
+const accessDeniedOpen = ref(false);
 
-const isShell = computed(() => {
-  const path = route.path.replace(/\/+$/, "") || "/";
-  return path === "/" || path === "/login" || path === "/dashboard";
-});
-
+// Pakai currentRoute, bukan useRoute(): saat NuxtPage belum dipasang, useRoute()
+// bisa tetap di URL lama sementara router sudah pindah ke dashboard.
+const currentPath = computed(() => router.currentRoute.value.path);
+const isShell = computed(() => isShellPath(currentPath.value));
 const showPage = computed(() => isShell.value || (menuRouteUnlocked.value && !menuRouteChecking.value));
-const showGate = computed(() => menuRouteChecking.value || !showPage.value);
+const showGate = computed(() => !showPage.value);
+
+function syncDeniedNotice() {
+  if (menuAccessDeniedPending()) accessDeniedOpen.value = true;
+}
+
+function dismissDenied() {
+  accessDeniedOpen.value = false;
+  clearMenuAccessDenied();
+}
+
+onMounted(syncDeniedNotice);
+watch(menuAccessDenied, syncDeniedNotice);
+watch(isShell, (shell) => {
+  if (shell) menuRouteChecking.value = false;
+});
 </script>
 
 <template>
@@ -20,6 +44,32 @@ const showGate = computed(() => menuRouteChecking.value || !showPage.value);
     <span class="menu-route-gate__spinner" aria-hidden="true" />
     <p>Memeriksa akses menu...</p>
   </div>
+  <ClientOnly>
+    <AppModalTeleport>
+      <div
+        v-if="accessDeniedOpen"
+        class="app-modal-backdrop app-modal-backdrop--top bg-[#1f2a18]/45"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="menu-access-denied-title"
+        @click.self="dismissDenied"
+      >
+        <div class="app-modal-panel app-modal-size-sm w-full rounded-2xl bg-white shadow-2xl">
+          <h2 id="menu-access-denied-title" class="text-base font-bold text-[#1f2a18]">Akses ditolak</h2>
+          <p class="mt-2 text-13 leading-relaxed text-[#3d4a34]">Anda tidak memiliki akses</p>
+          <div class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="rounded-xl bg-[#638840] px-4 py-2 text-13 font-semibold text-white"
+              @click="dismissDenied"
+            >
+              Mengerti
+            </button>
+          </div>
+        </div>
+      </div>
+    </AppModalTeleport>
+  </ClientOnly>
 </template>
 
 <style scoped>

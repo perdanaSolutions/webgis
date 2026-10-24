@@ -24,23 +24,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return;
   }
 
-  unlocked.value = false;
-  if (import.meta.client) checking.value = true;
-
-  if (import.meta.server) return;
+  if (import.meta.server) {
+    unlocked.value = false;
+    checking.value = false;
+    return;
+  }
 
   const nuxtApp = useNuxtApp();
   const redirectTo = (path: string) =>
     nuxtApp.runWithContext(() => navigateTo(path, { replace: true }));
-
-  auth.hydrateUser();
-  if (!auth.user?.id || (!auth.isSuperAdmin && !auth.hasStoredFullProfile())) {
-    const me = await auth.validateToken({ redirect: false });
-    if (!me) {
-      checking.value = false;
-      return redirectTo("/login");
-    }
-  }
 
   const { enforce } = useMenuRouteGuard();
   const redirectPath = await enforce(to.path);
