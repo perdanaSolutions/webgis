@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
-import UploadAnalysisResult from "~/components/upload/AnalysisResult.vue";
+import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
 import { TRX_ROWS_PER_PART } from "~/utils/trxExcelParts";
 import { PAGE_SIZES } from "~/utils/tablePagination";
 import { TRX_KINDS, missingHeaderGroups } from "~/utils/trxUpload";
+import { findGroupColumns } from "~/utils/uploadPreviewFilters";
 
 defineOptions({
   name: "TrxUploadPage",
@@ -95,7 +96,53 @@ const missingHeaders = computed(() => {
   return missingHeaderGroups(trxUploadStore.headers, spec);
 });
 
-const filteredRows = computed(() => {
+type PreviewItem = { row: Record<string, string>; excelRow: number };
+
+/** Filter kolom gaya Excel (sama dengan preview GeoJSON): null = semua nilai. Berlaku ke SEMUA baris. */
+const STATUS_COLUMN = "__status_analisa";
+const columnFilters = reactive<Record<string, string[] | null>>({});
+const hasAnalysisColumn = computed(() => Object.keys(trxUploadStore.previewAnalysis).length > 0);
+const groupColumns = computed(() => findGroupColumns(trxUploadStore.headers));
+
+function cellValue(item: PreviewItem, column: string): string {
+  if (column === STATUS_COLUMN) return String(analysisForRow(item.excelRow)?.status_analisa ?? "BELUM DIANALISA");
+  return item.row[column] ?? "";
+}
+
+function passesFilters(item: PreviewItem, except?: string): boolean {
+  for (const [column, selected] of Object.entries(columnFilters)) {
+    if (selected === null || column === except) continue;
+    if (!selected.includes(cellValue(item, column))) return false;
+  }
+  return true;
+}
+
+/** Nilai unik + jumlah baris, memperhitungkan pencarian dan filter kolom lain. */
+function filterOptions(column: string) {
+  const counts = new Map<string, number>();
+  for (const item of searchedRows.value) {
+    if (!passesFilters(item, column)) continue;
+    const value = cellValue(item, column);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => a.value.localeCompare(b.value, "id", { numeric: true }));
+}
+
+function setColumnFilter(column: string, value: string[] | null) {
+  columnFilters[column] = value;
+}
+
+const activeFilterCount = computed(() => Object.values(columnFilters).filter((v) => v !== null).length);
+
+function clearAllFilters() {
+  for (const key of Object.keys(columnFilters)) delete columnFilters[key];
+}
+
+const filteredRows = computed(() => searchedRows.value.filter((item) => passesFilters(item)));
+
+const searchedRows = computed<PreviewItem[]>(() => {
   const query = searchQuery.value.trim().toLowerCase();
   return previewRows.value
     .map((row, index) => ({
@@ -120,6 +167,10 @@ const endItem = computed(() => Math.min(currentPage.value * itemsPerPage.value, 
 watch(previewRows, () => {
   currentPage.value = 1;
   searchQuery.value = "";
+  clearAllFilters();
+});
+watch(columnFilters, () => {
+  currentPage.value = 1;
 });
 
 watch(itemsPerPage, () => {
@@ -428,18 +479,42 @@ onMounted(async () => {
             Sheet pertama hanya berisi header. Isi baris data sebelum mengimpor.
           </p>
 
-          <div v-else class="overflow-x-auto rounded-xl border border-default">
+          <div v-if="trxUploadStore.rowCount > 0" class="mb-3 flex flex-wrap items-center gap-2">
+            <span class="text-size-sm font-semibold text-brand">Filter:</span>
+            <UploadColumnFilter v-for="group in groupColumns" :key="group.column" :label="group.column"
+              :model-value="columnFilters[group.column] ?? null" :load-options="() => filterOptions(group.column)"
+              @update:model-value="(v) => setColumnFilter(group.column, v)" />
+            <UploadColumnFilter v-if="hasAnalysisColumn" label="Status analisa"
+              :model-value="columnFilters[STATUS_COLUMN] ?? null" :load-options="() => filterOptions(STATUS_COLUMN)"
+              @update:model-value="(v) => setColumnFilter(STATUS_COLUMN, v)" />
+            <button v-if="activeFilterCount" type="button"
+              class="ml-auto text-size-xs font-semibold text-brand underline" @click="clearAllFilters">
+              Hapus semua filter ({{ activeFilterCount }})
+            </button>
+          </div>
+
+          <div v-if="trxUploadStore.rowCount > 0" class="overflow-x-auto rounded-xl border border-default">
             <table class="w-max min-w-full bg-surface text-size-sm">
               <thead class="bg-surface-warm text-left text-brand">
                 <tr>
                   <th class="px-3 py-2 font-bold">Baris</th>
                   <th v-if="Object.keys(trxUploadStore.previewAnalysis).length"
                     class="whitespace-nowrap px-3 py-2 font-bold">
-                    Status analisa
+                    <div class="flex items-center gap-1">
+                      Status analisa
+                      <UploadColumnFilter compact label="Status analisa" :model-value="columnFilters[STATUS_COLUMN] ?? null"
+                        :load-options="() => filterOptions(STATUS_COLUMN)"
+                        @update:model-value="(v) => setColumnFilter(STATUS_COLUMN, v)" />
+                    </div>
                   </th>
                   <th v-for="header in trxUploadStore.headers" :key="header"
                     class="whitespace-nowrap px-3 py-2 font-bold">
-                    {{ header }}
+                    <div class="flex items-center gap-1">
+                      {{ header }}
+                      <UploadColumnFilter compact :label="header" :model-value="columnFilters[header] ?? null"
+                        :load-options="() => filterOptions(header)"
+                        @update:model-value="(v) => setColumnFilter(header, v)" />
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -521,9 +596,10 @@ onMounted(async () => {
             <p class="mb-4 text-size-sm text-muted">
               Uji coba ini tidak menyimpan data. Angkanya sama dengan hasil import sungguhan.
             </p>
-            <UploadAnalysisResult :analysis="displayAnalysis" />
-            <UploadAnalysisGroups v-if="trxUploadStore.analyzeParts.length > 1" class="mt-4"
-              :analysis="displayAnalysis" :parts="trxUploadStore.analyzeParts" />
+            <p v-if="displayAnalysis.kesimpulan" class="mb-4 rounded-xl bg-surface-warm px-4 py-3 text-size-sm text-brand">
+              {{ displayAnalysis.kesimpulan }}
+            </p>
+            <UploadAnalysisGroups :analysis="displayAnalysis" :parts="trxUploadStore.analyzeParts" />
           </div>
 
           <div v-if="!trxUploadStore.importResult" class="flex justify-end gap-2">
