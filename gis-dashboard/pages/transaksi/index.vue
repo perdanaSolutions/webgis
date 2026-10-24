@@ -281,7 +281,13 @@ onMounted(async () => {
 
       <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-6">
-          <h2 class="text-20 font-bold">Upload Data Transaksi</h2>
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="text-20 font-bold">Upload Data Transaksi</h2>
+            <NuxtLink to="/riwayat"
+              class="shrink-0 rounded-xl border border-tan bg-surface px-4 py-2 text-size-sm font-semibold text-brand transition hover:bg-cream-light">
+              Riwayat Upload
+            </NuxtLink>
+          </div>
           <p class="text-muted">
             Pilih jenis data, unduh template, lalu unggah Excel. Analisis dijalankan dulu tanpa menyimpan data.
             Import memakai file yang sama setelah hasilnya sesuai.

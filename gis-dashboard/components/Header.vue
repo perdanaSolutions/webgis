@@ -393,13 +393,6 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <time v-if="clockReady" class="app-clock" :datetime="now.toISOString()"
-          :title="`${clockDateLabel}, ${clockHourMinute}:${clockSeconds} ${clockZoneLabel}`">
-          <span class="app-clock__date">{{ clockDateLabel }}</span>
-          <span class="app-clock__time">{{ clockHourMinute }}<span class="app-clock__seconds">:{{ clockSeconds }}</span>
-            {{ clockZoneLabel }}</span>
-        </time>
-
         <!-- <div class="quick-menu-container relative">
           <button @click.stop="toggleQuickMenu"
             class="flex h-10 w-10 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover sm:h-12 sm:w-12"
@@ -441,20 +434,14 @@ onUnmounted(() => {
         </div> -->
 
         <div class="profile-dropdown-container relative">
-          <button @click="toggleMenu"
-            class="flex items-center gap-2 rounded-xl border border-default bg-cream px-1.5 py-1 transition-all hover-bg-cream-hover focus:outline-none sm:px-2">
-            <div class="h-7 w-7 overflow-hidden rounded-md bg-avatar" />
-            <div class="app-header__profile-meta">
-              <p class="text-13 font-bold leading-none text-brand">
-                {{ displayProfileName }}
-              </p>
-              <p class="mt-0.5 text-11 leading-none text-label">
-                {{ displayProfileRole }}
-              </p>
-            </div>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-label transition-transform duration-200"
-              :class="{ 'rotate-180': isMenuOpen }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          <button type="button" @click="toggleMenu"
+            class="flex h-8 w-8 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
+            :class="{ 'bg-cream': isMenuOpen }" :aria-expanded="isMenuOpen"
+            :aria-label="`Akun ${displayProfileName}, ${displayProfileRole}`">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+              stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </button>
 
@@ -480,6 +467,13 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+
+        <time v-if="clockReady" class="app-clock" :datetime="now.toISOString()"
+          :title="`${clockDateLabel}, ${clockHourMinute}:${clockSeconds} ${clockZoneLabel}`">
+          <span class="app-clock__date">{{ clockDateLabel }}</span>
+          <span class="app-clock__time">{{ clockHourMinute }}<span class="app-clock__seconds">:{{ clockSeconds }}</span>
+            {{ clockZoneLabel }}</span>
+        </time>
       </div>
     </div>
     <div v-if="isSidebarOpen" class="fixed inset-0 z-[1590] bg-overlay" @click="closeSidebar" />
@@ -728,13 +722,8 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.app-header__mobile-logo,
-.app-header__profile-meta {
+.app-header__mobile-logo {
   display: none;
-}
-
-.app-header__profile-meta {
-  text-align: left;
 }
 
 .app-clock {
@@ -776,12 +765,6 @@ onUnmounted(() => {
 @media (min-width: 1024px) {
   .app-header__bar {
     padding-inline: 1.5rem;
-  }
-}
-
-@media (min-width: 1180px) {
-  .app-header__profile-meta {
-    display: block;
   }
 }
 
