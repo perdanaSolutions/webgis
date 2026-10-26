@@ -294,6 +294,27 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       this.resetSelection();
     },
 
+    /** Unduh standar format GeoJSON (template .geojson / petunjuk .md) untuk satu kategori. */
+    async downloadTemplate(kode: string, format: "geojson" | "md" = "geojson") {
+      const { $api } = useNuxtApp();
+      try {
+        const blob = await $api<Blob>(
+          `${getApiBaseUrl()}/v1/spatial/geo/template/${encodeURIComponent(kode)}`,
+          { method: "GET", headers: getAuthHeaders(), query: { format }, responseType: "blob" },
+        );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = format === "md" ? `petunjuk_standar_${kode}.md` : `standar_${kode}.geojson`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error: unknown) {
+        throw new Error(getErrorMessage(error, "Gagal mengunduh standar format GeoJSON."));
+      }
+    },
+
     async initDataKategori() {
       const { $api } = useNuxtApp();
       this.isLoadingCategories = true;

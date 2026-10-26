@@ -354,6 +354,8 @@ def _attribute_columns(db: Session, layer: dict) -> list[dict]:
     return result
 
 
+attribute_columns = _attribute_columns  # dipakai template standar format
+
 INVALID = object()  # penanda nilai atribut terisi tapi tidak bisa dikonversi ke tipe kolom
 INT_RANGES = {"smallint": 2**15, "integer": 2**31, "bigint": 2**63}
 FLOAT_TYPES = {"double precision", "real", "numeric"}
