@@ -737,7 +737,10 @@ watch(
                       {{ documentUploadStore.previewAnalysis[row.number]?.status_analisa ?? "Menunggu" }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.kode_gagal ?? "-" }}</td>
-                    <td class="min-w-[220px] px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}</td>
+                    <td class="min-w-[320px] max-w-[560px] whitespace-normal break-words px-3 py-2 align-top"
+                      :title="documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? undefined">
+                      {{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}
+                    </td>
                   </template>
                   <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
                   <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
