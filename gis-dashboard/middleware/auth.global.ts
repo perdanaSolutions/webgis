@@ -1,10 +1,16 @@
 import { isAccessTokenExpired } from "~/utils/authSession";
+import { isMaintenancePath } from "~/utils/maintenance";
 import { isShellPath, MENU_ROUTE_CHECKING_KEY, MENU_ROUTE_UNLOCKED_KEY } from "~/utils/menuRouteAccess";
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const auth = useAuthStore();
   const unlocked = useState(MENU_ROUTE_UNLOCKED_KEY, () => false);
   const checking = useState(MENU_ROUTE_CHECKING_KEY, () => false);
+
+  if (isMaintenancePath(to.path)) {
+    checking.value = false;
+    return;
+  }
 
   if (to.path === "/login") {
     if (auth.token && isAccessTokenExpired(auth.token)) auth.clearAuthData();

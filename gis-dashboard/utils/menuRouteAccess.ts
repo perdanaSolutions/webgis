@@ -56,7 +56,7 @@ const PATH_ALIASES: Record<string, string> = {
   "/transaski": "/transaksi",
 };
 
-const SHELL_PATHS = new Set(["/", "/login", "/dashboard"]);
+const SHELL_PATHS = new Set(["/", "/login", "/dashboard", "/maintenance"]);
 
 export function normalizeMenuId(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
