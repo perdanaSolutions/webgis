@@ -4,7 +4,7 @@ import { PAGE_SIZES, formatCell, humanizeColumn, paginate, toTableRows } from "~
 
 defineOptions({ name: "UploadPaginatedTable" });
 
-/** Tabel berhalaman (10/25/50/100), lebar tabel discroll horizontal tanpa membungkus teks. */
+/** Tabel berhalaman (10/25/50/100), lebar tabel discroll horizontal; hanya kolom teks panjang yang dibungkus. */
 const props = withDefaults(
   defineProps<{
     rows: unknown[];
@@ -23,6 +23,15 @@ const view = computed(() => paginate(table.value.rows, page.value, pageSize.valu
 
 watch(() => props.rows, () => { page.value = 1; });
 watch(pageSize, () => { page.value = 1; });
+
+/** Kolom teks panjang (alasan gagal, pesan) dibungkus agar terbaca utuh, tidak terpotong. */
+const LONG_TEXT_COLUMNS = new Set(["alasan", "alasan_gagal", "pesan", "keterangan"]);
+
+function cellClass(column: string) {
+  return LONG_TEXT_COLUMNS.has(column)
+    ? "min-w-[320px] max-w-[640px] whitespace-normal break-words px-2 py-1 align-top"
+    : "whitespace-nowrap px-2 py-1 align-top";
+}
 
 function label(column: string) {
   return props.columnLabels[column] ?? humanizeColumn(column);
@@ -48,7 +57,7 @@ function label(column: string) {
           </tr>
           <tr v-for="(row, i) in view.items" :key="i" class="border-t border-row">
             <td class="whitespace-nowrap px-2 py-1 text-muted">{{ view.start + i }}</td>
-            <td v-for="c in table.columns" :key="c" class="whitespace-nowrap px-2 py-1">{{ formatCell(row[c]) }}</td>
+            <td v-for="c in table.columns" :key="c" :class="cellClass(c)" :title="LONG_TEXT_COLUMNS.has(c) ? formatCell(row[c]) : undefined">{{ formatCell(row[c]) }}</td>
           </tr>
         </tbody>
       </table>

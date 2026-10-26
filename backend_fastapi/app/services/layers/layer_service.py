@@ -28,9 +28,9 @@ from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
 from app.services.upload import context as part_context
-from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
+from app.services.upload.report import UploadReport, duplicate_reason, geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import (
-    BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
+    BlockIndex, BlockMatchReport, RefResolver, geojson_block_keys, match_blocks,
 )
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
 from app.utils.parsing import clean_str, json_safe, to_float, to_int
@@ -110,7 +110,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
         geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), spec.geometry_type)
         if geom is None:
             result.invalid_geom += 1
-            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), spec.geometry_type))
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), spec.geometry_type, spec.label))
             continue
         row = {"geom": geom}
         negative = []
@@ -118,22 +118,24 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
             raw = next((props.get(p) for p in column.props if props.get(p) is not None), None)
             value = _cast(column, raw, refs)
             if column.non_negative and value is not None and value < 0:
-                negative.append(f"{column.props[0]}={raw}")
+                negative.append(f"{column.props[0]} = {raw!r}")
             row[column.column] = value
         if negative:
             result.invalid_props += 1
-            report.reject(i, "NILAI_TIDAK_VALID", "Nilai tidak boleh negatif: " + ", ".join(negative))
+            report.reject(i, "NILAI_TIDAK_VALID", "Nilai tidak boleh negatif: " + ", ".join(negative)
+                          + f" (layer {spec.label} mewajibkan nilai >= 0). Perbaiki atau kosongkan nilainya di file.")
             continue
         candidates.append((i, keys, row))
 
     # 2) tentukan blok (label -> master, cadangan: posisi geometri)
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
+    index = BlockIndex.load(db)
+    block_ids, result.match = match_blocks(db, index, [(k, r["geom"]) for _, k, r in candidates], progress)
 
     # 3) buang yang tanpa blok, dedup objectid (baris terakhir menang)
     by_objectid: dict[int, tuple[int, dict]] = {}
     for (i, keys, row), block_id in zip(candidates, block_ids):
         if block_id is None:
-            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", index.missing_block_reason(keys))
             continue
         row["block_id"] = block_id
         objectid = row.get("objectid")
@@ -141,7 +143,7 @@ def prepare_features(db: Session, spec: LayerSpec, content: bytes, create_refs: 
             if objectid in by_objectid:
                 result.duplicates += 1
                 report.reject(by_objectid[objectid][0], "OBJECTID_GANDA",
-                              f"OBJECTID {objectid} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
+                              duplicate_reason(objectid, i))
             by_objectid[objectid] = (i, row)
         else:
             result.rows.append(row)

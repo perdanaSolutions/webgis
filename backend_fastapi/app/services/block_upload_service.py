@@ -28,6 +28,7 @@ from app.services.upload import context as part_context
 from app.services.upload import quarantine
 from app.services.upload.batch import final_status, finish_batch, start_batch
 from app.services.upload.progress import SILENT, Progress
+from app.services.upload.report import geometry_problem, missing_block_attributes
 from app.services.upload.resolvers import BlockIndex, RefResolver
 from app.utils.geojson import merge_polygons, parse_features, prepare_geometry, to_ewkb
 from app.utils.parsing import clean_str, norm_key
@@ -239,6 +240,24 @@ def _block_label(item: BlockFeature) -> str:
     return f"{item.estate_code}/{item.division}/{item.block}"
 
 
+BLOCK_ESTATE_KEYS = ("Est_ID", "EstID", "Est", "Estate")
+
+
+def _attribute_reason(props: dict) -> str:
+    return missing_block_attributes(props, BLOCK_ESTATE_KEYS, alt_keys=False)
+
+
+def _geometry_reason(item: BlockFeature, geometry: dict | None) -> str:
+    return f"Blok {_block_label(item)}: " + geometry_problem(geometry, "MULTIPOLYGON", "Blok Kebun")
+
+
+def _twin_reason(item: BlockFeature, twins: list[str]) -> str:
+    return (f"Blok {_block_label(item)}: kode blok '{item.block}' di estate {item.estate_code} tercatat di "
+            f"{len(twins)} afdeling master ({', '.join(twins)}), sedangkan afdeling di file '{item.division}' tidak "
+            "cocok dengan salah satunya, sehingga sistem tidak tahu blok mana yang dimaksud. Ubah Afdeling di file "
+            f"menjadi salah satu dari: {', '.join(twins)} (atau rapikan blok kembar di master lebih dulu).")
+
+
 def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progress = SILENT) -> dict:
     """
     Analisis (tanpa menyimpan) file batas blok. Selain angka ringkas, dilaporkan juga
@@ -264,10 +283,12 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
         props = feature.get("properties") or {}
         item = _read_feature(props, feature.get("geometry"))
         if item is None:
-            invalid_rows.append({"no_preview": i + 1, "atribut_kosong": _missing_attributes(props)})
+            invalid_rows.append({"no_preview": i + 1, "atribut_kosong": _missing_attributes(props),
+                                 "alasan": _attribute_reason(props)})
             continue
         if item.geom is None:
-            invalid_geom_rows.append({"no_preview": i + 1, "blok": _block_label(item)})
+            invalid_geom_rows.append({"no_preview": i + 1, "blok": _block_label(item),
+                                      "alasan": _geometry_reason(item, feature.get("geometry"))})
             continue
         areas.add(norm_key(item.area))
         companies.add(norm_key(item.company))
@@ -327,7 +348,9 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
     if invalid_geom_rows:
         warnings.append({
             "kode": "GEOMETRI_TIDAK_VALID", "level": "PERINGATAN", "jumlah": len(invalid_geom_rows),
-            "pesan": f"{len(invalid_geom_rows)} data geometrinya kosong/bukan poligon dan akan DILEWATI.",
+            "pesan": f"{len(invalid_geom_rows)} data geometrinya tidak bisa dipakai (kosong, bukan poligon, "
+                     "koordinat rusak, atau bentuk tidak valid) dan akan DILEWATI. Lihat 'Alasan Gagal' per data "
+                     "untuk lokasi masalah dan saran perbaikannya.",
         })
     if split:
         total_split = sum(len(b["fitur"]) for b in split)
@@ -431,12 +454,11 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
         # Daftar lengkap fitur yang tidak akan disimpan (untuk table_preview per part).
         "_penolakan": sorted(
             [{"no_preview": r["no_preview"], "kode": "ATRIBUT_BLOK_KOSONG",
-              "alasan": "Kosong: " + ", ".join(r["atribut_kosong"])} for r in invalid_rows]
+              "alasan": r["alasan"]} for r in invalid_rows]
             + [{"no_preview": r["no_preview"], "kode": "GEOMETRI_TIDAK_VALID",
-                "alasan": f"Geometri blok {r['blok']} kosong atau bukan poligon."} for r in invalid_geom_rows]
+                "alasan": r["alasan"]} for r in invalid_geom_rows]
             + [{"no_preview": n + 1, "kode": "BLOK_KEMBAR_DI_MASTER",
-                "alasan": f"Blok {b['item'].block} di master tercatat di afdeling {', '.join(b['kembar'])}; "
-                          "tentukan blok yang benar dulu."} for b in twin_blocks for n in b["fitur"]],
+                "alasan": _twin_reason(b["item"], b["kembar"])} for b in twin_blocks for n in b["fitur"]],
             key=lambda r: r["no_preview"]),
         "_total_fitur": len(features),
     }
@@ -600,9 +622,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         if item is None or item.geom is None:
             invalid += 1
             rejected.append(
-                quarantine.Rejected(no, "ATRIBUT_BLOK_KOSONG", "Kosong: " + ", ".join(_missing_attributes(props)), feature)
+                quarantine.Rejected(no, "ATRIBUT_BLOK_KOSONG", _attribute_reason(props), feature)
                 if item is None else
-                quarantine.Rejected(no, "GEOMETRI_TIDAK_VALID", "Geometri kosong atau bukan poligon.", feature)
+                quarantine.Rejected(no, "GEOMETRI_TIDAK_VALID", _geometry_reason(item, feature.get("geometry")), feature)
             )
             continue
         entry = blocks.setdefault(_block_key(item), {"item": item, "items": [], "features": []})
@@ -618,7 +640,7 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
         if index.resolve((item.estate_code,), item.division, item.block) is None and (
                 twins := index.duplicate_divisions((item.estate_code,), item.block)):
             twin_skipped += len(entry["features"])
-            reason = f"Blok {item.block} di master tercatat di afdeling {', '.join(twins)}; tentukan blok yang benar dulu."
+            reason = _twin_reason(item, twins)
             rejected.extend(quarantine.Rejected(no, "BLOK_KEMBAR_DI_MASTER", reason, f) for no, f in entry["features"])
             continue
         block_type_id = block_types.resolve(item.block_type)  # di luar savepoint: id ref tetap valid
@@ -648,7 +670,9 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
             savepoint.rollback()
             failed += len(entry["features"])
             last_error = str(exc).splitlines()[0][:500]
-            rejected.extend(quarantine.Rejected(no, "GAGAL_DISIMPAN", last_error, f) for no, f in entry["features"])
+            reason = (f"Database menolak penyimpanan blok {_block_label(item)} ({len(entry['features'])} potongan "
+                      f"geometri): {last_error}. Data lain tetap tersimpan; hubungi admin bila error ini berulang.")
+            rejected.extend(quarantine.Rejected(no, "GAGAL_DISIMPAN", reason, f) for no, f in entry["features"])
             # Master yang baru dibuat di savepoint ini ikut batal -> muat ulang cache agar id-nya tidak basi.
             created = cache.created
             index, cache = BlockIndex.load(db), _MasterCache.load(db)

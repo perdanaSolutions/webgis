@@ -24,9 +24,11 @@ from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
 from app.services.upload import context as part_context
-from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
+from app.services.upload.report import (
+    UploadReport, duplicate_reason, geometry_problem, missing_block_attributes, value_text,
+)
 from app.services.upload.resolvers import (
-    BlockIndex, BlockMatchReport, RefResolver, block_label, geojson_block_keys, match_blocks,
+    BlockIndex, BlockMatchReport, RefResolver, geojson_block_keys, match_blocks,
 )
 from app.utils.geojson import feature_collection, geometry_to_ewkb, parse_features, prepare_geometry
 from app.utils.parsing import json_safe, to_float, to_int
@@ -71,41 +73,43 @@ def _prepare(db: Session, content: bytes, create_refs: bool, with_wkb: bool = Tr
             report.reject(i, "ATRIBUT_BLOK_KOSONG", missing_block_attributes(props))
             continue
         problems = [msg for bad, msg in (
-            (objectid is None, "OBJECTID kosong"),
-            (not category, "Kategori kosong"),
-            ((diameter or 0) < 0, f"Diameter negatif ({diameter})"),
-            ((spacing or 0) < 0, f"Jarak negatif ({spacing})"),
+            (objectid is None, f"OBJECTID {value_text(props.get('OBJECTID'))} -- wajib bilangan bulat unik per pokok"),
+            (not category, f"Kategori {value_text(category)} -- wajib diisi kategori pokok (ref.tree_categories)"),
+            ((diameter or 0) < 0, f"Diameter = {props.get('Diameter')!r} bernilai negatif -- harus >= 0 atau dikosongkan"),
+            ((spacing or 0) < 0, f"Jarak = {props.get('Jarak')!r} bernilai negatif -- harus >= 0 atau dikosongkan"),
         ) if bad]
         if problems:
             result.invalid_props += 1
-            report.reject(i, "NILAI_TIDAK_VALID", "; ".join(problems))
+            report.reject(i, "NILAI_TIDAK_VALID", "Nilai atribut tidak valid: " + "; ".join(problems) + ".")
             continue
         geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), "POINT")
         if geom is None:
             result.invalid_geom += 1
-            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), "POINT"))
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), "POINT", "Pokok Sawit"))
             continue
         category_id = categories.resolve(category)
         if category_id is None and create_refs:
             result.invalid_props += 1
-            report.reject(i, "NILAI_TIDAK_VALID", f"Kategori '{category}' tidak bisa disimpan")
+            report.reject(i, "NILAI_TIDAK_VALID", f"Kategori {category!r} tidak bisa disimpan sebagai referensi baru "
+                          "di ref.tree_categories (nilai kosong setelah dibersihkan). Isi Kategori dengan teks yang valid.")
             continue
         candidates.append((i, keys, {
             "objectid": objectid, "category_id": category_id,
             "diameter": diameter, "spacing": spacing, "geom": geom,
         }))
 
-    block_ids, result.match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
+    index = BlockIndex.load(db)
+    block_ids, result.match = match_blocks(db, index, [(k, r["geom"]) for _, k, r in candidates], progress)
     indexes: dict[int, int] = {}  # objectid -> fitur_index yang dipakai
     for (i, keys, row), block_id in zip(candidates, block_ids):
         if block_id is None:
-            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", index.missing_block_reason(keys))
             continue
         row["block_id"] = block_id
         if row["objectid"] in result.rows:
             result.duplicates += 1
             report.reject(indexes[row["objectid"]], "OBJECTID_GANDA",
-                          f"OBJECTID {row['objectid']} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
+                          duplicate_reason(row["objectid"], i))
         result.rows[row["objectid"]] = row
         indexes[row["objectid"]] = i
     result.new_categories = categories.created

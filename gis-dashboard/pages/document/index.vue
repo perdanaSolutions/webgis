@@ -4,6 +4,7 @@ import Header from "~/components/Header.vue";
 import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
+import UploadTemplateDownload from "~/components/upload/TemplateDownload.vue";
 import { GROUP_FILTER_DEFS, findGroupColumns } from "~/utils/uploadPreviewFilters";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
@@ -504,7 +505,10 @@ watch(
 
       <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-6">
-          <h2 class="text-20 font-bold">Upload File GeoJSON</h2>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-20 font-bold">Upload File GeoJSON</h2>
+            <UploadTemplateDownload />
+          </div>
           <p class="text-muted">
             Pilih kategori spasial, upload file GeoJSON, lalu review preview data
             sebelum submit.
@@ -737,7 +741,10 @@ watch(
                       {{ documentUploadStore.previewAnalysis[row.number]?.status_analisa ?? "Menunggu" }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.kode_gagal ?? "-" }}</td>
-                    <td class="min-w-[220px] px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}</td>
+                    <td class="min-w-[320px] max-w-[560px] whitespace-normal break-words px-3 py-2 align-top"
+                      :title="documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? undefined">
+                      {{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}
+                    </td>
                   </template>
                   <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
                   <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">

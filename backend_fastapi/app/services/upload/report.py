@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.upload.resolvers import BlockMatchReport
+from app.utils.geometry_reason import explain_geometry
 from app.utils.period import period_label
 
 DETAIL_LIMIT = 100
@@ -25,8 +26,10 @@ REJECTIONS = {
         "Lengkapi atributnya di file sumber.",
     ),
     "GEOMETRI_TIDAK_VALID": (
-        "geometri kosong / tipenya tidak sesuai",
-        "data geometrinya kosong atau tipenya tidak sesuai layer ini. Periksa tipe geometri di file sumber.",
+        "geometri tidak valid / kosong / tipenya tidak sesuai",
+        "data geometrinya tidak bisa dipakai (kosong, tipe tidak sesuai layer, koordinat rusak, atau bentuknya "
+        "tidak valid seperti garis batas saling berpotongan). Lihat 'Alasan Gagal' per data untuk lokasi dan "
+        "saran perbaikannya (umumnya QGIS: Fix Geometries).",
     ),
     "NILAI_TIDAK_VALID": (
         "nilai atribut wajib kosong / tidak valid",
@@ -58,23 +61,71 @@ class UploadReport:
         return Counter(r["kode"] for r in self.rejected)
 
 
-def missing_block_attributes(props: dict) -> str:
-    """Alasan untuk fitur yang gagal `geojson_block_keys`."""
-    missing = []
-    if not any(props.get(k) for k in ("EstID", "Est", "Estate")):
-        missing.append("Estate (EstID/Est/Estate)")
-    if not props.get("Afdeling"):
-        missing.append("Afdeling")
-    if not props.get("Blok"):
-        missing.append("Blok")
-    return "Kosong: " + ", ".join(missing)
+ESTATE_KEYS = ("EstID", "Est", "Estate")
+_ESTATE_ALT = ("EstID_2", "Estate_2")
 
 
-def geometry_problem(geometry: dict | None, expected: str) -> str:
-    gtype = (geometry or {}).get("type")
-    if not gtype:
-        return "Geometri kosong."
-    return f"Tipe geometri {gtype} tidak bisa dipakai untuk layer {expected}, atau koordinatnya tidak valid."
+def _shown(value) -> str:
+    if value is None:
+        return "(tidak ada)"
+    text_ = str(value).strip()
+    return "(kosong)" if not text_ else repr(text_[:60])
+
+
+def _near_keys(props: dict, wanted: str, accepted: tuple[str, ...]) -> list[str]:
+    """Kolom di file yang namanya mirip (beda huruf besar/kecil, spasi, _) dengan kolom wajib."""
+    norm = lambda k: str(k).lower().replace("_", "").replace(" ", "")
+    targets = {norm(k) for k in (wanted, *accepted)}
+    return [k for k in props if norm(k) in targets and k not in (wanted, *accepted)]
+
+
+def missing_block_attributes(props: dict, estate_keys: tuple[str, ...] = ESTATE_KEYS,
+                             alt_keys: bool = True) -> str:
+    """
+    Alasan rinci untuk fitur tanpa Estate/Afdeling/Blok lengkap: kolom apa yang kosong, nilai yang
+    terbaca dari file, nama kolom yang diterima, dan kolom bernama mirip (salah tulis) bila ada.
+    """
+    estate_all = estate_keys + (_ESTATE_ALT if alt_keys else ())
+    division_all = ("Afdeling", "Afdeling_2") if alt_keys else ("Afdeling",)
+    fields = [("Estate", estate_all), ("Afdeling", division_all), ("Blok", ("Blok",))]
+    missing, read, hints = [], [], []
+    for label, keys in fields:
+        values = {k: props.get(k) for k in keys if k in props}
+        filled = {k: v for k, v in values.items() if v is not None and str(v).strip()}
+        if filled:
+            k, v = next(iter(filled.items()))
+            read.append(f"{k}={_shown(v)}")
+            continue
+        missing.append(f"{label} ({'/'.join(keys)})")
+        read.append(f"{keys[0]}={_shown(values.get(keys[0]))}" if values else f"{label}=(kolom tidak ada)")
+        similar = [k for k in _near_keys(props, label, keys)
+                   if props.get(k) is not None and str(props.get(k)).strip()]
+        if similar:
+            hints.append(f"kolom '{similar[0]}' berisi {_shown(props[similar[0]])} tetapi nama kolomnya harus "
+                         f"persis '{keys[0]}'")
+    reason = (f"Atribut wajib kosong: {', '.join(missing)}. Nilai terbaca di file: {'; '.join(read)}. "
+              "Tanpa Estate, Afdeling, dan Blok, data tidak bisa dikaitkan ke blok master.")
+    if hints:
+        reason += " Kemungkinan salah nama kolom: " + "; ".join(hints) + "."
+    return reason + " Lengkapi kolomnya di tabel atribut (QGIS: Open Attribute Table / Field Calculator)."
+
+
+def value_text(value) -> str:
+    """Nilai atribut untuk pesan: (tidak ada) / (kosong) / 'nilai'."""
+    return _shown(value)
+
+
+def duplicate_reason(objectid, later_index: int) -> str:
+    """OBJECTID_GANDA: `later_index` = indeks (0-based, lokal part) data yang DIPAKAI (muncul lebih akhir).
+    Nomor `data #N` digeser ke nomor global oleh part_response."""
+    return (f"OBJECTID {objectid} dipakai lebih dari satu data di file; yang disimpan hanya data terakhir "
+            f"(data #{later_index + 1}), data ini dilewati. Pastikan OBJECTID unik per data "
+            "(QGIS Field Calculator: @row_number).")
+
+
+def geometry_problem(geometry: dict | None, expected: str, layer: str | None = None) -> str:
+    """Alasan rinci GEOMETRI_TIDAK_VALID (lihat app.utils.geometry_reason)."""
+    return explain_geometry(geometry, expected, layer)
 
 
 def estate_summary(db: Session, block_ids: Iterable[int]) -> list[dict]:

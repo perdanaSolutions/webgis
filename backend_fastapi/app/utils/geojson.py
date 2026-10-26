@@ -62,7 +62,7 @@ def _iter_xy(features: list[dict]):
             continue
         try:
             coords = shapely.get_coordinates(shape(geometry))
-        except (ShapelyError, ValueError, TypeError, KeyError, AttributeError):
+        except (ShapelyError, ValueError, TypeError, KeyError, AttributeError, IndexError):
             continue
         if len(coords):
             yield coords
@@ -116,10 +116,15 @@ def _to_wgs84(features: list[dict], epsg: int) -> list[dict]:
     for feature in features:
         try:
             geom = shape(feature["geometry"]) if feature.get("geometry") else None
-            if geom is not None:
-                feature["geometry"] = mapping(shapely.transform(geom, project))
-        except (ShapelyError, ValueError, TypeError, KeyError):
-            feature["geometry"] = None  # ditolak sebagai GEOMETRI_TIDAK_VALID oleh pemanggil
+        except (ShapelyError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+            continue  # struktur rusak: dibiarkan apa adanya, ditolak + dijelaskan rinci oleh pemanggil
+        if geom is None:
+            continue
+        try:
+            feature["geometry"] = mapping(shapely.transform(geom, project))
+        except (ShapelyError, ValueError, TypeError):
+            # ditolak sebagai GEOMETRI_TIDAK_VALID; penanda ini dijelaskan oleh geometry_reason
+            feature["geometry"] = {"type": "_GAGAL_KONVERSI", "epsg": epsg}
     return features
 
 
@@ -157,7 +162,7 @@ def prepare_geometry(geometry: dict | None, target_type: str):
         if geom.geom_type.upper() != target:
             return None
         return geom
-    except (ShapelyError, ValueError, TypeError, AttributeError, KeyError) as exc:
+    except (ShapelyError, ValueError, TypeError, AttributeError, KeyError, IndexError) as exc:
         logger.debug("Geometry tidak valid, dilewati: %s", exc)
         return None
 
