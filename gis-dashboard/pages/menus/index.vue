@@ -451,13 +451,13 @@ onMounted(async () => {
           </div>
 
           <div>
-            <label class="mb-1 block text-label">Title</label>
+            <label class="mb-1 block text-label">Title <span class="text-error">*</span></label>
             <input v-model="form.title" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-label">Route (to)</label>
+            <label class="mb-1 block text-label">Route (to) <span v-if="formLevel === 3" class="text-error">*</span></label>
             <input v-model="form.to" :required="formLevel === 3" type="text" placeholder="/dashboard"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
             <p v-if="formLevel < 3" class="mt-1 text-size-sm text-muted">
@@ -466,7 +466,7 @@ onMounted(async () => {
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-label">Description</label>
+            <label class="mb-1 block text-label">Description <span class="text-error">*</span></label>
             <input v-model="form.description" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
@@ -492,7 +492,7 @@ onMounted(async () => {
           </div>
 
           <div>
-            <label class="mb-1 block text-label">order_position</label>
+            <label class="mb-1 block text-label">order_position <span class="text-error">*</span></label>
             <input v-model.number="form.order_position" required type="number" min="0"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>

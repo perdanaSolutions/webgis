@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
@@ -26,3 +26,16 @@ class Announcement(Base):
     author: Mapped[User | None] = relationship(
         User, primaryjoin=lambda: foreign(Announcement.created_by) == User.id, viewonly=True, lazy="joined"
     )
+
+
+class AnnouncementRead(Base):
+    __tablename__ = "announcement_reads"
+    __table_args__ = (
+        UniqueConstraint("user_id", "announcement_id", name="uq_announcement_reads_user_announcement"),
+        {"schema": "master"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    announcement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

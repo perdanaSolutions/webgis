@@ -36,6 +36,8 @@ const lockOptions = computed(() => [
   },
 ]);
 
+const EMAIL_DOMAIN = "teladanprima.com";
+
 const form = reactive<CreateUserPayload>({
   username: "",
   email: "",
@@ -44,6 +46,9 @@ const form = reactive<CreateUserPayload>({
   is_active: true,
   password: "",
 });
+
+/** Bagian nama email saat tambah user. Domain @teladanprima.com ditambahkan saat simpan. */
+const emailLocal = ref("");
 
 const submitLoading = computed(
   () => manageUserStore.loadingCreate || manageUserStore.loadingUpdate,
@@ -61,6 +66,7 @@ const canGoNext = computed(
 function resetForm() {
   form.username = "";
   form.email = "";
+  emailLocal.value = "";
   form.nama_lengkap = "";
   form.role_ids = [];
   form.is_active = true;
@@ -69,6 +75,15 @@ function resetForm() {
   isLocked.value = false;
   showPassword.value = false;
   formError.value = "";
+}
+
+function buildCreateEmail() {
+  const local = emailLocal.value.trim();
+  if (!local || /[@\s]/.test(local)) {
+    formError.value = "Isi nama email saja, tanpa domain. Contoh: nama_email";
+    return "";
+  }
+  return `${local}@${EMAIL_DOMAIN}`;
 }
 
 function togglePasswordVisibility() {
@@ -156,9 +171,12 @@ async function submitForm() {
 
   try {
     if (formMode.value === "create") {
+      const email = buildCreateEmail();
+      if (!email) return;
+
       await manageUserStore.createUser({
         username: form.username,
-        email: form.email,
+        email,
         nama_lengkap: form.nama_lengkap,
         role_ids: form.role_ids,
         is_active: form.is_active,
@@ -424,25 +442,33 @@ function filterRoleOption(
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div>
-            <label class="mb-1 block text-label">Username</label>
+            <label class="mb-1 block text-label">Username <span class="text-error">*</span></label>
             <input v-model="form.username" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-label">Email</label>
-            <input v-model="form.email" required type="email"
+            <label class="mb-1 block text-label">Email <span class="text-error">*</span></label>
+            <div v-if="formMode === 'create'"
+              class="flex h-11 w-full overflow-hidden rounded-xl border border-default">
+              <input v-model="emailLocal" required type="text" autocomplete="off" placeholder="nama_email"
+                class="min-w-0 flex-1 px-3 outline-none" />
+              <span class="flex shrink-0 items-center border-l border-default bg-surface-warm px-3 text-muted">
+                @{{ EMAIL_DOMAIN }}
+              </span>
+            </div>
+            <input v-else v-model="form.email" required type="email"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-label">Nama Lengkap</label>
+            <label class="mb-1 block text-label">Nama Lengkap <span class="text-error">*</span></label>
             <input v-model="form.nama_lengkap" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div>
-            <label class="mb-1 block text-label">Role</label>
+            <label class="mb-1 block text-label">Role <span class="text-error">*</span></label>
             <p class="mb-1 text-12 text-muted">Satu user bisa punya lebih dari satu role. Akses yang sama antar role
               digabung.</p>
             <v-autocomplete v-model="form.role_ids" :items="manageUserStore.roles" item-title="nama" item-value="id"
@@ -473,6 +499,7 @@ function filterRoleOption(
           <div class="md:col-span-2">
             <label class="mb-1 block text-label">
               Password
+              <span v-if="formMode === 'create'" class="text-error">*</span>
               <span v-if="formMode === 'edit'" class="font-normal text-muted">
                 (opsional, isi hanya jika ingin mengganti)
               </span>

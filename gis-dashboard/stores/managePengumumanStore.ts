@@ -74,10 +74,22 @@ export const useManagePengumumanStore = defineStore("managePengumuman", () => {
   const loadingCreate = ref(false);
   const loadingUpdate = ref(false);
   const loadingDelete = ref(false);
+  const loadingReadHistory = ref(false);
+  const markingReadId = ref<string | null>(null);
+
+  const readAnnouncementIds = ref<Set<string>>(new Set());
 
   const errorMessage = ref("");
 
   const hasItems = computed(() => items.value.length > 0);
+
+  const unreadActiveCount = computed(
+    () => activeItems.value.filter((item) => !readAnnouncementIds.value.has(item.id)).length,
+  );
+
+  function isAnnouncementRead(announcementId: string) {
+    return readAnnouncementIds.value.has(announcementId);
+  }
 
   function getAuthHeaders() {
     return {
@@ -120,6 +132,53 @@ export const useManagePengumumanStore = defineStore("managePengumuman", () => {
       throw error;
     } finally {
       loadingList.value = false;
+    }
+  }
+
+  async function fetchReadHistory() {
+    loadingReadHistory.value = true;
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const response = await $api<{ announcement_ids: string[] }>(
+        `${baseUrl}/v1/pengumuman/riwayat-baca`,
+        {
+          method: "GET",
+          headers: getAuthHeaders(),
+        },
+      );
+      readAnnouncementIds.value = new Set(response.announcement_ids ?? []);
+      return response;
+    } catch {
+      readAnnouncementIds.value = new Set();
+    } finally {
+      loadingReadHistory.value = false;
+    }
+  }
+
+  async function markAnnouncementAsRead(announcementId: string) {
+    if (readAnnouncementIds.value.has(announcementId)) return;
+
+    markingReadId.value = announcementId;
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      await $api(`${baseUrl}/v1/pengumuman/${announcementId}/baca`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      readAnnouncementIds.value = new Set([
+        ...readAnnouncementIds.value,
+        announcementId,
+      ]);
+    } catch (error: any) {
+      errorMessage.value = getErrorMessage(
+        error,
+        "Gagal menandai pengumuman sebagai dibaca.",
+      );
+      throw error;
+    } finally {
+      markingReadId.value = null;
     }
   }
 
@@ -266,9 +325,16 @@ export const useManagePengumumanStore = defineStore("managePengumuman", () => {
     loadingCreate,
     loadingUpdate,
     loadingDelete,
+    loadingReadHistory,
+    markingReadId,
+    readAnnouncementIds,
+    unreadActiveCount,
     errorMessage,
     hasItems,
+    isAnnouncementRead,
     fetchPengumuman,
+    fetchReadHistory,
+    markAnnouncementAsRead,
     fetchActivePengumuman,
     fetchPengumumanById,
     createPengumuman,

@@ -514,7 +514,7 @@ watch(
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div class="mb-4">
             <div class="mb-4">
-              <label class="mb-1 block text-label font-medium">Kategori Data GeoJSON (Spasial)</label>
+              <label class="mb-1 block text-label font-medium">Kategori Data GeoJSON (Spasial) <span class="text-error">*</span></label>
               <v-select :model-value="documentUploadStore.selectedCategory" :items="documentUploadStore.categories"
                 :loading="documentUploadStore.isLoadingCategories" item-title="label" item-value="value"
                 placeholder="Pilih kategori" variant="plain" density="comfortable"
@@ -533,7 +533,7 @@ watch(
           <div class="">
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="mb-1 block text-label font-medium">Bulan</label>
+                <label class="mb-1 block text-label font-medium">Bulan <span class="text-error">*</span></label>
                 <v-select v-model="documentUploadStore.month" :items="[
                   { title: 'Januari', value: '01' },
                   { title: 'Februari', value: '02' },
@@ -552,7 +552,7 @@ watch(
               </div>
 
               <div>
-                <label class="mb-1 block text-label font-medium">Tahun</label>
+                <label class="mb-1 block text-label font-medium">Tahun <span class="text-error">*</span></label>
                 <v-select v-model="documentUploadStore.year" :items="documentUploadStore.getYearList()"
                   placeholder="Pilih tahun" variant="plain" density="comfortable"
                   class="w-full px-3 border border-default rounded-xl h-[50px]"></v-select>
@@ -572,7 +572,7 @@ watch(
           <input ref="fileInputRef" type="file" accept=".geojson,.json,application/geo+json,application/json"
             class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">
-            Drag & Drop file GeoJSON di sini
+            Drag & Drop file GeoJSON di sini <span class="text-error">*</span>
           </p>
           <p class="mt-1 text-size-sm text-muted">atau</p>
           <button type="button"

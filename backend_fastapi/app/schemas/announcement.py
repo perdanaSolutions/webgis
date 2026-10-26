@@ -43,6 +43,10 @@ class AnnouncementUpdate(BaseModel):
     _strip = field_validator("judul", "isi", mode="before")(_clean)
 
 
+class AnnouncementReadHistoryResponse(BaseModel):
+    announcement_ids: list[UUID]
+
+
 class AnnouncementResponse(BaseModel):
     id: UUID
     judul: str
