@@ -4,7 +4,12 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import CanWriteAnnouncement, CurrentUser, DbSession, user_has_permission
 from app.api.params import Limit, Page
-from app.schemas.announcement import AnnouncementCreate, AnnouncementResponse, AnnouncementUpdate
+from app.schemas.announcement import (
+    AnnouncementCreate,
+    AnnouncementReadHistoryResponse,
+    AnnouncementResponse,
+    AnnouncementUpdate,
+)
 from app.schemas.common import MessageResponse, PaginatedResponse
 from app.services import announcement_service as service
 
@@ -24,6 +29,20 @@ def list_announcements(
     can_manage = user_has_permission(db, current_user, "pengumuman:write")
     return service.list_announcements(db, can_manage=can_manage, search=search, status=status_filter,
                                       page=page, limit=limit)
+
+
+@router.get("/riwayat-baca", response_model=AnnouncementReadHistoryResponse)
+def list_announcement_read_history(db: DbSession, current_user: CurrentUser):
+    """Daftar ID pengumuman yang sudah dibaca oleh user yang login."""
+    return {"announcement_ids": service.list_read_announcement_ids(db, current_user.id)}
+
+
+@router.post("/{announcement_id}/baca", response_model=MessageResponse)
+def mark_announcement_as_read(announcement_id: UUID, db: DbSession, current_user: CurrentUser):
+    """Tandai pengumuman sebagai sudah dibaca untuk user yang login."""
+    can_manage = user_has_permission(db, current_user, "pengumuman:write")
+    service.mark_announcement_read(db, announcement_id, current_user, can_manage=can_manage)
+    return {"message": "Pengumuman ditandai sudah dibaca"}
 
 
 @router.get("/{announcement_id}", response_model=AnnouncementResponse)

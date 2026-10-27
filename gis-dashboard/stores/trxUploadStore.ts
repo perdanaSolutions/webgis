@@ -97,6 +97,8 @@ export const useTrxUploadStore = defineStore("trx-upload", {
     jobPollErrors: 0,
     multipart: null as MultipartUploadProgress | null,
     multipartAbort: false,
+    /** job_id terakhir per tahap (analyze/execute), untuk unduhan Excel data gagal semua part. */
+    failedRowsJobId: { analyze: null, execute: null } as Record<"analyze" | "execute", string | null>,
     previewAnalysis: {} as Record<number, PreviewAnalysisRow>,
     analyzeParts: [] as PartAnalyzeSummary[],
     liveAnalyze: null as Record<string, any> | null,
@@ -124,6 +126,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
   actions: {
     clearResult() {
       this.errorMessage = "";
+      this.failedRowsJobId = { analyze: null, execute: null };
       this.analysis = null;
       this.importResult = null;
       this.previewAnalysis = {};
@@ -371,6 +374,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
             return;
           }
           partResults.push(finished.result);
+          this.failedRowsJobId = { ...this.failedRowsJobId, [kind]: finished.job_id };
           if (isAnalyze) this.applyAnalyzePart(finished.result, partResults);
         }
 

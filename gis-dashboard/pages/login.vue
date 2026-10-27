@@ -4,12 +4,15 @@ import bannerImage from '~/assets/image/banner-login.png'
 import logoImage from '~/assets/image/logo-1.svg'
 import { useAuthStore } from '~/stores/authStore'
 import { isAccessTokenExpired } from '~/utils/authSession'
+import { mapLoginError, validateLoginInput } from '~/utils/loginError'
+import { useAlert } from '~/composables/useAlert'
 
 defineOptions({
   name: 'LoginPage',
 })
 
 const authStore = useAuthStore()
+const alert = useAlert()
 const showPassword = ref(false)
 const formReady = ref(false)
 const formRef = ref<HTMLFormElement | null>(null)
@@ -66,10 +69,17 @@ async function onSubmit(event?: Event) {
   form.email = email
   form.password = password
 
+  const invalid = validateLoginInput(email, password)
+  if (invalid) {
+    await alert.warning(invalid.title, invalid.text)
+    return
+  }
+
   try {
     await authStore.login(email, password)
-  } catch {
-    // Pesan kegagalan sudah diisi authStore.errorMessage.
+  } catch (error) {
+    const info = mapLoginError(error)
+    await alert.open({ icon: info.icon, title: info.title, text: info.text })
   }
 }
 </script>
@@ -90,6 +100,10 @@ async function onSubmit(event?: Event) {
             </h1>
             <p class="mt-2 max-w-[320px] text-13 leading-6 text-muted-ios sm:text-14">
               Gunakan email dan password terdaftar untuk mengakses dashboard.
+            </p>
+            <p class="mt-2 max-w-[320px] text-13 leading-6 text-muted-ios sm:text-14">
+              Jika anda salah memasukan email atau password sebanyak 5 kali, akun anda akan nonaktif dan silahkan
+              hubungi admin untuk mendapatkan bantuan.
             </p>
           </div>
 
@@ -145,10 +159,6 @@ async function onSubmit(event?: Event) {
               class="flex h-12 w-full items-center justify-center rounded-2xl bg-brand text-14 font-semibold text-on-brand transition-colors hover-bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70">
               {{ authStore.loading ? 'Memproses...' : 'Masuk' }}
             </button>
-
-            <p v-if="authStore.errorMessage" class="text-size-sm text-error">
-              {{ authStore.errorMessage }}
-            </p>
           </form>
         </section>
       </div>

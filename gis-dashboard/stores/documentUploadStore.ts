@@ -187,6 +187,8 @@ export const useDocumentUploadStore = defineStore("document-upload", {
     /** Progress part Feature (1.000/feature) saat analyze/execute beruntun. */
     multipart: null as MultipartUploadProgress | null,
     multipartAbort: false,
+    /** job_id terakhir per tahap (analyze/execute), untuk unduhan Excel data gagal semua part. */
+    failedRowsJobId: { analyze: null, execute: null } as Record<"analyze" | "execute", string | null>,
     /** Hasil analisa per baris preview (key = no_preview global), terisi bertahap per part. */
     previewAnalysis: {} as Record<number, PreviewAnalysisRow>,
     /** Ringkasan analisa_aman/analisa_gagal tiap part yang sudah selesai (tampil langsung). */
@@ -207,6 +209,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
   actions: {
     resetMessages() {
       this.errorMessage = "";
+      this.failedRowsJobId = { analyze: null, execute: null };
       this.successMessage = "";
       this.summaryAnalyze = {};
       this.previewAnalysis = {};
@@ -292,6 +295,27 @@ export const useDocumentUploadStore = defineStore("document-upload", {
 
     cancelPreview() {
       this.resetSelection();
+    },
+
+    /** Unduh standar format GeoJSON (template .geojson / petunjuk .md) untuk satu kategori. */
+    async downloadTemplate(kode: string, format: "geojson" | "md" = "geojson") {
+      const { $api } = useNuxtApp();
+      try {
+        const blob = await $api<Blob>(
+          `${getApiBaseUrl()}/v1/spatial/geo/template/${encodeURIComponent(kode)}`,
+          { method: "GET", headers: getAuthHeaders(), query: { format }, responseType: "blob" },
+        );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = format === "md" ? `petunjuk_standar_${kode}.md` : `standar_${kode}.geojson`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error: unknown) {
+        throw new Error(getErrorMessage(error, "Gagal mengunduh standar format GeoJSON."));
+      }
     },
 
     async initDataKategori() {
@@ -466,6 +490,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
             return;
           }
           partResults.push(finished.result);
+          this.failedRowsJobId = { ...this.failedRowsJobId, [kind]: finished.job_id };
           if (isAnalyze) this.applyAnalyzePart(finished.result, partResults);
         }
 

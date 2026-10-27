@@ -14,6 +14,7 @@ Bentuk respons analisis per part (dipakai worker antrian dan endpoint /upload-an
 `no_preview` = nomor feature di FILE ASLI (offset part + nomor di part, mulai 1), sama dengan nomor
 baris tabel preview FE, sehingga FE bisa langsung menempelkan kolom status_analisa/kode_gagal/alasan_gagal.
 """
+import re
 from typing import Any
 
 from app.services.upload.report import REJECTIONS
@@ -39,6 +40,16 @@ def _label(code: str) -> str:
     return REJECTIONS[code][0] if code in REJECTIONS else EXTRA_LABELS.get(code, code)
 
 
+_DATA_NO = re.compile(r"data #(\d+)")
+
+
+def shift_reason(reason: Any, offset: int) -> Any:
+    """Nomor `data #N` di teks alasan (nomor lokal part) -> nomor global = no_preview tabel FE."""
+    if not offset or not isinstance(reason, str):
+        return reason
+    return _DATA_NO.sub(lambda m: f"data #{int(m.group(1)) + offset}", reason)
+
+
 def shift_no_preview(value: Any, offset: int) -> Any:
     """Geser semua `no_preview` (int atau list int) di rincian lama ke nomor global."""
     if not offset:
@@ -52,6 +63,8 @@ def shift_no_preview(value: Any, offset: int) -> Any:
                 out[k] = v + offset
             elif k == "no_preview" and isinstance(v, list):
                 out[k] = [n + offset if isinstance(n, int) else n for n in v]
+            elif k == "alasan":
+                out[k] = shift_reason(v, offset)
             else:
                 out[k] = shift_no_preview(v, offset)
         return out
@@ -60,18 +73,22 @@ def shift_no_preview(value: Any, offset: int) -> Any:
 
 def table_preview(total: int, rejected: list[dict], offset: int = 0) -> list[dict]:
     """Satu baris per feature di part. `rejected` memakai no_preview lokal (1..total)."""
-    by_no: dict[int, dict] = {}
+    by_no: dict[int, list[dict]] = {}
     for r in rejected:
-        by_no.setdefault(int(r["no_preview"]), r)  # alasan pertama yang dipakai
+        by_no.setdefault(int(r["no_preview"]), []).append(r)
     rows = []
     for no in range(1, total + 1):
-        r = by_no.get(no)
-        rows.append({
+        found = by_no.get(no) or []
+        r = found[0] if found else None  # alasan pertama = kolom kode_gagal/alasan_gagal
+        row = {
             "no_preview": offset + no,
             "status_analisa": GAGAL if r else AMAN,
             "kode_gagal": r["kode"] if r else None,
-            "alasan_gagal": r["alasan"] if r else None,
-        })
+            "alasan_gagal": shift_reason(r["alasan"], offset) if r else None,
+        }
+        if len(found) > 1:  # data dengan >1 alasan gagal: alasan lain (untuk unduhan Excel data gagal)
+            row["gagal_lain"] = [{"kode": x["kode"], "alasan": shift_reason(x["alasan"], offset)} for x in found[1:]]
+        rows.append(row)
     return rows
 
 
@@ -80,7 +97,7 @@ def group_failures(rejected: list[dict], offset: int = 0) -> list[dict]:
     for r in rejected:
         g = groups.setdefault(r["kode"], {"kode": r["kode"], "keterangan": _label(r["kode"]), "jumlah": 0, "data": []})
         g["jumlah"] += 1
-        g["data"].append({"no_preview": offset + int(r["no_preview"]), "alasan": r["alasan"]})
+        g["data"].append({"no_preview": offset + int(r["no_preview"]), "alasan": shift_reason(r["alasan"], offset)})
     return sorted(groups.values(), key=lambda g: (-g["jumlah"], g["kode"]))
 
 

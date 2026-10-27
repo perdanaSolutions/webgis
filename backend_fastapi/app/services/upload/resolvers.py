@@ -71,6 +71,47 @@ class BlockIndex:
             return "afdeling tidak ada di estate ini"
         return "blok tidak ada di afdeling ini"
 
+    def _listing(self, values, limit: int = 15) -> str:
+        values = sorted({str(v) for v in values if v})
+        more = f", ... (+{len(values) - limit} lainnya)" if len(values) > limit else ""
+        return ", ".join(values[:limit]) + more if values else "-"
+
+    def missing_block_reason(self, keys: tuple, spatial_checked: bool = True) -> str:
+        """
+        Alasan rinci BLOK_TIDAK_DITEMUKAN: label di file, level mana yang tidak cocok dengan master
+        (estate / afdeling / blok / blok kembar) beserta pilihan yang ada, dan hasil pencocokan posisi.
+        Hanya dipanggil untuk fitur yang gagal (lookup di memori, tanpa query tambahan).
+        """
+        estate_refs, division, block = keys
+        estate_txt = next((str(e) for e in estate_refs if e), "-")
+        label = f"{estate_txt}/{division}/{block}"
+        estate_id = self.estate_id(*estate_refs)
+        if estate_id is None:
+            cause = (f"estate '{estate_txt}' tidak dikenal di master.estates (dicek terhadap kode, singkatan, "
+                     f"dan nama estate; nilai yang dicoba: {', '.join(repr(str(e)) for e in estate_refs if e)})")
+        else:
+            div_key = norm_key(division)
+            divisions = sorted(d for e, d in self.divisions if e == estate_id)
+            twins = self.duplicate_divisions(estate_refs, block)
+            if twins:
+                cause = (f"kode blok '{block}' di estate {estate_txt} tercatat di beberapa afdeling master "
+                         f"({', '.join(twins)}), dan afdeling di file '{division}' tidak cocok dengan salah satunya, "
+                         "sehingga blok yang dimaksud ambigu")
+            elif (estate_id, div_key) not in self.divisions:
+                cause = (f"afdeling '{division}' tidak ada di estate {estate_txt} "
+                         f"(afdeling yang terdaftar: {self._listing(divisions)})")
+            else:
+                blocks = [b for (e, d, b) in self.by_path if e == estate_id and d == div_key]
+                cause = (f"blok '{block}' tidak ada di afdeling {division} estate {estate_txt} "
+                         f"(contoh blok terdaftar di afdeling ini: {self._listing(blocks)})")
+        reason = f"Blok {label} (Estate/Afdeling/Blok) tidak ditemukan di master: {cause}."
+        if spatial_checked:
+            scope = f" di estate {estate_txt}" if estate_id is not None else ""
+            reason += (f" Pencocokan cadangan berdasarkan posisi juga gagal: geometri tidak bersinggungan dengan "
+                       f"batas blok mana pun{scope} (spatial.block_boundaries).")
+        return reason + (" Perbaiki label Estate/Afdeling/Blok di file sesuai master, atau upload/daftarkan "
+                         "batas blok tersebut lebih dulu (kategori Blok Kebun).")
+
     def resolve(self, estate_refs: tuple, division: Any, block: Any, allow_code_only: bool = False) -> int | None:
         block_key = norm_key(block)
         if not block_key:

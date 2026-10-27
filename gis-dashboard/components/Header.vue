@@ -70,7 +70,8 @@ onMounted(async () => {
   if (!dashboardService.moduleItems.length) {
     dashboardService.initDataMenu()
   }
-  pengumumanStore.fetchActivePengumuman()
+  void pengumumanStore.fetchActivePengumuman()
+  void pengumumanStore.fetchReadHistory()
 })
 
 const isMenuOpen = ref(false)
@@ -168,6 +169,42 @@ const displayProfileRole = computed(() => {
   return authStore?.user?.role || 'Operator'
 })
 
+function splitNameToken(token: string) {
+  return token
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/gi, '$1 $2')
+    .replace(/(\d)([a-z])/gi, '$1 $2')
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+function initialsFromName(name: string) {
+  const parts = name
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .flatMap(splitNameToken)
+
+  if (!parts.length) return ''
+
+  const [only] = parts
+  if (parts.length === 1 && only) {
+    // Superadmin -> SA: huruf awal kata dan huruf awal akhiran "admin".
+    const compound = only.match(/^([a-z]{2,})(admin)$/i)
+    const head = compound?.[1]?.[0]
+    const tail = compound?.[2]?.[0]
+    if (head && tail) return `${head}${tail}`.toUpperCase()
+    return only.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase()
+  }
+
+  return parts
+    .slice(0, 2)
+    .map(part => (/^\d+$/.test(part) ? part.slice(0, 2) : (part[0] ?? '').toUpperCase()))
+    .join('')
+}
+
+const profileInitials = computed(() => initialsFromName(displayProfileName.value))
+
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value
@@ -199,7 +236,8 @@ const toggleAnnouncementMenu = () => {
     isMenuOpen.value = false
     isFavoriteOpen.value = false
     openAnnouncementId.value = ''
-    pengumumanStore.fetchActivePengumuman()
+    void pengumumanStore.fetchActivePengumuman()
+    void pengumumanStore.fetchReadHistory()
   }
 }
 
@@ -210,6 +248,25 @@ const closeAnnouncementMenu = () => {
 
 const toggleAnnouncementItem = (id: string) => {
   openAnnouncementId.value = openAnnouncementId.value === id ? '' : id
+}
+
+const announcementCount = computed(() => pengumumanStore.unreadActiveCount)
+const announcementCountLabel = computed(() =>
+  announcementCount.value > 99 ? '99+' : String(announcementCount.value),
+)
+
+const announcementMenuItems = computed(() => {
+  const items = [...pengumumanStore.activeItems]
+  return items.sort((a, b) => {
+    const aRead = pengumumanStore.isAnnouncementRead(a.id)
+    const bRead = pengumumanStore.isAnnouncementRead(b.id)
+    if (aRead === bRead) return 0
+    return aRead ? 1 : -1
+  })
+})
+
+function markAnnouncementRead(announcementId: string) {
+  void pengumumanStore.markAnnouncementAsRead(announcementId)
 }
 
 const announcementDate = (item: PengumumanItem) => {
@@ -352,13 +409,15 @@ onUnmounted(() => {
 
         <div class="announcement-menu-container relative">
           <button type="button" @click="toggleAnnouncementMenu"
-            class="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover"
-            :aria-expanded="isAnnouncementOpen" aria-label="Pengumuman">
+            class="relative flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover"
+            :aria-expanded="isAnnouncementOpen"
+            :aria-label="announcementCount ? `Pengumuman, ${announcementCount} belum dibaca` : 'Pengumuman'">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
               stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
                 d="M10 21h4m-7-4h10l-1-2V11a5 5 0 1 0-10 0v4l-1 2Z" />
             </svg>
+            <span v-if="announcementCount > 0" class="announcement-badge">{{ announcementCountLabel }}</span>
           </button>
 
           <div v-if="isAnnouncementOpen"
@@ -367,28 +426,47 @@ onUnmounted(() => {
               Pengumuman
             </p>
 
-            <p v-if="pengumumanStore.loadingActive" class="px-3 py-4 text-12 text-muted">
+            <p v-if="pengumumanStore.loadingActive && !pengumumanStore.activeItems.length"
+              class="px-3 py-4 text-12 text-muted">
               Memuat pengumuman...
             </p>
             <p v-else-if="!pengumumanStore.activeItems.length" class="px-3 py-4 text-12 text-muted">
               Belum ada pengumuman aktif.
             </p>
 
-            <div v-else>
-              <button v-for="item in pengumumanStore.activeItems" :key="`announcement-${item.id}`" type="button"
-                class="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
-                @click="toggleAnnouncementItem(item.id)">
-                <span class="w-12 shrink-0 rounded-xl bg-sidebar-hover py-2 text-center">
-                  <span class="block text-14 font-bold leading-none text-brand">{{ announcementDate(item).day }}</span>
-                  <span class="mt-1 block text-11 leading-none text-muted">{{ announcementDate(item).month }}</span>
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-14 font-bold text-brand">{{ item.judul }}</span>
-                  <span v-if="openAnnouncementId === item.id"
-                    class="mt-1 block whitespace-pre-line text-12 text-muted">{{ item.isi }}</span>
-                  <span v-else class="mt-0.5 block line-clamp-2 text-12 text-muted-light">{{ item.isi }}</span>
-                </span>
-              </button>
+            <div v-else class="max-h-[min(24rem,60vh)] space-y-1 overflow-y-auto">
+              <div v-for="item in announcementMenuItems" :key="`announcement-${item.id}`"
+                class="rounded-xl transition-colors"
+                :class="pengumumanStore.isAnnouncementRead(item.id)
+                  ? 'bg-surface'
+                  : 'border border-announce bg-warning-light'">
+                <div class="flex items-start gap-2 px-2 py-2">
+                  <button type="button"
+                    class="flex min-w-0 flex-1 items-start gap-3 rounded-lg px-1 py-1 text-left transition-colors hover-bg-cream"
+                    @click="toggleAnnouncementItem(item.id)">
+                    <span class="w-12 shrink-0 rounded-xl bg-sidebar-hover py-2 text-center">
+                      <span class="block text-14 font-bold leading-none text-brand">{{ announcementDate(item).day }}</span>
+                      <span class="mt-1 block text-11 leading-none text-muted">{{ announcementDate(item).month }}</span>
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-14 font-bold text-brand">{{ item.judul }}</span>
+                      <span v-if="openAnnouncementId === item.id"
+                        class="mt-1 block whitespace-pre-line text-12 text-muted">{{ item.isi }}</span>
+                      <span v-else class="mt-0.5 block line-clamp-2 text-12 text-muted-light">{{ item.isi }}</span>
+                    </span>
+                  </button>
+                  <button v-if="!pengumumanStore.isAnnouncementRead(item.id)" type="button"
+                    class="announcement-read-btn shrink-0"
+                    :disabled="pengumumanStore.markingReadId === item.id"
+                    :aria-label="`Tandai ${item.judul} sudah dibaca`"
+                    @click.stop="markAnnouncementRead(item.id)">
+                    <span class="announcement-read-btn__box"
+                      :class="{ 'announcement-read-btn__box--busy': pengumumanStore.markingReadId === item.id }"
+                      aria-hidden="true" />
+                    <span class="announcement-read-btn__label">Baca</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -437,12 +515,8 @@ onUnmounted(() => {
           <button type="button" @click="toggleMenu"
             class="flex h-8 w-8 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
             :class="{ 'bg-cream': isMenuOpen }" :aria-expanded="isMenuOpen"
-            :aria-label="`Akun ${displayProfileName}, ${displayProfileRole}`">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            :aria-label="`Akun ${displayProfileName}, ${displayProfileRole}`" :title="displayProfileName">
+            <span class="text-11 font-bold leading-none tracking-tight">{{ profileInitials }}</span>
           </button>
 
           <div v-if="isMenuOpen"
@@ -554,12 +628,8 @@ onUnmounted(() => {
 
         <div class="rounded-2xl bg-surface-warm p-4">
           <div class="flex items-center gap-3">
-            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-peach text-brand">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-peach text-14 font-bold leading-none tracking-tight text-brand">
+              {{ profileInitials }}
             </div>
             <div class="min-w-0">
               <p class="truncate text-16 font-bold text-brand">{{ displayProfileName }}</p>
@@ -736,6 +806,66 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
   white-space: nowrap;
+}
+
+.announcement-read-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-brand);
+  cursor: pointer;
+}
+
+.announcement-read-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.announcement-read-btn__box {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--color-border-accent-brown);
+  border-radius: 0.25rem;
+  background: #fff;
+}
+
+.announcement-read-btn__box--busy {
+  opacity: 0.5;
+}
+
+.announcement-read-btn__label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.announcement-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  z-index: 1;
+  display: inline-flex;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.22rem;
+  border: 1.5px solid #fff;
+  border-radius: 999px;
+  background: #e6b325;
+  color: #3d2a08;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgb(31 42 24 / 28%);
 }
 
 .app-clock__date {

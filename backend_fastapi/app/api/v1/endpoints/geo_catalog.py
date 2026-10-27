@@ -6,7 +6,7 @@ didaftarkan sebelum /geo/{kode} supaya tidak tertangkap sebagai kode.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
@@ -17,6 +17,7 @@ from app.services import user_access
 from app.services.block_filter import BlockFilter
 from app.services.layers import catalog_service
 from app.services.upload import runner
+from app.services.upload import template as upload_template
 from app.services.upload.runner import UploadInput
 
 router = APIRouter(prefix="/geo")
@@ -49,6 +50,20 @@ class LegacyJenisRegisterRequest(BaseModel):
 
 
 BlokParam = Annotated[str | None, Query(description="Alias lama untuk kode_blok (ID/kode blok)")]
+
+
+@router.get("/template/{kode}", summary="Unduh standar format GeoJSON (template contoh / petunjuk) untuk satu kategori")
+def download_template(kode: str, db: DbSession, user: CurrentUser,
+                      format: Annotated[str, Query(pattern="^(geojson|md)$")] = "geojson"):
+    tpl = upload_template.builtin_template(kode)
+    if tpl is None:
+        layer = catalog_service.get_generic_layer(db, kode)
+        tpl = upload_template.generic_template(layer, catalog_service.attribute_columns(db, layer))
+    if format == "md":
+        return Response(tpl.guide(), media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="petunjuk_standar_{tpl.code}.md"'})
+    return Response(tpl.geojson_bytes(), media_type="application/geo+json",
+                    headers={"Content-Disposition": f'attachment; filename="standar_{tpl.code}.geojson"'})
 
 
 @router.get("/catalog", summary="Katalog seluruh jenis data geo (LEGACY & GENERIC) beserta endpoint-nya")

@@ -170,6 +170,8 @@ export type PreviewAnalysisRow = {
   status_analisa: "AMAN" | "GAGAL" | string;
   kode_gagal: string | null;
   alasan_gagal: string | null;
+  /** Alasan gagal lain untuk data yang sama (bila >1). */
+  gagal_lain?: Array<{ kode: string; alasan: string }>;
 };
 
 export type PartAnalyzeResponse = {

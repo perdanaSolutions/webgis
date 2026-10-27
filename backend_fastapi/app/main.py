@@ -13,6 +13,7 @@ from app.core.middleware import DropEmptyQueryParamsMiddleware
 from app.core.redis_client import shutdown as close_redis
 from app.core.redis_client import startup as open_redis
 from app.core.client_ip import ClientIpMiddleware
+from app.core.maintenance import MaintenanceMiddleware, get_status as get_maintenance_status
 from app.db.ensure_activity_ip import ensure_activity_ip_required
 from app.services.data_version import ensure_data_store_versions, read_store_versions
 from app.api.v1.api import api_router
@@ -133,6 +134,8 @@ app.add_middleware(MapRedisCacheMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(ClientIpMiddleware)
+# Mode maintenance (master.app_settings): di dalam CORS agar 503 tetap membawa header CORS.
+app.add_middleware(MaintenanceMiddleware)
 if settings.MTLS_ENFORCE:
     app.add_middleware(MtlsGuardMiddleware)
 app.add_middleware(
@@ -145,6 +148,13 @@ app.add_middleware(
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+@app.get(f"{settings.API_V1_STR}/system/maintenance", tags=["System"])
+async def maintenance_status():
+    """Publik, tanpa login. Dibaca dashboard untuk menampilkan halaman maintenance."""
+    status = await get_maintenance_status()
+    return {"maintenance": bool(status.get("maintenance")), "message": status.get("message") or ""}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -152,4 +162,4 @@ def health():
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to GIS Plantation API"}
+    return {"message": "Welcome to GIS Plantation API"}

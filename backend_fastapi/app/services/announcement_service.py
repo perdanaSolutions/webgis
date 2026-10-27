@@ -5,7 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request, not_found
-from app.models.announcement import Announcement
+from app.models.announcement import Announcement, AnnouncementRead
 from app.models.auth import User
 from app.schemas.announcement import AnnouncementCreate, AnnouncementResponse, AnnouncementUpdate
 from app.services.user_activity import record_user_activity
@@ -132,6 +132,27 @@ def update_announcement(db: Session, announcement_id: UUID, payload: Announcemen
     db.commit()
     db.refresh(item)
     return item
+
+
+def list_read_announcement_ids(db: Session, user_id: UUID) -> list[UUID]:
+    rows = db.scalars(
+        select(AnnouncementRead.announcement_id).where(AnnouncementRead.user_id == user_id)
+    ).all()
+    return list(rows)
+
+
+def mark_announcement_read(db: Session, announcement_id: UUID, current_user: User, *, can_manage: bool) -> None:
+    get_announcement(db, announcement_id, can_manage=can_manage)
+    existing = db.scalar(
+        select(AnnouncementRead.id).where(
+            AnnouncementRead.user_id == current_user.id,
+            AnnouncementRead.announcement_id == announcement_id,
+        )
+    )
+    if existing is not None:
+        return
+    db.add(AnnouncementRead(user_id=current_user.id, announcement_id=announcement_id))
+    db.commit()
 
 
 def delete_announcement(db: Session, announcement_id: UUID, current_user: User) -> str:

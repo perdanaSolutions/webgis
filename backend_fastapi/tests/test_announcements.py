@@ -59,6 +59,30 @@ def test_announcement_validation(client, auth):
     assert client.post(URL, json={"judul": "x", "isi": "y"}).status_code == 401
 
 
+def test_announcement_read_history(client, auth):
+    created = client.post(URL, headers=auth, json={"judul": "Baca Saya", "isi": "Isi pengumuman."})
+    assert created.status_code == 201, created.text
+    item_id = created.json()["id"]
+    try:
+        empty = client.get(f"{URL}riwayat-baca", headers=auth)
+        assert empty.status_code == 200, empty.text
+        assert item_id not in empty.json()["announcement_ids"]
+
+        marked = client.post(f"{URL}{item_id}/baca", headers=auth)
+        assert marked.status_code == 200, marked.text
+
+        history = client.get(f"{URL}riwayat-baca", headers=auth)
+        assert history.status_code == 200, history.text
+        assert item_id in history.json()["announcement_ids"]
+
+        again = client.post(f"{URL}{item_id}/baca", headers=auth)
+        assert again.status_code == 200, again.text
+        history_after = client.get(f"{URL}riwayat-baca", headers=auth).json()
+        assert history_after["announcement_ids"].count(item_id) == 1
+    finally:
+        client.delete(f"{URL}{item_id}", headers=auth)
+
+
 def test_announcement_permissions(client, auth):
     suffix = uuid.uuid4().hex[:6]
     role = client.post("/api/v1/roles/", headers=auth, json={"nama": f"viewer{suffix}"}).json()

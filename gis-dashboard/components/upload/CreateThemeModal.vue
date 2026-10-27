@@ -91,6 +91,7 @@ async function submit() {
 
       <div class="mt-4">
         <input ref="fileInputRef" type="file" accept=".geojson,.json" class="hidden" @change="onSampleChange" />
+        <label class="mb-2 block text-label font-medium">File Contoh <span class="text-error">*</span></label>
         <button type="button"
           class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
           :disabled="isBusy" @click="fileInputRef?.click()">
@@ -108,12 +109,12 @@ async function submit() {
 
         <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label class="mb-1 block text-label font-medium">Kode</label>
+            <label class="mb-1 block text-label font-medium">Kode <span class="text-error">*</span></label>
             <input v-model="kode" type="text" placeholder="mis. embung"
               class="w-full rounded-xl border border-default px-3 py-2 text-size-sm" />
           </div>
           <div>
-            <label class="mb-1 block text-label font-medium">Nama</label>
+            <label class="mb-1 block text-label font-medium">Nama <span class="text-error">*</span></label>
             <input v-model="nama" type="text" placeholder="mis. Embung"
               class="w-full rounded-xl border border-default px-3 py-2 text-size-sm" />
           </div>
@@ -133,7 +134,7 @@ async function submit() {
             <thead class="bg-surface-warm text-left text-brand">
               <tr>
                 <th class="px-3 py-2 font-bold">Properti di File</th>
-                <th class="px-3 py-2 font-bold">Nama Kolom</th>
+                <th class="px-3 py-2 font-bold">Nama Kolom <span class="text-error">*</span></th>
                 <th class="px-3 py-2 font-bold">Tipe</th>
                 <th class="px-3 py-2 font-bold">Boleh Kosong</th>
                 <th class="px-3 py-2" />

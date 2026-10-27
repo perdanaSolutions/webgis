@@ -4,6 +4,9 @@ import Header from "~/components/Header.vue";
 import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
+import UploadTemplateDownload from "~/components/upload/TemplateDownload.vue";
+import UploadFailedRowsDownload from "~/components/upload/FailedRowsDownload.vue";
+import { countQuarantined } from "~/utils/failedRowsDownload";
 import { GROUP_FILTER_DEFS, findGroupColumns } from "~/utils/uploadPreviewFilters";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
@@ -321,6 +324,21 @@ const analysis = computed<Record<string, any>>(() => {
   return typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
 });
 
+/** Excel data gagal analisa: data tabel preview (fitur asli) + kode/alasan per nomor data. */
+function analyzeFailedExport() {
+  return {
+    rows: documentUploadStore.allPreviewRows,
+    analysis: documentUploadStore.previewAnalysis,
+    kategori: documentUploadStore.selectedCategory,
+    filename: documentUploadStore.selectedFile?.name,
+    periode: documentUploadStore.month && documentUploadStore.year
+      ? `${String(documentUploadStore.month).padStart(2, "0")}-${documentUploadStore.year}` : undefined,
+    columns: previewHeaders.value,
+  };
+}
+
+const executeFailedCount = computed(() => countQuarantined(documentUploadStore.executeResponse));
+
 const hasNoValidData = computed(() => analysis.value.status_analisis === "TIDAK_ADA_DATA_VALID");
 
 // Jumlah data lama di periode itu yang akan diganti (nama field berbeda per jenis upload).
@@ -504,7 +522,10 @@ watch(
 
       <section class="rounded-2xl border border-default bg-surface p-5">
         <div class="mb-6">
-          <h2 class="text-20 font-bold">Upload File GeoJSON</h2>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-20 font-bold">Upload File GeoJSON</h2>
+            <UploadTemplateDownload />
+          </div>
           <p class="text-muted">
             Pilih kategori spasial, upload file GeoJSON, lalu review preview data
             sebelum submit.
@@ -514,7 +535,7 @@ watch(
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div class="mb-4">
             <div class="mb-4">
-              <label class="mb-1 block text-label font-medium">Kategori Data GeoJSON (Spasial)</label>
+              <label class="mb-1 block text-label font-medium">Kategori Data GeoJSON (Spasial) <span class="text-error">*</span></label>
               <v-select :model-value="documentUploadStore.selectedCategory" :items="documentUploadStore.categories"
                 :loading="documentUploadStore.isLoadingCategories" item-title="label" item-value="value"
                 placeholder="Pilih kategori" variant="plain" density="comfortable"
@@ -533,7 +554,7 @@ watch(
           <div class="">
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="mb-1 block text-label font-medium">Bulan</label>
+                <label class="mb-1 block text-label font-medium">Bulan <span class="text-error">*</span></label>
                 <v-select v-model="documentUploadStore.month" :items="[
                   { title: 'Januari', value: '01' },
                   { title: 'Februari', value: '02' },
@@ -552,7 +573,7 @@ watch(
               </div>
 
               <div>
-                <label class="mb-1 block text-label font-medium">Tahun</label>
+                <label class="mb-1 block text-label font-medium">Tahun <span class="text-error">*</span></label>
                 <v-select v-model="documentUploadStore.year" :items="documentUploadStore.getYearList()"
                   placeholder="Pilih tahun" variant="plain" density="comfortable"
                   class="w-full px-3 border border-default rounded-xl h-[50px]"></v-select>
@@ -572,7 +593,7 @@ watch(
           <input ref="fileInputRef" type="file" accept=".geojson,.json,application/geo+json,application/json"
             class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">
-            Drag & Drop file GeoJSON di sini
+            Drag & Drop file GeoJSON di sini <span class="text-error">*</span>
           </p>
           <p class="mt-1 text-size-sm text-muted">atau</p>
           <button type="button"
@@ -737,7 +758,10 @@ watch(
                       {{ documentUploadStore.previewAnalysis[row.number]?.status_analisa ?? "Menunggu" }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.kode_gagal ?? "-" }}</td>
-                    <td class="min-w-[220px] px-3 py-2">{{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}</td>
+                    <td class="min-w-[320px] max-w-[560px] whitespace-normal break-words px-3 py-2 align-top"
+                      :title="documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? undefined">
+                      {{ documentUploadStore.previewAnalysis[row.number]?.alasan_gagal ?? "-" }}
+                    </td>
                   </template>
                   <td class="px-3 py-2">{{ row.feature.geometry?.type ?? "-" }}</td>
                   <td v-for="header in previewHeaders" :key="`${row.number}-${header}`" class="px-3 py-2">
@@ -797,7 +821,10 @@ watch(
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
           <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
-            <h3 class="mb-4 text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
+            <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <h3 class="text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
+              <UploadFailedRowsDownload :export-input="analyzeFailedExport" :count="analysisStatusCounts.gagal" />
+            </div>
             <UploadAnalysisGroups :analysis="analysis" :parts="documentUploadStore.analyzeParts" />
           </div>
 
@@ -819,6 +846,10 @@ watch(
               {{ executeView.title }}
             </p>
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
+            <div v-if="executeFailedCount > 0" class="mt-3 flex justify-end">
+              <UploadFailedRowsDownload :job-id="documentUploadStore.failedRowsJobId.execute"
+                :count="executeFailedCount" label="Download Data Gagal Disimpan (.xlsx)" />
+            </div>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
               <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data

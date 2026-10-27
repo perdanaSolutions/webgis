@@ -29,8 +29,8 @@ from app.services.upload import report as upload_report
 from app.services.upload.copy import copy_rows
 from app.services.upload.progress import SILENT, Progress
 from app.services.upload import context as part_context
-from app.services.upload.report import UploadReport, geometry_problem, missing_block_attributes
-from app.services.upload.resolvers import BlockIndex, BlockMatchReport, block_label, geojson_block_keys, match_blocks
+from app.services.upload.report import UploadReport, duplicate_reason, geometry_problem, missing_block_attributes
+from app.services.upload.resolvers import BlockIndex, BlockMatchReport, geojson_block_keys, match_blocks
 from app.utils.geojson import feature_collection, geometry_to_ewkb, make_feature, parse_features, prepare_geometry
 from app.utils.pagination import page_response
 from app.utils.parsing import clean_str, is_blank, to_float
@@ -354,6 +354,8 @@ def _attribute_columns(db: Session, layer: dict) -> list[dict]:
     return result
 
 
+attribute_columns = _attribute_columns  # dipakai template standar format
+
 INVALID = object()  # penanda nilai atribut terisi tapi tidak bisa dikonversi ke tipe kolom
 INT_RANGES = {"smallint": 2**15, "integer": 2**31, "bigint": 2**63}
 FLOAT_TYPES = {"double precision", "real", "numeric"}
@@ -430,7 +432,8 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True, pr
         geom = (geometry_to_ewkb if with_wkb else prepare_geometry)(feature.get("geometry"), layer["geometry_type"])
         if geom is None:
             stats["invalid_geom"] += 1
-            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), layer["geometry_type"]))
+            report.reject(i, "GEOMETRI_TIDAK_VALID", geometry_problem(feature.get("geometry"), layer["geometry_type"],
+                                                                     layer.get("nama") or layer.get("kode")))
             continue
         row = {"geom": geom}
         for col in columns:
@@ -447,20 +450,21 @@ def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True, pr
 
     match = BlockMatchReport()
     if has_block:
-        block_ids, match = match_blocks(db, BlockIndex.load(db), [(k, r["geom"]) for _, k, r in candidates], progress)
+        index = BlockIndex.load(db)
+        block_ids, match = match_blocks(db, index, [(k, r["geom"]) for _, k, r in candidates], progress)
         for (_, _, row), block_id in zip(candidates, block_ids):
             row["block_id"] = block_id
 
     rows, by_objectid = [], {}
     for i, keys, row in candidates:
         if has_block and row["block_id"] is None:
-            report.reject(i, "BLOK_TIDAK_DITEMUKAN", f"Blok {block_label(keys)} tidak ada di master.")
+            report.reject(i, "BLOK_TIDAK_DITEMUKAN", index.missing_block_reason(keys))
             continue
         if has_objectid and row.get("objectid") is not None:
             if row["objectid"] in by_objectid:
                 stats["duplicates"] += 1
                 report.reject(by_objectid[row["objectid"]][0], "OBJECTID_GANDA",
-                              f"OBJECTID {row['objectid']} juga dipakai data #{i + 1}; data #{i + 1} yang dipakai.")
+                              duplicate_reason(row["objectid"], i))
             by_objectid[row["objectid"]] = (i, row)
         else:
             rows.append(row)

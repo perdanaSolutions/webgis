@@ -1,5 +1,6 @@
 import { AUTH_USER_STORAGE_KEY } from "~/utils/authSession";
 import { authCookieOptions } from "~/stores/authStore";
+import { isMaintenancePath, isMaintenanceResponse, MAINTENANCE_PATH } from "~/utils/maintenance";
 
 function readAuthHeader() {
   try {
@@ -34,6 +35,12 @@ export default defineNuxtPlugin(() => {
       options.headers = headers;
     },
     async onResponseError({ response }) {
+      if (isMaintenanceResponse(response?.status, response?._data)) {
+        if (import.meta.client && !isMaintenancePath(window.location.pathname)) {
+          window.location.replace(MAINTENANCE_PATH);
+        }
+        return;
+      }
       if (response?.status !== 401) return;
 
       try {

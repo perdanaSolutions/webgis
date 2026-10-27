@@ -448,13 +448,13 @@ async function gotoDashboard() {
 
         <form class="grid grid-cols-1 gap-3 md:grid-cols-2" @submit.prevent="submitForm">
           <div class="md:col-span-2">
-            <label class="mb-1 block text-label">Judul</label>
+            <label class="mb-1 block text-label">Judul <span class="text-error">*</span></label>
             <input v-model="form.judul" required maxlength="200" type="text"
               class="h-11 w-full rounded-xl border border-default px-3 outline-none" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="mb-1 block text-label">Isi</label>
+            <label class="mb-1 block text-label">Isi <span class="text-error">*</span></label>
             <textarea v-model="form.isi" required rows="5"
               class="w-full rounded-xl border border-default px-3 py-2 outline-none" />
           </div>
