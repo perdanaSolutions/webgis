@@ -17,6 +17,7 @@ from app.api.deps import CurrentUser, DbSession, user_has_permission
 from app.api.params import UploadedFile, read_upload
 from app.core.exceptions import not_found
 from app.services.upload import failed_export, jobs, runner
+from app.services.upload.trx_file_rules import ensure_trx_excel_file
 from app.services.upload.trx_runner import is_trx_layer
 
 router = APIRouter()
@@ -77,6 +78,9 @@ def create_job(
                                "no_preview hasil = feature_offset + nomor feature di part."),
     ] = 0,
 ):
+    if is_trx_layer(layer):
+        # Halaman /transaksi hanya menerima Excel; .json dan format lain ditolak 400 dengan alasan.
+        ensure_trx_excel_file(file.filename)
     content = read_upload(file)
     _ensure_upload_access(db, user, layer)
     runner.check_layer(db, layer)

@@ -8,6 +8,7 @@ import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
 import { TRX_ROWS_PER_PART } from "~/utils/trxExcelParts";
+import { isTrxExcelFile, TRX_FILE_ACCEPT, TRX_UNSUPPORTED_FILE_MESSAGE } from "~/utils/trxUpload";
 import { PAGE_SIZES } from "~/utils/tablePagination";
 import { TRX_KINDS, missingHeaderGroups } from "~/utils/trxUpload";
 import { findGroupColumns } from "~/utils/uploadPreviewFilters";
@@ -170,7 +171,7 @@ const searchedRows = computed<PreviewItem[]>(() => {
   return previewRows.value
     .map((row, index) => ({
       row,
-      excelRow: trxUploadStore.fileMode === "json" ? index + 1 : index + 2,
+      excelRow: index + 2,
     }))
     .filter(({ row, excelRow }) => {
       if (!query) return true;
@@ -289,15 +290,27 @@ function openFilePicker() {
   fileInputRef.value?.click();
 }
 
+const alert = useAlert();
+
+/** Hanya .xlsx/.xls; file lain (termasuk .json) ditolak dengan popup. */
+async function pickFile(file: File | null) {
+  if (file && !isTrxExcelFile(file.name)) {
+    await alert.error("Format file tidak didukung", TRX_UNSUPPORTED_FILE_MESSAGE);
+    return;
+  }
+  await trxUploadStore.setFile(file);
+}
+
 async function onFileChange(event: Event) {
   const target = event.target as HTMLInputElement;
-  await trxUploadStore.setFile(target.files?.[0] ?? null);
+  const file = target.files?.[0] ?? null;
   target.value = "";
+  await pickFile(file);
 }
 
 async function onDrop(event: DragEvent) {
   event.preventDefault();
-  await trxUploadStore.setFile(event.dataTransfer?.files?.[0] ?? null);
+  await pickFile(event.dataTransfer?.files?.[0] ?? null);
 }
 
 function clearFile() {
@@ -336,7 +349,7 @@ function onCancelJob() {
  * sedangkan kolom "Baris" di Excel menghitung header (baris data pertama = 2).
  */
 function analysisForRow(excelRow: number) {
-  const no = trxUploadStore.fileMode === "json" ? excelRow : excelRow - 1;
+  const no = excelRow - 1;
   return trxUploadStore.previewAnalysis[no];
 }
 
@@ -398,11 +411,6 @@ onMounted(async () => {
                 :disabled="trxUploadStore.isBusy" @click="trxUploadStore.downloadExcel()">
                 Unduh template Excel
               </button>
-              <button type="button"
-                class="rounded-xl border border-tan bg-surface px-4 py-2 text-size-sm font-semibold text-brand"
-                :disabled="trxUploadStore.isBusy" @click="trxUploadStore.downloadJson()">
-                Unduh contoh JSON
-              </button>
             </div>
           </div>
 
@@ -425,11 +433,11 @@ onMounted(async () => {
 
         <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center"
           @drop="onDrop" @dragover.prevent>
-          <input ref="fileInputRef" type="file" accept=".xlsx,.xls,.json,application/vnd.ms-excel,application/json"
+          <input ref="fileInputRef" type="file" :accept="TRX_FILE_ACCEPT"
             class="hidden" @change="onFileChange" />
-          <p class="text-15 font-semibold text-brand">Drag & drop file Excel atau JSON di sini</p>
+          <p class="text-15 font-semibold text-brand">Drag & drop file Excel di sini</p>
           <p class="mt-1 text-size-sm text-muted">
-            .xlsx, .xls, atau .json · Excel besar dipecah otomatis per {{ TRX_ROWS_PER_PART.toLocaleString("id-ID") }}
+            .xlsx atau .xls · Excel besar dipecah otomatis per {{ TRX_ROWS_PER_PART.toLocaleString("id-ID") }}
             baris lalu diproses lewat antrian
           </p>
           <button type="button"
@@ -441,7 +449,6 @@ onMounted(async () => {
             File: <span class="font-semibold">{{ trxUploadStore.selectedFile.name }}</span>
             <span v-if="trxUploadStore.fileMode === 'excel'"> · Excel<span v-if="trxUploadStore.sheetName"> / {{
               trxUploadStore.sheetName }}</span></span>
-            <span v-else-if="trxUploadStore.fileMode === 'json'"> · JSON</span>
           </p>
         </div>
 
@@ -495,7 +502,6 @@ onMounted(async () => {
                 {{ trxUploadStore.rowCount.toLocaleString("id-ID") }} baris
                 <span v-if="trxUploadStore.fileMode === 'excel'">pada sheet pertama. Nomor baris sama dengan baris
                   Excel.</span>
-                <span v-else>. Import JSON langsung disimpan; endpoint ini tidak punya uji coba.</span>
               </p>
             </div>
             <UploadFailedRowsDownload v-if="!displayAnalysis && !trxUploadStore.isUploading"
@@ -506,12 +512,7 @@ onMounted(async () => {
 
           <p v-if="missingHeaders.length" class="mb-3 rounded-xl bg-warning-light px-4 py-3 text-size-sm text-warning">
             Header yang belum terlihat: {{missingHeaders.map((item) => item.label).join("; ")}}.
-            <template v-if="trxUploadStore.fileMode === 'excel'">
-              Analisis tetap bisa dijalankan; laporan server yang menentukan baris mana yang masuk.
-            </template>
-            <template v-else>
-              Periksa nama kolom sebelum impor. JSON tidak punya uji coba, jadi data langsung disimpan.
-            </template>
+            Analisis tetap bisa dijalankan; laporan server yang menentukan baris mana yang masuk.
           </p>
 
           <p v-if="trxUploadStore.rowCount === 0" class="text-size-sm text-muted">
@@ -629,11 +630,6 @@ onMounted(async () => {
               :disabled="trxUploadStore.isBusy" @click="onAnalyze">
               Analisis
             </button>
-            <button v-else type="button"
-              class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
-              :disabled="trxUploadStore.isBusy || trxUploadStore.rowCount === 0" @click="askImport">
-              Impor JSON
-            </button>
           </div>
         </section>
 
@@ -738,9 +734,6 @@ onMounted(async () => {
         <p v-if="trxUploadStore.fileMode === 'excel'">
           File yang sama akan diimpor. Baris valid ditambah atau diperbarui per blok dan bulan.
           Baris yang ditolak masuk karantina. Blok yang tidak ada di file tidak dihapus.
-        </p>
-        <p v-else>
-          Import JSON tidak punya uji coba. Validasi dan upsert-nya sama dengan Excel, dan data langsung disimpan.
         </p>
         <p v-if="Number(displayAnalysis?.data_diperbarui) > 0">
           {{ Number(displayAnalysis?.data_diperbarui).toLocaleString("id-ID") }} baris akan memperbarui data yang sudah ada
