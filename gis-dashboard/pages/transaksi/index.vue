@@ -433,8 +433,7 @@ onMounted(async () => {
 
         <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center"
           @drop="onDrop" @dragover.prevent>
-          <input ref="fileInputRef" type="file" :accept="TRX_FILE_ACCEPT"
-            class="hidden" @change="onFileChange" />
+          <input ref="fileInputRef" type="file" :accept="TRX_FILE_ACCEPT" class="hidden" @change="onFileChange" />
           <p class="text-15 font-semibold text-brand">Drag & drop file Excel di sini</p>
           <p class="mt-1 text-size-sm text-muted">
             .xlsx atau .xls · Excel besar dipecah otomatis per {{ TRX_ROWS_PER_PART.toLocaleString("id-ID") }}
@@ -545,7 +544,8 @@ onMounted(async () => {
                     class="whitespace-nowrap px-3 py-2 font-bold">
                     <div class="flex items-center gap-1">
                       Status analisa
-                      <UploadColumnFilter compact label="Status analisa" :model-value="columnFilters[STATUS_COLUMN] ?? null"
+                      <UploadColumnFilter compact label="Status analisa"
+                        :model-value="columnFilters[STATUS_COLUMN] ?? null"
                         :load-options="() => filterOptions(STATUS_COLUMN)"
                         @update:model-value="(v) => setColumnFilter(STATUS_COLUMN, v)" />
                     </div>
@@ -573,7 +573,9 @@ onMounted(async () => {
               </thead>
               <tbody>
                 <tr v-if="pageRows.length === 0">
-                  <td :colspan="trxUploadStore.headers.length + (hasAnalysisColumn ? 4 : 1)" class="px-3 py-3 text-muted">Tidak ada data yang
+                  <td :colspan="trxUploadStore.headers.length + (hasAnalysisColumn ? 4 : 1)"
+                    class="px-3 py-3 text-muted">Tidak ada
+                    data yang
                     cocok.</td>
                 </tr>
                 <tr v-for="item in pageRows" :key="item.excelRow" class="border-t border-row">
@@ -583,9 +585,11 @@ onMounted(async () => {
                   </td>
                   <template v-if="hasAnalysisColumn">
                     <td class="whitespace-nowrap px-3 py-2">{{ analysisForRow(item.excelRow)?.kode_gagal || "-" }}</td>
-                    <td class="whitespace-nowrap px-3 py-2">{{ analysisForRow(item.excelRow)?.alasan_gagal || "-" }}</td>
+                    <td class="whitespace-nowrap px-3 py-2">{{ analysisForRow(item.excelRow)?.alasan_gagal || "-" }}
+                    </td>
                   </template>
-                  <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`" class="whitespace-nowrap px-3 py-2">
+                  <td v-for="header in trxUploadStore.headers" :key="`${item.excelRow}-${header}`"
+                    class="whitespace-nowrap px-3 py-2">
                     {{ item.row[header] || "-" }}
                   </td>
                 </tr>
@@ -655,7 +659,8 @@ onMounted(async () => {
             <p class="mb-4 text-size-sm text-muted">
               Uji coba ini tidak menyimpan data. Angkanya sama dengan hasil import sungguhan.
             </p>
-            <p v-if="displayAnalysis.kesimpulan" class="mb-4 rounded-xl bg-surface-warm px-4 py-3 text-size-sm text-brand">
+            <p v-if="displayAnalysis.kesimpulan"
+              class="mb-4 rounded-xl bg-surface-warm px-4 py-3 text-size-sm text-brand">
               {{ displayAnalysis.kesimpulan }}
             </p>
             <UploadAnalysisGroups :analysis="displayAnalysis" :parts="trxUploadStore.analyzeParts" />
@@ -667,8 +672,7 @@ onMounted(async () => {
               Batal
             </button>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand disabled:opacity-50"
-              :disabled="trxUploadStore.isBusy || hasNoValidData"
-              @click="askImport">
+              :disabled="trxUploadStore.isBusy || hasNoValidData" @click="askImport">
               Impor data
             </button>
           </div>
@@ -712,8 +716,7 @@ onMounted(async () => {
             </div>
           </div>
           <div class="mt-4 flex flex-wrap justify-end gap-2">
-            <NuxtLink to="/riwayat-upload"
-              class="rounded-xl border border-tan bg-surface px-4 py-2 font-semibold text-brand">
+            <NuxtLink to="/riwayat" class="rounded-xl border border-tan bg-surface px-4 py-2 font-semibold text-brand">
               Lihat riwayat upload
             </NuxtLink>
             <button type="button" class="rounded-xl bg-brand px-4 py-2 font-semibold text-on-brand" @click="clearFile">
@@ -726,32 +729,34 @@ onMounted(async () => {
   </main>
 
   <AppModalTeleport>
-  <div v-if="isOpenConfirm" class="app-modal-backdrop bg-overlay-dark">
-    <div class="app-modal-panel app-modal-size-sm w-full rounded-xl bg-surface shadow-2xl">
-      <h3 class="text-size-lg font-semibold text-gray-title-alt">Konfirmasi import</h3>
-      <div class="mt-3 space-y-2 text-size-sm text-gray-body">
-        <p v-if="displayAnalysis?.kesimpulan">{{ displayAnalysis.kesimpulan }}</p>
-        <p v-if="trxUploadStore.fileMode === 'excel'">
-          File yang sama akan diimpor. Baris valid ditambah atau diperbarui per blok dan bulan.
-          Baris yang ditolak masuk karantina. Blok yang tidak ada di file tidak dihapus.
-        </p>
-        <p v-if="Number(displayAnalysis?.data_diperbarui) > 0">
-          {{ Number(displayAnalysis?.data_diperbarui).toLocaleString("id-ID") }} baris akan memperbarui data yang sudah ada
-          karena nilainya berbeda.
-        </p>
-      </div>
-      <div class="mt-4 flex justify-end gap-2">
-        <button type="button"
-          class="rounded-lg border border-gray bg-surface px-4 py-2 text-size-sm font-medium text-gray-label-alt"
-          @click="isOpenConfirm = false">
-          Batal
-        </button>
-        <button type="button" class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand"
-          @click="confirmImport">
-          Impor
-        </button>
+    <div v-if="isOpenConfirm" class="app-modal-backdrop bg-overlay-dark">
+      <div class="app-modal-panel app-modal-size-sm w-full rounded-xl bg-surface shadow-2xl">
+        <h3 class="text-size-lg font-semibold text-gray-title-alt">Konfirmasi import</h3>
+        <div class="mt-3 space-y-2 text-size-sm text-gray-body">
+          <p v-if="displayAnalysis?.kesimpulan">{{ displayAnalysis.kesimpulan }}</p>
+          <p v-if="trxUploadStore.fileMode === 'excel'">
+            File yang sama akan diimpor. Baris valid ditambah atau diperbarui per blok dan bulan.
+            Baris yang ditolak masuk karantina. Blok yang tidak ada di file tidak dihapus.
+          </p>
+          <p v-if="Number(displayAnalysis?.data_diperbarui) > 0">
+            {{ Number(displayAnalysis?.data_diperbarui).toLocaleString("id-ID") }} baris akan memperbarui data yang
+            sudah
+            ada
+            karena nilainya berbeda.
+          </p>
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button"
+            class="rounded-lg border border-gray bg-surface px-4 py-2 text-size-sm font-medium text-gray-label-alt"
+            @click="isOpenConfirm = false">
+            Batal
+          </button>
+          <button type="button" class="rounded-lg bg-blue-dark px-4 py-2 text-size-sm font-medium text-on-brand"
+            @click="confirmImport">
+            Impor
+          </button>
+        </div>
       </div>
     </div>
-  </div>
   </AppModalTeleport>
 </template>
