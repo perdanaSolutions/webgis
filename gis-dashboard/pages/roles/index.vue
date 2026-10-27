@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
+import { suggestAreasFromRoleName } from "~/utils/roleAreaSuggest";
 import { useManageRoleStore } from "~/stores/manageRoleStore";
 import { dashboardStore } from '~/stores/dashboardStore'
 
@@ -306,6 +307,11 @@ function resetForm() {
   blokByAfdelingMap.value = {};
 
   activePermissionTab.value = "menu";
+
+  if (suggestionTimer) clearTimeout(suggestionTimer);
+  suggestionToken += 1;
+  suggestedAreaCodes.value = [];
+  wilayahTouched.value = false;
 }
 
 function clearWilayahSelection() {
@@ -361,6 +367,7 @@ async function fillForm(role) {
     grantCatalogReady.value = true;
 
     await applySavedGroupTree(existingAkses?.grup ?? []);
+    scheduleAreaSuggestion();
   } finally {
     loadingRoleData.value = false;
   }
@@ -523,7 +530,122 @@ async function submitForm() {
 
 function onNamaInput(event) {
   form.nama = String(event.target?.value ?? "").toUpperCase();
+  scheduleAreaSuggestion();
 }
+
+// --- Saran area dari nama role (mis. "BERAU" -> area BERAU tercentang otomatis) ---
+const suggestedAreaCodes = ref([]);
+const wilayahTouched = ref(false);
+let applyingSuggestion = false;
+let suggestionTimer = null;
+let suggestionToken = 0;
+
+// Perubahan centang manual (bukan dari saran) mengunci pilihan agar tidak tertimpa saran berikutnya.
+watch(
+  () => [form.group_ids, form.perusahaan_ids, form.area_ids, form.estate_ids, form.afdeling_ids, form.blok_ids],
+  () => {
+    if (!applyingSuggestion) wilayahTouched.value = true;
+  },
+  { flush: "sync", deep: true },
+);
+
+const areaMatchValues = (area) =>
+  [getAreaId(area), area?.kode_area, area?.area_id]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean);
+
+const suggestionAutoApply = computed(() => formMode.value === "create" && !wilayahTouched.value);
+
+const suggestionApplied = computed(() => {
+  if (!suggestedAreaCodes.value.length) return false;
+  return suggestedAreaCodes.value.every((code) =>
+    form.area_ids.some((key) => String(key).toUpperCase().endsWith(`${AREA_KEY_SEPARATOR}${code}`)),
+  );
+});
+
+function scheduleAreaSuggestion() {
+  if (suggestionTimer) clearTimeout(suggestionTimer);
+  suggestionTimer = setTimeout(refreshAreaSuggestion, 400);
+}
+
+async function refreshAreaSuggestion() {
+  const token = ++suggestionToken;
+  const name = String(form.nama ?? "").trim();
+  if (!name) {
+    suggestedAreaCodes.value = [];
+    if (suggestionAutoApply.value) await applyAreaSuggestion([], token);
+    return;
+  }
+  try {
+    if (!(manageRoleStore.allDataArea ?? []).length) await manageRoleStore.initDataArea();
+  } catch {
+    return;
+  }
+  if (token !== suggestionToken) return;
+  const candidates = (manageRoleStore.allDataArea ?? []).map((area) => ({
+    code: getAreaId(area).toUpperCase(),
+    name: String(area?.nama_area ?? area?.nama ?? ""),
+  }));
+  suggestedAreaCodes.value = suggestAreasFromRoleName(name, candidates);
+  if (suggestionAutoApply.value) await applyAreaSuggestion(suggestedAreaCodes.value, token);
+}
+
+// Centang hanya grup/PT/area yang cocok beserta turunannya; area lain tidak ikut.
+async function applyAreaSuggestion(codes, token = ++suggestionToken) {
+  const wanted = new Set((codes ?? []).map((code) => String(code).toUpperCase()));
+  beginDataLoad();
+  applyingSuggestion = true;
+  try {
+    clearWilayahSelection();
+    if (!wanted.size) return;
+    if (!(manageRoleStore.allDataGroup ?? []).length) await manageRoleStore.initDataGroup();
+
+    for (const group of manageRoleStore.allDataGroup ?? []) {
+      const groupCode = getGroupCode(group);
+      if (!groupCode) continue;
+      for (const perusahaan of await ensureCompanies(groupCode)) {
+        const ptCode = getPerusahaanCode(perusahaan);
+        const areas = (await ensureAreas(groupCode, ptCode))
+          .filter((area) => areaMatchValues(area).some((value) => wanted.has(value)));
+        if (!areas.length) continue;
+        if (token !== suggestionToken) return;
+
+        form.group_ids = mergeIds(form.group_ids, [groupCode]);
+        form.perusahaan_ids = mergeIds(form.perusahaan_ids, [String(perusahaan?.id ?? "")]);
+        for (const area of areas) {
+          const areaCode = getAreaId(area);
+          form.area_ids = mergeIds(form.area_ids, [getAreaSelectionKey(ptCode, areaCode)]);
+          const estates = await ensureEstates(groupCode, ptCode, areaCode);
+          const estateCodes = estates.map((estate) => getEstateCode(estate)).filter(Boolean);
+          await ensureAfdelingsLoaded(estateCodes);
+          const afdelingKeys = afdelingKeysForEstates(estateCodes);
+          form.estate_ids = mergeIds(form.estate_ids, estateCodes);
+          form.afdeling_ids = mergeIds(form.afdeling_ids, afdelingKeys);
+          await ensureBloksForAfdelingKeys(afdelingKeys);
+          mergeBlokIds(afdelingKeys);
+        }
+      }
+    }
+    pruneDownstreamSelections();
+  } finally {
+    applyingSuggestion = false;
+    endDataLoad();
+    if (token === suggestionToken) wilayahTouched.value = false;
+  }
+}
+
+async function applySuggestionManually() {
+  await applyAreaSuggestion(suggestedAreaCodes.value);
+}
+
+async function removeSuggestedArea(code) {
+  suggestedAreaCodes.value = suggestedAreaCodes.value.filter((item) => item !== code);
+  await applyAreaSuggestion(suggestedAreaCodes.value);
+}
+
+onBeforeUnmount(() => {
+  if (suggestionTimer) clearTimeout(suggestionTimer);
+});
 
 function onDeskripsiInput(event) {
   form.deskripsi = String(event.target?.value ?? "").toUpperCase();
@@ -1562,6 +1684,20 @@ onMounted(async () => {
             <label class="mb-1 block text-label">Nama Role <span class="text-error">*</span></label>
             <input :value="form.nama" @input="onNamaInput" required type="text"
               class="h-11 w-full rounded-xl border border-default px-3 uppercase outline-none" />
+            <div v-if="suggestedAreaCodes.length" class="mt-2 flex flex-wrap items-center gap-2 text-size-sm">
+              <span class="text-muted">Saran area:</span>
+              <span v-for="code in suggestedAreaCodes" :key="code"
+                class="inline-flex items-center gap-1 rounded-lg border border-tan bg-cream px-2 py-0.5 font-semibold text-brand">
+                {{ code }}
+                <button v-if="suggestionAutoApply" type="button" class="text-muted" :aria-label="`Hapus saran ${code}`"
+                  @click="removeSuggestedArea(code)">✕</button>
+              </span>
+              <button v-if="!suggestionAutoApply && !suggestionApplied" type="button"
+                class="rounded-lg border border-tan bg-cream px-2 py-0.5 font-semibold text-brand"
+                @click="applySuggestionManually">
+                Terapkan saran
+              </button>
+            </div>
           </div>
 
           <div>
