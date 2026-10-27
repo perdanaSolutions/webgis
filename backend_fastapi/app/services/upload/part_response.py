@@ -73,18 +73,22 @@ def shift_no_preview(value: Any, offset: int) -> Any:
 
 def table_preview(total: int, rejected: list[dict], offset: int = 0) -> list[dict]:
     """Satu baris per feature di part. `rejected` memakai no_preview lokal (1..total)."""
-    by_no: dict[int, dict] = {}
+    by_no: dict[int, list[dict]] = {}
     for r in rejected:
-        by_no.setdefault(int(r["no_preview"]), r)  # alasan pertama yang dipakai
+        by_no.setdefault(int(r["no_preview"]), []).append(r)
     rows = []
     for no in range(1, total + 1):
-        r = by_no.get(no)
-        rows.append({
+        found = by_no.get(no) or []
+        r = found[0] if found else None  # alasan pertama = kolom kode_gagal/alasan_gagal
+        row = {
             "no_preview": offset + no,
             "status_analisa": GAGAL if r else AMAN,
             "kode_gagal": r["kode"] if r else None,
             "alasan_gagal": shift_reason(r["alasan"], offset) if r else None,
-        })
+        }
+        if len(found) > 1:  # data dengan >1 alasan gagal: alasan lain (untuk unduhan Excel data gagal)
+            row["gagal_lain"] = [{"kode": x["kode"], "alasan": shift_reason(x["alasan"], offset)} for x in found[1:]]
+        rows.append(row)
     return rows
 
 
