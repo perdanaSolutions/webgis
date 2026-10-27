@@ -101,6 +101,10 @@ async function onSubmit(event?: Event) {
             <p class="mt-2 max-w-[320px] text-13 leading-6 text-muted-ios sm:text-14">
               Gunakan email dan password terdaftar untuk mengakses dashboard.
             </p>
+            <p class="mt-2 max-w-[320px] text-13 leading-6 text-muted-ios sm:text-14">
+              Jika anda salah memasukan email atau password sebanyak 5 kali, akun anda akan nonaktif dan silahkan
+              hubungi admin untuk mendapatkan bantuan.
+            </p>
           </div>
 
           <!-- method="dialog" membatalkan navigasi GET bawaan browser ke /login? -->
