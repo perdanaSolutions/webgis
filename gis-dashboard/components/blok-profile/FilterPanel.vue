@@ -42,8 +42,10 @@ const props = defineProps<{
   plantingYears: LegendItem[];
   basemap: BasemapKey;
   opacity: number; // 0..100
-  /** Hanya superadmin@plantation.com. User biasa tidak melihat opsi "semua". */
-  allowAll: boolean;
+  /** (lama) tidak lagi membatasi opsi "Semua"; dipertahankan agar pemanggil lama tetap valid. */
+  allowAll?: boolean;
+  /** Indikator memuat per field (area/estate/afdeling/blok). */
+  fieldLoading?: Partial<Record<FieldKey, boolean>>;
   /** Naik setiap filter dikosongkan, supaya input tidak menahan pilihan lama. */
   filterGeneration: number;
   /** Bagian yang ditampilkan. Tiap tombol collapse membuka satu bagian. */
@@ -135,23 +137,21 @@ function subtitleOf(layer: OverlayLayer) {
   return layer.period ? `${count} · ${layer.period}` : count;
 }
 
-const LOCKED: FieldKey[] = ["pt", "area"];
-
+// Semua level bisa "Semua ..." untuk semua user; backend membatasi data ke wilayah hak akses user.
 const fields = computed(() => {
-  const all = props.allowAll;
+  const busy = props.fieldLoading ?? {};
   return [
-    { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false },
-    { key: "grup" as const, label: "Grup", value: props.grup, options: props.groupOptions, placeholder: "Semua grup", disabled: false },
-    { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: all ? "Semua perusahaan" : "Pilih perusahaan", disabled: false },
-    { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: all ? "Semua area" : "Pilih area", disabled: !props.pt },
-    { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: !props.area },
-    { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: "Semua afdeling", disabled: !props.area },
-    { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Semua blok", disabled: !props.area },
+    { key: "ownership" as const, label: "Ownership", value: props.ownership, options: props.ownershipOptions, placeholder: "Semua ownership", disabled: false, busy: false },
+    { key: "grup" as const, label: "Grup", value: props.grup, options: props.groupOptions, placeholder: "Semua grup", disabled: false, busy: false },
+    { key: "pt" as const, label: "Perusahaan (PT)", value: props.pt, options: props.ptOptions, placeholder: "Semua perusahaan", disabled: false, busy: false },
+    { key: "area" as const, label: "Area", value: props.area, options: props.areaOptions, placeholder: "Semua area", disabled: false, busy: Boolean(busy.area) },
+    { key: "estate" as const, label: "Estate", value: props.estate, options: props.estateOptions, placeholder: "Semua estate", disabled: false, busy: Boolean(busy.estate) },
+    { key: "afdeling" as const, label: "Afdeling", value: props.afdeling, options: props.afdelingOptions, placeholder: "Semua afdeling", disabled: false, busy: Boolean(busy.afdeling) },
+    { key: "blok" as const, label: "Blok", value: props.blokId, options: props.blokOptions, placeholder: "Semua blok", disabled: false, busy: Boolean(busy.blok) },
   ];
 });
 
 function itemsOf(field: { key: FieldKey; options: Option[]; placeholder: string }) {
-  if (LOCKED.includes(field.key) && !props.allowAll) return field.options;
   return [{ label: field.placeholder, value: "" }, ...field.options];
 }
 
@@ -194,7 +194,7 @@ function onField(key: FieldKey, value: unknown) {
         <label class="mb-3 block w-full">
           <span class="bp-label">{{ field.label }}</span>
           <v-autocomplete class="bp-autocomplete" :model-value="field.value || null" :items="itemsOf(field)"
-            item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading"
+            item-title="label" item-value="value" :placeholder="field.placeholder" :disabled="field.disabled || loading" :loading="field.busy ? '#638840' : false"
             variant="solo" flat density="comfortable" hide-details single-line color="#638840" base-color="#d5dcc8"
             menu-icon="mdi-chevron-down" autocomplete="off" no-data-text="Tidak ditemukan"
             :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"

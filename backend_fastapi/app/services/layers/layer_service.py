@@ -264,9 +264,14 @@ def _select_columns(spec: LayerSpec) -> str:
     return ", ".join(parts)
 
 
-def list_rows(db: Session, spec: LayerSpec, bulan: int, tahun: int, blok: str | None) -> dict:
+def list_rows(db: Session, spec: LayerSpec, bulan: int, tahun: int, blok: str | None,
+              flt: BlockFilter | None = None) -> dict:
+    """`flt` = filter yang sudah diberi scope wilayah user (lihat user_access.apply_data_scope)."""
     period = to_period(bulan, tahun)
-    joins, where_sql, params = BlockFilter(blok=blok).sql()
+    flt = flt or BlockFilter()
+    if blok:
+        flt.blok = blok
+    joins, where_sql, params = flt.sql()
     clauses = [where_sql.removeprefix("WHERE ")] if where_sql else []
     clauses.append("t.period = :p")
     rows = db.execute(text(f"""

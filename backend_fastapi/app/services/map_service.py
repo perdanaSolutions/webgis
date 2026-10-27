@@ -236,6 +236,31 @@ def latest_periods(db: Session, flt: BlockFilter, allowed_tables: set[str] | Non
     }
 
 
+METERS_PER_DEGREE = 111_320.0
+SIMPLIFY_MAX_M = 20.0
+BLOCK_OPTIONS_LIMIT = 20_000
+
+
+def simplify_tolerance(meters: float | None) -> float | None:
+    """Meter -> derajat (EPSG:4326, kira-kira di khatulistiwa). <=0/None = tanpa penyederhanaan; dibatasi 20 m."""
+    if meters is None or meters <= 0:
+        return None
+    return min(float(meters), SIMPLIFY_MAX_M) / METERS_PER_DEGREE
+
+
+def block_options(db: Session, flt: BlockFilter) -> list[dict]:
+    """Daftar ringan blok (id/kode/afdeling/estate) untuk dropdown Filter Kebun, satu query tanpa pagination."""
+    joins, where_sql, params = flt.sql()
+    params["lim"] = BLOCK_OPTIONS_LIMIT
+    rows = db.execute(text(f"""
+        SELECT bl.id, bl.code, dv.code AS kode_afd, es.code AS kode_est
+        FROM master.blocks bl {joins} {where_sql}
+        ORDER BY bl.code, bl.id LIMIT :lim
+    """), params).mappings().all()
+    return [{"blok_id": str(r["id"]), "kode_blok": r["code"], "kode_afd": r["kode_afd"], "kode_est": r["kode_est"]}
+            for r in rows]
+
+
 def blocks_geojson(
     db: Session,
     flt: BlockFilter,
@@ -245,17 +270,24 @@ def blocks_geojson(
     year_to_date: bool = False,
     comparison: tuple[int, int] | None = None,
     hide_keys: tuple[str, ...] = (),
+    simplify_m: float | None = None,
 ):
-    """`comparison` = (bulan, tahun) pembanding -> properti `produksi_tbs_comparison`."""
+    """`comparison` = (bulan, tahun) pembanding -> properti `produksi_tbs_comparison`.
+    `simplify_m` = toleransi penyederhanaan garis batas (meter, untuk tampilan peta lingkup luas); None = asli."""
     as_of = as_of_period(bulan, tahun)
     joins, where_sql, params = flt.sql()
     params["as_of"] = as_of
     period_filter = "AND bb.period <= :as_of" if as_of else ""
+    tolerance = simplify_tolerance(simplify_m)
+    geom_expr = "b.geom"
+    if tolerance:  # di luar LATERAL (hanya batas terakhir); ST_Simplify(.., true) lebih cepat dari PreserveTopology
+        geom_expr = "ST_Simplify(b.geom, :simp_tol, true)"
+        params["simp_tol"] = tolerance
     rows = db.execute(text(f"""
-        SELECT {BLOCK_ATTRIBUTE_COLUMNS}, b.period AS boundary_period, b.geom_json
+        SELECT {BLOCK_ATTRIBUTE_COLUMNS}, b.period AS boundary_period, ST_AsGeoJSON({geom_expr}, 6) AS geom_json
         FROM master.blocks bl {joins}
         JOIN LATERAL (
-            SELECT bb.period, ST_AsGeoJSON(bb.geom, 6) AS geom_json
+            SELECT bb.period, bb.geom
             FROM spatial.block_boundaries bb
             WHERE bb.block_id = bl.id {period_filter}
             ORDER BY bb.period DESC LIMIT 1

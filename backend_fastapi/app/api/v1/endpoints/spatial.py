@@ -204,6 +204,21 @@ membandingkan `kategori_budget` / `kategori_sensus`. Keduanya harus diisi bersam
 """
 
 
+@router.get("/blok/options", summary="Opsi dropdown blok (ringan, semua blok dalam hak akses, satu request)")
+def get_blok_options(
+    kode_grup: Optional[str] = Query(None),
+    area_id: Optional[str] = Query(None, description="Kode/ID area. Kosong = semua area dalam hak akses"),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    flt = BlockFilter(grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd)
+    user_access.apply_data_scope(db, current_user, flt)
+    return {"data": map_service.block_options(db, flt)}
+
+
 @router.get("/geojson", summary="GeoJSON batas blok + ringkasan transaksi", description=_GEOJSON_DOC)
 def get_blocks_geojson(
     kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
@@ -220,6 +235,9 @@ def get_blocks_geojson(
                                             description="Bulan pembanding (wajib bersama tahun_comparison)"),
     tahun_comparison: Optional[int] = Query(None, ge=1900, le=2100,
                                             description="Tahun pembanding (wajib bersama bulan_comparison)"),
+    simplify: Optional[float] = Query(None, ge=0, le=20,
+                                      description="Sederhanakan garis batas (meter, maks 20) untuk tampilan lingkup "
+                                                  "luas. Kosong/0 = geometri asli."),
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
@@ -234,7 +252,7 @@ def get_blocks_geojson(
     hide_keys = user_access.hidden_feature_keys(db, current_user)
     comparison = (bulan_comparison, tahun_comparison) if bulan_comparison is not None else None
     return map_service.blocks_geojson(db, flt, bulan, tahun, year_to_date=year_to_date, comparison=comparison,
-                                      hide_keys=hide_keys)
+                                      hide_keys=hide_keys, simplify_m=simplify)
 
 
 @router.get("/blok/detail", summary="Atribut popup peta blok")

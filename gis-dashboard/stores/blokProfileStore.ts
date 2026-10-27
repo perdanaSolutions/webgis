@@ -1,9 +1,10 @@
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef, markRaw, reactive } from "vue";
 import { defineStore } from "pinia";
 
 import { useAuthStore } from "~/stores/authStore";
 import { expandTransactionGrants, grantCovers } from "~/utils/accessGrants";
 import { fetchMapCached } from "~/utils/mapCacheSchema";
+import { blockOptionsFrom, geometrySimplifyMeters } from "~/utils/filterKebun";
 import { popupPeriodFromProperties } from "~/utils/mapBlokPopup";
 import { readBudgetCategory } from "~/utils/mapLayers";
 
@@ -311,7 +312,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const applied = ref<AppliedFilter>(emptyApplied());
   const applying = ref(false);
 
-  const blocks = ref<BlockCollection | null>(null);
+  // shallowRef + markRaw: ribuan poligon tidak dibuat reaktif dalam (proxy per koordinat = freeze).
+  const blocks = shallowRef<BlockCollection | null>(null);
   const detail = ref<Record<string, any> | null>(null);
   const production = ref<Record<string, any> | null>(null);
   const areaStatement = ref<AreaStatementHistory | null>(null);
@@ -698,6 +700,20 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return epoch === filterEpoch;
   }
 
+  /** Indikator memuat per field Filter Kebun (dropdown tetap bisa dipakai, tidak membekukan layar). */
+  const fieldLoading = reactive<Record<"area" | "estate" | "afdeling" | "blok", boolean>>({
+    area: false, estate: false, afdeling: false, blok: false,
+  });
+
+  async function trackField(key: keyof typeof fieldLoading, epoch: number, run: () => Promise<void>) {
+    fieldLoading[key] = true;
+    try {
+      await run();
+    } finally {
+      if (filterAlive(epoch)) fieldLoading[key] = false;
+    }
+  }
+
   /** Tahun default = tahun periode terakhir yang sudah diupload. Bulan tetap kosong. */
   async function loadDefaultPeriod() {
     try {
@@ -727,6 +743,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function loadAreas() {
     const epoch = filterEpoch;
     loadingOptions.value = true;
+    fieldLoading.area = true;
     try {
       const res = await get<{ data: Array<{ area_id: string; nama: string }> }>(
         "/spatial/area",
@@ -747,6 +764,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         .map((item) => ({ label: item.nama, value: item.area_id }));
     } finally {
       if (filterAlive(epoch)) loadingOptions.value = false;
+      fieldLoading.area = false;
     }
   }
 
@@ -780,16 +798,15 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (!filterAlive(epoch)) return [] as T[];
     const rows = [...(first?.data ?? [])];
     const total = Number(first?.total_data ?? rows.length);
-    const pages = Math.min(Math.ceil(total / pageSize), 30);
-    for (let page = 2; page <= pages; page += 1) {
-      const next = await get<{ data: T[] }>(path, {
-        ...params,
-        page,
-        limit: pageSize,
-      });
-      if (!filterAlive(epoch)) return [] as T[];
-      rows.push(...(next?.data ?? []));
-    }
+    const pages = Math.min(Math.ceil(total / pageSize), 200);
+    // Halaman 2..N paralel (sebelumnya berurutan); urutan hasil tetap mengikuti nomor halaman.
+    const rest = await Promise.all(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) =>
+        get<{ data: T[] }>(path, { ...params, page: i + 2, limit: pageSize }),
+      ),
+    );
+    if (!filterAlive(epoch)) return [] as T[];
+    for (const next of rest) rows.push(...(next?.data ?? []));
     return rows;
   }
 
@@ -797,7 +814,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     const epoch = filterEpoch;
     estateOptions.value = [];
     estatesByCode.value = new Map();
-    if (!grup.value && !pt.value && !area.value) return;
+    await trackField("estate", epoch, () => loadEstatesInner(epoch));
+  }
+
+  async function loadEstatesInner(epoch: number) {
     const items = (
       await loadPage<EstateItem>(
         "/spatial/estate",
@@ -820,7 +840,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   async function loadAfdelings() {
     const epoch = filterEpoch;
     afdelingOptions.value = [];
-    if (!pt.value && !estate.value && !area.value) return;
+    await trackField("afdeling", epoch, () => loadAfdelingsInner(epoch));
+  }
+
+  async function loadAfdelingsInner(epoch: number) {
     const estateCodes = new Set(
       estateOptions.value.map((option) => norm(option.value)),
     );
@@ -931,46 +954,24 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     { label: "plasma", value: "plasma" },
   ];
 
+  /** Satu request ringan (/spatial/blok/options) untuk semua blok dalam hak akses; sebelumnya s.d. 30 halaman berurutan. */
   async function loadBloks() {
     const epoch = filterEpoch;
     blokOptions.value = [];
-    if (!pt.value && !estate.value && !afdeling.value && !area.value) return;
-    const estateCodes = new Set(
-      estateOptions.value.map((option) => norm(option.value)),
-    );
-    const items = await loadPage<{
-      id?: number | string;
-      blok_id?: string;
-      kode_blok?: string;
-      nama_blok?: string;
-      kode_est?: string;
-    }>(
-      "/spatial/blok",
-      {
-        kode_grup: grup.value || undefined,
-        kode_afd: afdeling.value || undefined,
-        kode_est: estate.value || undefined,
-        kode_pt: pt.value || undefined,
-      },
-      epoch,
-    );
-    if (!filterAlive(epoch)) return;
-    blokOptions.value = items
-      .filter(
-        (item) =>
-          Boolean(estate.value) ||
-          Boolean(afdeling.value) ||
-          !area.value ||
-          !estateCodes.size ||
-          estateCodes.has(norm(item.kode_est)),
-      )
-      .map((item) => {
-        const value = String(item.blok_id ?? item.id ?? "").trim();
-        const label = String(item.kode_blok ?? item.nama_blok ?? value).trim();
-        return { label, value };
-      })
-      .filter((option) => option.value)
-      .sort((a, b) => a.label.localeCompare(b.label, "id"));
+    await trackField("blok", epoch, async () => {
+      const res = await get<{ data: Array<{ blok_id: string; kode_blok: string; kode_est?: string; kode_afd?: string }> }>(
+        "/spatial/blok/options",
+        {
+          kode_grup: grup.value || undefined,
+          area_id: area.value || undefined,
+          kode_pt: pt.value || undefined,
+          kode_est: estate.value || undefined,
+          kode_afd: afdeling.value || undefined,
+        },
+      );
+      if (!filterAlive(epoch)) return;
+      blokOptions.value = markRaw(blockOptionsFrom(res?.data ?? []));
+    });
   }
 
   /** Blok yang aktif di peta dan kartu: hasil Apply atau klik peta, bukan isian Blok yang belum di-Apply. */
@@ -1002,24 +1003,14 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   });
 
   async function loadBlocks() {
-    if (
-      !isSuperAdmin.value &&
-      !area.value &&
-      !pt.value &&
-      !estate.value &&
-      !afdeling.value
-    ) {
-      blocks.value = { type: "FeatureCollection", features: [] };
-      loadingBlocks.value = false;
-      return;
-    }
+    // "Semua" diizinkan untuk semua user: backend membatasi ke wilayah hak akses (apply_data_scope).
     const seq = ++blocksSeq;
     loadingBlocks.value = true;
     errorMessage.value = "";
     try {
       const res = await get<BlockCollection>(
         "/spatial/geojson",
-        blocksParams.value,
+        { ...blocksParams.value, simplify: geometrySimplifyMeters(applied.value) },
         ["tahun"],
       );
       if (seq !== blocksSeq) return;
@@ -1033,7 +1024,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
             (feature.properties ?? {}) as Record<string, any>,
           ),
         }));
-      blocks.value = { type: "FeatureCollection", features };
+      blocks.value = markRaw({ type: "FeatureCollection", features } as BlockCollection);
     } catch {
       if (seq !== blocksSeq) return;
       blocks.value = { type: "FeatureCollection", features: [] };
@@ -1218,8 +1209,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     options: Option[],
     allowEmpty = false,
   ) {
-    if (allowAllScope.value || allowEmpty) return incoming || "";
-    return incoming || current || firstOf(options);
+    // Semua level boleh "Semua ..." (kosong) untuk semua user; data tetap dibatasi hak akses di backend.
+    void current; void options; void allowEmpty;
+    return incoming || "";
   }
 
   /** Periode dan pembanding sama-sama punya bulan serta tahun, jadi Year to Date dilepas. */
@@ -1295,11 +1287,16 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blokId.value = "";
     afdelingOptions.value = [];
     blokOptions.value = [];
-    if (grup.value || pt.value || area.value) await loadEstates();
+    await loadEstates();
     if (!filterAlive(epoch)) return;
     await loadAfdelings();
     if (!filterAlive(epoch)) return;
     await loadBloks();
+  }
+
+  /** Area terpilih yang tidak ada di opsi baru (setelah ganti grup/PT) -> "Semua area". */
+  function keepValidArea() {
+    if (area.value && !areaOptions.value.some((option) => option.value === area.value)) area.value = "";
   }
 
   async function setArea(value: string) {
@@ -1318,14 +1315,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     grup.value = next;
     await loadCompanies();
     if (!filterAlive(epoch)) return;
-    if (
-      !(pt.value && ptOptions.value.some((option) => option.value === pt.value))
-    ) {
-      pt.value = firstOf(ptOptions.value);
-    }
+    if (pt.value && !ptOptions.value.some((option) => option.value === pt.value)) pt.value = "";
     await loadAreas();
     if (!filterAlive(epoch)) return;
-    area.value = firstOf(areaOptions.value);
+    keepValidArea();
     await refillFromArea(epoch);
   }
 
@@ -1336,7 +1329,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     pt.value = next;
     await loadAreas();
     if (!filterAlive(epoch)) return;
-    area.value = firstOf(areaOptions.value);
+    keepValidArea();
     await refillFromArea(epoch);
   }
 
@@ -1416,7 +1409,6 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     if (!mapDrillActive) captureSearch();
     mapDrillActive = true;
     if (!value) {
-      if (!allowAllScope.value) return;
       await clearBlockSelection();
       return;
     }
@@ -1483,9 +1475,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     rotation.value = saved.rotation;
   }
 
-  /** Tutup popup peta. User biasa tetap di blok terpilih; admin boleh lepas ke semua blok. */
+  /** Tutup popup peta: lepas ke semua blok pada filter terapan (semua user; data tetap dibatasi hak akses). */
   async function clearBlockSelection() {
-    if (!allowAllScope.value) return;
     if (!blokId.value) return;
     blokId.value = "";
     applied.value = { ...applied.value, blokId: "" };
@@ -1535,6 +1526,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingProduction.value = false;
     loadingAreaStatement.value = false;
     loadingRotation.value = false;
+    fieldLoading.area = fieldLoading.estate = fieldLoading.afdeling = fieldLoading.blok = false;
   }
 
   async function reset() {
@@ -1805,6 +1797,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   return {
     groupOptions,
     areaOptions,
+    fieldLoading,
     ptOptions,
     estateOptions,
     afdelingOptions,

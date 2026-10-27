@@ -247,9 +247,14 @@ def _query(db: Session, flt: BlockFilter, period):
     return db.execute(text(_SELECT.format(joins=joins, where=" AND ".join(clauses))), {**params, "p": period}).mappings()
 
 
-def list_rows(db: Session, bulan: int, tahun: int, blok: str | None, tahun_tanam: int | None = None) -> dict:
+def list_rows(db: Session, bulan: int, tahun: int, blok: str | None, tahun_tanam: int | None = None,
+              flt: BlockFilter | None = None) -> dict:
+    """`flt` = filter yang sudah diberi scope wilayah user (lihat user_access.apply_data_scope)."""
     period = to_period(bulan, tahun)
-    flt = BlockFilter(blok=blok, tahun_tanam=None if tahun_tanam is None else str(tahun_tanam))
+    flt = flt or BlockFilter()
+    flt.blok = blok or flt.blok
+    if tahun_tanam is not None:
+        flt.tahun_tanam = str(tahun_tanam)
     data = [
         {
             "id": r["id"], "blok_id": r["block_id"], "kode_blok": r["kode_blok"], "objectid": r["objectid"],
