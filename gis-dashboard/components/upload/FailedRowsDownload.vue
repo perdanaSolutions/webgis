@@ -6,35 +6,51 @@ import {
   filenameFromDisposition,
   saveBlob,
 } from "~/utils/failedRowsDownload";
+import type { FailedExportInput } from "~/utils/failedRowsExcel";
 
 defineOptions({ name: "UploadFailedRowsDownload" });
 
-/** Tombol unduh SEMUA data gagal (semua part) sebagai Excel. Tampil hanya bila count > 0 dan jobId ada. */
+/**
+ * Tombol unduh SEMUA data gagal sebagai Excel. Tampil hanya bila count > 0.
+ * - `exportInput` (tahap analisa): file dibuat di browser dari data tabel preview + kode/alasan per nomor data.
+ * - `jobId` (tahap simpan): file dari backend (data karantina semua part).
+ */
 const props = withDefaults(defineProps<{
-  jobId: string | null | undefined;
   count: number;
+  jobId?: string | null;
+  exportInput?: (() => FailedExportInput) | null;
   label?: string;
-}>(), { label: "Download Data Gagal (.xlsx)" });
+}>(), { jobId: null, exportInput: null, label: "Download Data Gagal (.xlsx)" });
 
 const isDownloading = ref(false);
 const errorMessage = ref("");
 
-async function download() {
-  if (!props.jobId || isDownloading.value) return;
+async function downloadFromServer(jobId: string) {
   const { $api } = useNuxtApp();
+  const baseUrl = useRuntimeConfig().public.apiBaseUrlPython || "/api";
+  const response = await ($api as any).raw(failedRowsUrl(String(baseUrl), jobId), {
+    method: "GET",
+    responseType: "blob",
+    headers: { accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json" },
+  });
+  saveBlob(response._data as Blob, filenameFromDisposition(response.headers.get("content-disposition"), "data_gagal.xlsx"));
+}
+
+async function download() {
+  if (isDownloading.value) return;
   isDownloading.value = true;
   errorMessage.value = "";
   try {
-    const baseUrl = useRuntimeConfig().public.apiBaseUrlPython || "/api";
-    const response = await ($api as any).raw(failedRowsUrl(String(baseUrl), props.jobId), {
-      method: "GET",
-      responseType: "blob",
-      headers: { accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json" },
-    });
-    const filename = filenameFromDisposition(response.headers.get("content-disposition"), "data_gagal.xlsx");
-    saveBlob(response._data as Blob, filename);
+    if (props.exportInput) {
+      const { downloadFailedRowsExcel } = await import("~/utils/failedRowsExcel");
+      await downloadFailedRowsExcel(props.exportInput());
+    } else if (props.jobId) {
+      await downloadFromServer(props.jobId);
+    }
   } catch (error: unknown) {
-    errorMessage.value = await blobErrorMessage(error, "Gagal mengunduh data gagal. Silakan coba lagi.");
+    errorMessage.value = props.exportInput
+      ? (error instanceof Error && error.message) || "Gagal membuat file Excel data gagal."
+      : await blobErrorMessage(error, "Gagal mengunduh data gagal. Silakan coba lagi.");
   } finally {
     isDownloading.value = false;
   }
@@ -42,7 +58,7 @@ async function download() {
 </script>
 
 <template>
-  <div v-if="jobId && count > 0" class="flex flex-col items-end gap-2">
+  <div v-if="count > 0 && (exportInput || jobId)" class="flex flex-col items-end gap-2">
     <button type="button"
       class="inline-flex items-center gap-2 rounded-xl border border-error bg-error-light px-4 py-2 text-size-sm font-semibold text-error-dark disabled:opacity-50"
       :disabled="isDownloading" :aria-busy="isDownloading" @click="download">

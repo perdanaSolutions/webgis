@@ -108,13 +108,13 @@ def get_job(job_id: UUID, db: DbSession, user: CurrentUser):
 
 @router.get(
     "/{job_id}/data-gagal.xlsx",
-    summary="Unduh SEMUA data gagal (semua part) hasil analisis/simpan sebagai Excel",
+    summary="Unduh SEMUA data gagal (semua part) hasil SIMPAN sebagai Excel (data gagal analisa: dari tabel preview FE)",
     response_class=Response,
     responses={200: {"content": {XLSX_MEDIA_TYPE: {}}}, 404: {"description": "Job tidak ada / tidak ada data gagal"}},
 )
 def download_failed_rows(job_id: UUID, db: DbSession, user: CurrentUser):
     """Job milik user (sama seperti GET status job). Semua part dalam grup upload yang sama digabung.
-    analyze: data gagal + atribut & geometri asli; execute: data karantina (termasuk GAGAL_DISIMPAN)."""
+    Hanya job execute: data karantina (termasuk GAGAL_DISIMPAN). Job analyze -> 400."""
     info = failed_export.collect(db, job_id, user.id)
     if not info["rows"]:
         raise not_found("Tidak ada data gagal pada proses upload ini.")

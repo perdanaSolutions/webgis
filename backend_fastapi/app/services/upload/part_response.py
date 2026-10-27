@@ -14,9 +14,7 @@ Bentuk respons analisis per part (dipakai worker antrian dan endpoint /upload-an
 `no_preview` = nomor feature di FILE ASLI (offset part + nomor di part, mulai 1), sama dengan nomor
 baris tabel preview FE, sehingga FE bisa langsung menempelkan kolom status_analisa/kode_gagal/alasan_gagal.
 """
-import json
 import re
-from contextvars import ContextVar
 from typing import Any
 
 from app.services.upload.report import REJECTIONS
@@ -75,18 +73,22 @@ def shift_no_preview(value: Any, offset: int) -> Any:
 
 def table_preview(total: int, rejected: list[dict], offset: int = 0) -> list[dict]:
     """Satu baris per feature di part. `rejected` memakai no_preview lokal (1..total)."""
-    by_no: dict[int, dict] = {}
+    by_no: dict[int, list[dict]] = {}
     for r in rejected:
-        by_no.setdefault(int(r["no_preview"]), r)  # alasan pertama yang dipakai
+        by_no.setdefault(int(r["no_preview"]), []).append(r)
     rows = []
     for no in range(1, total + 1):
-        r = by_no.get(no)
-        rows.append({
+        found = by_no.get(no) or []
+        r = found[0] if found else None  # alasan pertama = kolom kode_gagal/alasan_gagal
+        row = {
             "no_preview": offset + no,
             "status_analisa": GAGAL if r else AMAN,
             "kode_gagal": r["kode"] if r else None,
             "alasan_gagal": shift_reason(r["alasan"], offset) if r else None,
-        })
+        }
+        if len(found) > 1:  # data dengan >1 alasan gagal: alasan lain (untuk unduhan Excel data gagal)
+            row["gagal_lain"] = [{"kode": x["kode"], "alasan": shift_reason(x["alasan"], offset)} for x in found[1:]]
+        rows.append(row)
     return rows
 
 
@@ -99,47 +101,11 @@ def group_failures(rejected: list[dict], offset: int = 0) -> list[dict]:
     return sorted(groups.values(), key=lambda g: (-g["jumlah"], g["kode"]))
 
 
-FAILED_KEY = "_data_gagal"
-# Diset worker (runner.run_for_job): simpan semua data gagal + fitur asli di hasil job.
-KEEP_FAILED: ContextVar[bool] = ContextVar("upload_keep_failed", default=False)
-
-
-def failed_rows(rejected: list[dict], sources: list | None = None, offset: int = 0) -> list[dict]:
-    """Semua data gagal satu part (alasan pertama per data) + fitur/baris aslinya, untuk unduhan Excel."""
-    out: dict[int, dict] = {}
-    for r in rejected:
-        no = int(r["no_preview"])
-        if no in out:
-            continue
-        source = r.get("sumber")
-        if source is None and sources and 0 < no <= len(sources):
-            source = sources[no - 1]
-        out[no] = {"no_preview": offset + no, "kode": r["kode"], "alasan": shift_reason(r["alasan"], offset),
-                   "sumber": _jsonable(source)}
-    return [out[n] for n in sorted(out)]
-
-
-def _jsonable(value: Any) -> Any:
-    """NaN/Infinity, Decimal, tanggal -> nilai yang aman untuk kolom jsonb."""
-    if value is None:
-        return None
-    from app.services.upload.quarantine import _json  # lazy: hindari import melingkar
-    return json.loads(_json(value))
-
-
-def strip_private(result: Any) -> Any:
-    """Buang data internal (fitur asli data gagal) dari respons API."""
-    if isinstance(result, dict) and FAILED_KEY in result:
-        return {k: v for k, v in result.items() if k != FAILED_KEY}
-    return result
-
-
 def build(result: dict, *, kategori: str, bulan: int, tahun: int, part: int = 1, total_part: int = 1,
-          offset: int = 0, keep_failed: bool = False) -> dict:
+          offset: int = 0) -> dict:
     """Bungkus hasil analisis lama satu part menjadi bentuk respons per part."""
     result = dict(result)
     rejected = result.pop("_penolakan", []) or []
-    sources = result.pop("_sumber", None)
     total = int(result.pop("_total_fitur", 0) or 0)
     rincian = shift_no_preview(result.pop("rincian", {}) or {}, offset)
     peringatan = result.pop("peringatan", []) or []
@@ -149,7 +115,7 @@ def build(result: dict, *, kategori: str, bulan: int, tahun: int, part: int = 1,
     preview = table_preview(total, rejected, offset)
     jumlah_gagal = sum(r["status_analisa"] == GAGAL for r in preview)
 
-    response = {
+    return {
         "kategori": kategori,
         "bulan": bulan,
         "tahun": tahun,
@@ -173,6 +139,3 @@ def build(result: dict, *, kategori: str, bulan: int, tahun: int, part: int = 1,
                           "no_preview_akhir": offset + total if total else None},
         },
     }
-    if keep_failed or KEEP_FAILED.get():  # worker antrian: disimpan di audit.upload_jobs.result, dibuang dari respons polling
-        response[FAILED_KEY] = failed_rows(rejected, sources, offset)
-    return response

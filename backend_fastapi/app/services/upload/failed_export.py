@@ -1,11 +1,9 @@
 """
-Unduh SEMUA data gagal hasil analisis (TAHAP 1) atau simpan (TAHAP 2) satu upload sebagai Excel (.xlsx).
+Unduh SEMUA data gagal hasil SIMPAN (TAHAP 2) satu upload sebagai Excel (.xlsx).
 
-Sumber data:
-- analyze: `result._data_gagal` tiap job part dalam grup upload yang sama (fitur/baris asli + kode & alasan).
-  Disimpan worker di audit.upload_jobs.result, tidak ikut ke respons polling (lihat jobs._view).
-  Job lama tanpa `_data_gagal` memakai baris GAGAL di `table_preview` (tanpa atribut asli).
-- execute: quarantine.rows dari batch simpan seluruh part (termasuk GAGAL_DISIMPAN).
+Sumber data: quarantine.rows dari batch simpan seluruh part grup upload (fitur/baris asli utuh, termasuk
+GAGAL_DISIMPAN), tanpa batas jumlah. Data gagal TAHAP 1 (analisa) dibuat langsung di browser dari tabel
+preview + table_preview (gis-dashboard/utils/failedRowsExcel.ts), jadi tidak disalin ke database.
 
 Workbook: sheet "Data Gagal" (satu baris per data gagal, semua part) + sheet "Ringkasan".
 """
@@ -24,7 +22,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import not_found
+from app.core.exceptions import bad_request, not_found
 from app.services.upload.part_response import _label
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -102,22 +100,6 @@ def _group_jobs(db: Session, job_id: UUID, user_id: UUID) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _analyze_rows(jobs_: list[dict]) -> tuple[list[dict], int]:
-    rows, total = [], 0
-    for job in jobs_:
-        result = job["result"] or {}
-        preview = ((result.get("data") or {}).get("table_preview")) or []
-        total += len(preview)
-        stored = result.get("_data_gagal")
-        if stored is not None:
-            rows += [{"no": r.get("no_preview"), "kode": r.get("kode"), "alasan": r.get("alasan"),
-                      "sumber": r.get("sumber")} for r in stored]
-        else:  # job lama: hanya kode & alasan
-            rows += [{"no": r.get("no_preview"), "kode": r.get("kode_gagal"), "alasan": r.get("alasan_gagal"),
-                      "sumber": None} for r in preview if r.get("status_analisa") == "GAGAL"]
-    return rows, total
-
-
 def _execute_rows(db: Session, jobs_: list[dict]) -> list[dict]:
     batch_ids = sorted({str(j["batch_id"]) for j in jobs_ if j["batch_id"]})
     if not batch_ids:
@@ -145,10 +127,9 @@ def collect(db: Session, job_id: UUID, user_id: UUID) -> dict:
     jobs_ = _group_jobs(db, job_id, user_id)
     first = jobs_[0]
     kind = first["kind"]
-    if kind == "analyze":
-        rows, total = _analyze_rows(jobs_)
-    else:
-        rows, total = _execute_rows(db, jobs_), None
+    if kind != "execute":
+        raise bad_request("Data gagal tahap analisa diunduh langsung dari tabel preview di halaman upload.")
+    rows, total = _execute_rows(db, jobs_), None
     finished = [j["finished_at"] for j in jobs_ if j["finished_at"]]
     return {
         "kind": kind,

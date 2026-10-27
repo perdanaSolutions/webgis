@@ -324,6 +324,19 @@ const analysis = computed<Record<string, any>>(() => {
   return typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
 });
 
+/** Excel data gagal analisa: data tabel preview (fitur asli) + kode/alasan per nomor data. */
+function analyzeFailedExport() {
+  return {
+    rows: documentUploadStore.allPreviewRows,
+    analysis: documentUploadStore.previewAnalysis,
+    kategori: documentUploadStore.selectedCategory,
+    filename: documentUploadStore.selectedFile?.name,
+    periode: documentUploadStore.month && documentUploadStore.year
+      ? `${String(documentUploadStore.month).padStart(2, "0")}-${documentUploadStore.year}` : undefined,
+    columns: previewHeaders.value,
+  };
+}
+
 const executeFailedCount = computed(() => countQuarantined(documentUploadStore.executeResponse));
 
 const hasNoValidData = computed(() => analysis.value.status_analisis === "TIDAK_ADA_DATA_VALID");
@@ -810,8 +823,7 @@ watch(
           <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
             <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <h3 class="text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
-              <UploadFailedRowsDownload :job-id="documentUploadStore.failedRowsJobId.analyze"
-                :count="analysisStatusCounts.gagal" />
+              <UploadFailedRowsDownload :export-input="analyzeFailedExport" :count="analysisStatusCounts.gagal" />
             </div>
             <UploadAnalysisGroups :analysis="analysis" :parts="documentUploadStore.analyzeParts" />
           </div>

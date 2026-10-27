@@ -92,6 +92,16 @@ const displayAnalysis = computed(() => trxUploadStore.analysis);
 const analyzeFailedCount = computed(
   () => Object.values(trxUploadStore.previewAnalysis).filter((r) => r?.status_analisa === "GAGAL").length,
 );
+/** Excel data gagal analisa: baris tabel preview + kode/alasan per nomor data (no_preview = index + 1). */
+function analyzeFailedExport() {
+  return {
+    rows: trxUploadStore.previewRows,
+    analysis: trxUploadStore.previewAnalysis,
+    kategori: trxUploadStore.kindId,
+    filename: trxUploadStore.selectedFile?.name,
+    columns: trxUploadStore.headers,
+  };
+}
 const importFailedCount = computed(() => countQuarantined(trxUploadStore.importResult));
 const hasNoValidData = computed(() => displayAnalysis.value?.status_analisis === "TIDAK_ADA_DATA_VALID");
 const previewRows = computed(() => trxUploadStore.previewRows);
@@ -639,7 +649,7 @@ onMounted(async () => {
           <div class="rounded-2xl border border-default bg-surface p-6 shadow-sm">
             <div class="mb-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <h3 class="text-18 font-bold text-brand">Hasil analisis</h3>
-              <UploadFailedRowsDownload :job-id="trxUploadStore.failedRowsJobId.analyze" :count="analyzeFailedCount" />
+              <UploadFailedRowsDownload :export-input="analyzeFailedExport" :count="analyzeFailedCount" />
             </div>
             <p class="mb-4 text-size-sm text-muted">
               Uji coba ini tidak menyimpan data. Angkanya sama dengan hasil import sungguhan.

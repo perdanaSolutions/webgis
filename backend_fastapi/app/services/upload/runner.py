@@ -53,16 +53,6 @@ def _wrap(code: str, data: UploadInput, result: dict) -> dict:
                                total_part=data.part_total, offset=data.feature_offset)
 
 
-def run_for_job(db: Session, kind: Kind, code: str, data: UploadInput, progress: Progress = SILENT) -> dict:
-    """Seperti `run`, tetapi hasil analyze menyertakan semua data gagal + fitur aslinya (`_data_gagal`)
-    untuk unduhan Excel. Hanya dipakai worker antrian; disaring dari respons oleh jobs._view."""
-    token = part_response.KEEP_FAILED.set(True)
-    try:
-        return run(db, kind, code, data, progress)
-    finally:
-        part_response.KEEP_FAILED.reset(token)
-
-
 def blok(db: Session, kind: Kind, data: UploadInput, progress: Progress = SILENT) -> dict:
     if kind == ANALYZE:
         return _wrap(BLOK, data, block_upload_service.analyze(db, data.content, data.bulan, data.tahun, progress))

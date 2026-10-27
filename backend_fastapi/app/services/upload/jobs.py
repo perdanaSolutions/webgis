@@ -18,7 +18,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request, conflict, not_found
-from app.services.upload import part_response
 from app.services.upload.progress import Progress, UploadCancelled, stage_message
 
 QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED = "queued", "running", "succeeded", "failed", "cancelled"
@@ -67,7 +66,7 @@ def _view(row, with_result: bool = False) -> dict:
         "finished_at": row["finished_at"],
     }
     if with_result:
-        data["result"] = part_response.strip_private(row["result"])
+        data["result"] = row["result"]
     return data
 
 

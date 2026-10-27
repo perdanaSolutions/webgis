@@ -460,7 +460,6 @@ def analyze(db: Session, content: bytes, bulan: int, tahun: int, progress: Progr
             + [{"no_preview": n + 1, "kode": "BLOK_KEMBAR_DI_MASTER",
                 "alasan": _twin_reason(b["item"], b["kembar"])} for b in twin_blocks for n in b["fitur"]],
             key=lambda r: r["no_preview"]),
-        "_sumber": features,  # fitur asli untuk unduhan Excel data gagal (dibuang sebelum respons)
         "_total_fitur": len(features),
     }
 
