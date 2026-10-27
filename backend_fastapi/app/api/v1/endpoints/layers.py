@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query
 from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
 from app.api.params import BlockFilterDep, Bulan, BulanWajib, Tahun, TahunTanam, TahunWajib, UploadedFile, read_upload
 from app.services import user_access
+from app.services.block_filter import BlockFilter
 from app.services.layers import layer_service, sawit_service
 from app.services.layers.specs import LAYER_SPECS, SAWIT_LABEL, LayerSpec
 from app.services.upload import runner
@@ -33,7 +34,8 @@ def _layer_router(spec: LayerSpec, include_geojson: bool = True) -> APIRouter:
 
     def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None):
         user_access.require_layer(db, user, spec.code)
-        return layer_service.list_rows(db, spec, bulan, tahun, blok_id)
+        flt = user_access.apply_data_scope(db, user, BlockFilter())
+        return layer_service.list_rows(db, spec, bulan, tahun, blok_id, flt)
 
     def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
         user_access.require_layer(db, user, spec.code)
@@ -66,7 +68,8 @@ def _sawit_router() -> APIRouter:
     def list_rows(db: DbSession, user: CurrentUser, bulan: BulanWajib, tahun: TahunWajib, blok_id: BlokParam = None,
                   tahun_tanam: TahunTanam = None):
         user_access.require_layer(db, user, "sawit")
-        return sawit_service.list_rows(db, bulan, tahun, blok_id, tahun_tanam)
+        flt = user_access.apply_data_scope(db, user, BlockFilter())
+        return sawit_service.list_rows(db, bulan, tahun, blok_id, tahun_tanam, flt)
 
     def geojson(db: DbSession, user: CurrentUser, flt: BlockFilterDep, bulan: Bulan = None, tahun: Tahun = None):
         user_access.require_layer(db, user, "sawit")
