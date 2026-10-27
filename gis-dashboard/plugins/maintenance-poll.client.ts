@@ -1,7 +1,12 @@
-import { fetchMaintenanceStatus, maintenanceRedirect, MAINTENANCE_POLL_MS, MAINTENANCE_STATE_KEY, type MaintenanceStatus } from "~/utils/maintenance";
+import {
+  fetchMaintenanceStatus,
+  maintenanceRedirect,
+  MAINTENANCE_POLL_MS,
+  MAINTENANCE_STATE_KEY,
+  type MaintenanceStatus,
+} from "~/utils/maintenance";
 
-// Cek berkala agar user yang sedang membuka halaman ikut dialihkan saat maintenance
-// dinyalakan, dan kembali ke beranda saat dimatikan.
+// Cadangan: cek berkala setiap 30 menit (login enter + ganti menu tetap jadi pemicu utama).
 export default defineNuxtPlugin((nuxtApp) => {
   const config = useRuntimeConfig();
   const router = useRouter();
@@ -15,7 +20,4 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
 
   window.setInterval(check, MAINTENANCE_POLL_MS);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") check();
-  });
 });
