@@ -1763,6 +1763,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         blokCount: 1,
         filter,
         geojsonPeriod: period,
+        periodSpecific: Boolean(applied.value.bulan),
       };
     }
     const features = blockFeatures.value;
@@ -1791,6 +1792,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       blokCount: features.length,
       filter,
       geojsonPeriod: period,
+      periodSpecific: Boolean(applied.value.bulan),
     };
   });
 
