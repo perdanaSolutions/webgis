@@ -124,7 +124,7 @@ GENERIC_TYPES = {
 
 
 def _generic_fields(layer: dict, columns: list[dict]) -> list[Field]:
-    fields = _block_fields(ESTATE_KEYS) if layer.get("relasi_blok") else []
+    fields = _block_fields(ESTATE_KEYS)  # semua layer wajib terikat blok
     for col in columns:
         label, ex = GENERIC_TYPES.get(col["data_type"], ("teks", ("Contoh", "Contoh")))
         fields.append(Field(col["property"], False, label, ex,
@@ -191,6 +191,6 @@ def builtin_template(code: str) -> Template | None:
 
 
 def generic_template(layer: dict, columns: list[dict]) -> Template:
-    notes = (BLOCK_NOTE,) if layer.get("relasi_blok") else ("Layer ini tidak terikat blok; kolom Estate/Afdeling/Blok tidak diperlukan.",)
+    notes = (BLOCK_NOTE,)  # semua layer wajib terikat blok
     return Template(layer["kode"], layer.get("nama") or layer["kode"], layer["geometry_type"],
                     _generic_fields(layer, columns), notes)

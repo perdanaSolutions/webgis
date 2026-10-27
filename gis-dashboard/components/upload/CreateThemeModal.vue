@@ -20,7 +20,6 @@ const columns = ref<ThemeColumn[]>([]);
 const kode = ref("");
 const nama = ref("");
 const deskripsi = ref("");
-const relasiBlok = ref(true);
 const isBusy = ref(false);
 const errorMessage = ref("");
 
@@ -67,7 +66,7 @@ async function submit() {
       nama: nama.value.trim(),
       deskripsi: deskripsi.value.trim() || null,
       geometry_type: analysis.value.geometry_type,
-      relasi_blok: relasiBlok.value,
+      relasi_blok: true,
       kolom: columns.value,
     });
     emit("created", created.kode);
@@ -123,10 +122,9 @@ async function submit() {
             <input v-model="deskripsi" type="text"
               class="w-full rounded-xl border border-default px-3 py-2 text-size-sm" />
           </div>
-          <label class="flex items-center gap-2 text-size-sm text-label md:col-span-2">
-            <input v-model="relasiBlok" type="checkbox" />
-            Data terikat ke blok (hierarki kebun)
-          </label>
+          <p class="text-size-sm text-label md:col-span-2">
+            Data layer wajib terikat ke blok kebun (kolom Estate/Afdeling/Blok wajib di file GeoJSON).
+          </p>
         </div>
 
         <div class="mt-4 overflow-x-auto rounded-xl border border-default">
