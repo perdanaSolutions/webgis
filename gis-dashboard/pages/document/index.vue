@@ -815,6 +815,10 @@ watch(
             Hasil Analisis Sementara ({{ documentUploadStore.analyzeParts.length }} dari
             {{ liveAnalysis.total_part ?? documentUploadStore.analyzeParts.length }} part)
           </h3>
+          <div v-if="analysisStatusCounts.gagal > 0" class="mb-4 flex justify-end">
+            <UploadFailedRowsDownload :export-input="analyzeFailedExport" :count="analysisStatusCounts.gagal"
+              label="Download Data Gagal sementara (.xlsx)" />
+          </div>
           <UploadAnalysisGroups :analysis="liveAnalysis" :parts="documentUploadStore.analyzeParts" />
         </div>
 

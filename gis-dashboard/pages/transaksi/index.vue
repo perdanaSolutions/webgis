@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
 import UploadFailedRowsDownload from "~/components/upload/FailedRowsDownload.vue";
 import { countQuarantined } from "~/utils/failedRowsDownload";
+import { countFailedPreview } from "~/utils/failedRowsExcel";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
@@ -89,9 +90,7 @@ const jobQueuedTooLong = computed(
 
 const analysis = computed(() => trxUploadStore.liveAnalyze ?? trxUploadStore.analysis);
 const displayAnalysis = computed(() => trxUploadStore.analysis);
-const analyzeFailedCount = computed(
-  () => Object.values(trxUploadStore.previewAnalysis).filter((r) => r?.status_analisa === "GAGAL").length,
-);
+const analyzeFailedCount = computed(() => countFailedPreview(trxUploadStore.previewAnalysis));
 /** Excel data gagal analisa: baris tabel preview + kode/alasan per nomor data (no_preview = index + 1). */
 function analyzeFailedExport() {
   return {
@@ -499,6 +498,8 @@ onMounted(async () => {
                 <span v-else>. Import JSON langsung disimpan; endpoint ini tidak punya uji coba.</span>
               </p>
             </div>
+            <UploadFailedRowsDownload v-if="!displayAnalysis && !trxUploadStore.isUploading"
+              :export-input="analyzeFailedExport" :count="analyzeFailedCount" />
             <input v-model="searchQuery" type="text" placeholder="Cari nomor baris atau isi kolom..."
               class="w-full rounded-xl border border-tan bg-surface px-3 py-2 text-size-sm text-brand outline-none focus-border-accent-brown md:w-[320px]" />
           </div>
@@ -642,6 +643,10 @@ onMounted(async () => {
           <p class="mb-4 text-size-sm text-muted">
             {{ trxUploadStore.analyzeParts.length }} part selesai dianalisa; ringkasan digabung bertahap.
           </p>
+          <div v-if="analyzeFailedCount > 0" class="mb-4 flex justify-end">
+            <UploadFailedRowsDownload :export-input="analyzeFailedExport" :count="analyzeFailedCount"
+              label="Download Data Gagal sementara (.xlsx)" />
+          </div>
           <UploadAnalysisGroups v-if="analysis" :analysis="analysis" :parts="trxUploadStore.analyzeParts" />
         </div>
 

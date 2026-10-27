@@ -177,3 +177,10 @@ export async function downloadFailedRowsExcel(input: FailedExportInput): Promise
   XLSX.writeFile(wb, failedExportFilename(input.kategori, input.filename, now), { compression: true });
   return sheets.failedCount;
 }
+
+/** Jumlah data GAGAL di previewAnalysis (gabungan table_preview semua part yang sudah selesai). */
+export function countFailedPreview(analysis: Record<number, { status_analisa?: string } | undefined>): number {
+  let n = 0;
+  for (const row of Object.values(analysis)) if (row?.status_analisa === "GAGAL") n++;
+  return n;
+}
