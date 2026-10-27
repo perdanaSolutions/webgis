@@ -86,7 +86,7 @@ function num(value: number, digits = 1) {
 }
 
 function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok: number }) {
-  return `Rotasi terakhir ${num(row.rotasi)} · ${num(row.putaran, 0)} putaran · ${num(row.luas)} ha · ${num(row.pokok, 0)} pokok`;
+  return `Rotasi terakhir ${num(row.rotasi)} · ${num(row.putaran, 0)} pusingan · ${num(row.luas)} ha · ${num(row.pokok, 0)} pokok`;
 }
 </script>
 
@@ -129,7 +129,7 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
           <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(latest.rotasi) }}</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
-          <p class="text-11 text-[#6e7866]">Total putaran</p>
+          <p class="text-11 text-[#6e7866]">Total pusingan</p>
           <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(latest.putaran, 0) }}</p>
         </div>
       </div>

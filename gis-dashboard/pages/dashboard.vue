@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import logoImage from '~/assets/image/logo-1.svg'
 import handsImage from '~/assets/image/hand-deskripsi.svg'
 import modulesImage from '~/assets/image/base_modul_overlay.svg'
@@ -9,44 +9,163 @@ import Header from '~/components/Header.vue'
 import BannerCharts from '~/components/dashboard/BannerCharts.vue'
 
 const authStore = useAuthStore()
+const stageRef = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
+const pseudoFullscreen = ref(false)
 
 defineOptions({
   name: 'DashboardPage',
 })
 
+type FullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void> | void
+}
+
+type FullscreenHost = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void
+}
+
+function nativeFullscreenElement() {
+  const doc = document as FullscreenDocument
+  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null
+}
+
+function onFullscreenChange() {
+  const native = nativeFullscreenElement() === stageRef.value
+  if (!native) pseudoFullscreen.value = false
+  isFullscreen.value = native || pseudoFullscreen.value
+}
+
+async function enterFullscreen() {
+  const el = stageRef.value as FullscreenHost | null
+  if (!el) return
+  try {
+    if (typeof el.requestFullscreen === 'function') {
+      await el.requestFullscreen()
+      return
+    }
+    if (typeof el.webkitRequestFullscreen === 'function') {
+      await el.webkitRequestFullscreen()
+      return
+    }
+  } catch {
+    /* API ditolak browser — sembunyikan header dan perbesar area konten */
+  }
+  pseudoFullscreen.value = true
+  isFullscreen.value = true
+}
+
+async function exitFullscreen() {
+  pseudoFullscreen.value = false
+  const doc = document as FullscreenDocument
+  try {
+    if (nativeFullscreenElement()) {
+      if (document.exitFullscreen) await document.exitFullscreen()
+      else await doc.webkitExitFullscreen?.()
+      return
+    }
+  } catch {
+    /* lanjut menutup mode cadangan */
+  }
+  isFullscreen.value = false
+}
+
+async function toggleFullscreen() {
+  if (isFullscreen.value) await exitFullscreen()
+  else await enterFullscreen()
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (pseudoFullscreen.value) {
+    event.preventDefault()
+    void exitFullscreen()
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+
   const session = await authStore.ensureSession()
   if (!session) {
     window.location.replace('/login')
   }
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+  if (nativeFullscreenElement() === stageRef.value) void document.exitFullscreen?.()
+})
 </script>
 
 <template>
   <main class="dash-page">
-    <img :src="estateImage" alt="" class="dash-home__estate">
-    <Header />
-    <section class="dash-home" aria-label="Ringkasan perkebunan">
-      <div class="dash-home__panel">
-        <div class="dash-home__topline">
-          <img :src="logoImage" alt="Teladan Prima Agro" class="dash-home__logo">
+    <Header v-show="!isFullscreen" />
+    <div
+      ref="stageRef"
+      class="dash-stage"
+      :class="{ 'dash-stage--pseudo-fs': pseudoFullscreen }"
+    >
+      <img :src="estateImage" alt="" class="dash-home__estate">
+      <section class="dash-home" aria-label="Ringkasan perkebunan">
+        <div class="dash-home__panel">
+          <div class="dash-home__topline">
+            <img :src="logoImage" alt="Teladan Prima Agro" class="dash-home__logo">
+          </div>
+          <BannerCharts />
         </div>
-        <BannerCharts />
-      </div>
-      <div class="dash-home__hero">
-        <div class="dash-home__story">
-          <!-- <img :src="sloganImage" alt="When Every Palm Matters" class="dash-home__slogan">
-          <p class="dash-home__lead">
-            Optimalisasi produktivitas dan sumber daya
-            dengan pendekatan teknologi dan ilmu pengetahuan terkini
-            yang terhubung dengan tata kelola dan teknis budidaya
-            perkebunan kelapa sawit terbaik dan berkelanjutan.
-          </p> -->
+        <div class="dash-home__hero">
+          <div class="dash-home__story">
+            <!-- <img :src="sloganImage" alt="When Every Palm Matters" class="dash-home__slogan">
+            <p class="dash-home__lead">
+              Optimalisasi produktivitas dan sumber daya
+              dengan pendekatan teknologi dan ilmu pengetahuan terkini
+              yang terhubung dengan tata kelola dan teknis budidaya
+              perkebunan kelapa sawit terbaik dan berkelanjutan.
+            </p> -->
+          </div>
+          <img :src="handsImage" alt="" class="dash-home__hands">
+          <img :src="modulesImage" alt="Modul teknologi perkebunan Teladan Prima Agro" class="dash-home__modules">
         </div>
-        <img :src="handsImage" alt="" class="dash-home__hands">
-        <img :src="modulesImage" alt="Modul teknologi perkebunan Teladan Prima Agro" class="dash-home__modules">
-      </div>
-    </section>
+      </section>
+
+      <button
+        type="button"
+        class="dash-fs-btn"
+        :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
+        :title="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
+        :aria-pressed="isFullscreen"
+        @click="toggleFullscreen"
+      >
+        <svg
+          v-if="!isFullscreen"
+          viewBox="0 0 24 24"
+          class="dash-fs-btn__icon"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M15 4h5v5M4 15v5h5M20 15v5h-5" />
+        </svg>
+        <svg
+          v-else
+          viewBox="0 0 24 24"
+          class="dash-fs-btn__icon"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+        </svg>
+      </button>
+    </div>
   </main>
 </template>
 
@@ -59,6 +178,76 @@ onMounted(async () => {
   flex-direction: column;
   background: transparent;
   color: #1f2a18;
+}
+
+.dash-stage {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+.dash-stage:fullscreen,
+.dash-stage:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  background: #1f2a18;
+}
+
+.dash-stage--pseudo-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  height: 100dvh;
+  max-height: none;
+}
+
+.dash-fs-btn {
+  position: fixed;
+  z-index: 50;
+  right: max(0.75rem, env(safe-area-inset-right, 0px));
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 1rem;
+  background: rgb(255 253 249 / 77.4%);
+  color: #1f2a18;
+  box-shadow: 0 10px 30px rgb(31 42 24 / 12%);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.dash-stage:fullscreen .dash-fs-btn,
+.dash-stage:-webkit-full-screen .dash-fs-btn,
+.dash-stage--pseudo-fs .dash-fs-btn {
+  position: absolute;
+  z-index: 20;
+}
+
+.dash-fs-btn:hover {
+  background: #eef3e7;
+}
+
+.dash-fs-btn__icon {
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .dash-fs-btn {
+    height: 3rem;
+    width: 3rem;
+  }
 }
 
 .dash-home {
@@ -96,7 +285,7 @@ onMounted(async () => {
 }
 
 .dash-home__estate {
-  position: fixed;
+  position: absolute;
   z-index: 0;
   inset: 0;
   width: 100%;
@@ -176,6 +365,10 @@ onMounted(async () => {
   .dash-page {
     height: 100dvh;
     overflow: hidden;
+  }
+
+  .dash-stage {
+    min-height: 0;
   }
 
   .dash-home__panel {
