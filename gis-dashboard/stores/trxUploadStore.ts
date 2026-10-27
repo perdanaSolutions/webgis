@@ -11,7 +11,7 @@ import {
   type PreviewAnalysisRow,
 } from "~/utils/geojsonFeatureParts";
 import { getErrorMessage } from "~/utils/getErrorMessage";
-import { downloadExcelTemplate, downloadJsonTemplate, readExcelPreview } from "~/utils/trxExcelFile";
+import { downloadExcelTemplate, readExcelPreview } from "~/utils/trxExcelFile";
 import {
   TRX_ROWS_PER_PART,
   chunkTrxRows,
@@ -19,27 +19,18 @@ import {
   rowsToExcelFile,
 } from "~/utils/trxExcelParts";
 import {
-  buildJsonImport,
-  collectHeaders,
-  displayRows,
   fileModeFromName,
+  TRX_UNSUPPORTED_FILE_MESSAGE,
   findTrxKind,
-  type JsonScalar,
   type TrxFileMode,
   type TrxKindId,
 } from "~/utils/trxUpload";
 import type { MultipartUploadProgress, UploadJob, UploadJobStatus } from "~/stores/documentUploadStore";
 
-type JsonBody = {
-  sumber: string;
-  data: Record<string, JsonScalar>[];
-};
-
 type HeldPreview = {
   mode: TrxFileMode;
   headers: string[];
   rows: Record<string, string>[];
-  jsonBody: JsonBody | null;
   sheetName: string;
 };
 
@@ -165,10 +156,6 @@ export const useTrxUploadStore = defineStore("trx-upload", {
       }
     },
 
-    downloadJson() {
-      downloadJsonTemplate(this.kind);
-    },
-
     async setFile(file: File | null) {
       this.clearResult();
       heldPreview = null;
@@ -183,39 +170,22 @@ export const useTrxUploadStore = defineStore("trx-upload", {
       const mode = fileModeFromName(file.name);
       if (!mode) {
         this.selectedFile = null;
-        this.errorMessage = "File harus berformat .xlsx, .xls, atau .json.";
+        this.errorMessage = TRX_UNSUPPORTED_FILE_MESSAGE;
         return;
       }
 
       this.isReading = true;
       try {
-        if (mode === "excel") {
-          const preview = await readExcelPreview(file);
-          heldPreview = {
-            mode,
-            headers: preview.headers,
-            rows: preview.rows,
-            jsonBody: null,
-            sheetName: preview.sheetName,
-          };
-          this.sheetName = preview.sheetName;
-          this.headers = preview.headers;
-          this.rowCount = preview.rows.length;
-        }
-        else {
-          const parsed = JSON.parse(await file.text()) as unknown;
-          const body = buildJsonImport(parsed, file.name);
-          const headers = collectHeaders(body.data, this.kind.columns);
-          heldPreview = {
-            mode,
-            headers,
-            rows: displayRows(body.data, headers),
-            jsonBody: body,
-            sheetName: "",
-          };
-          this.headers = headers;
-          this.rowCount = body.data.length;
-        }
+        const preview = await readExcelPreview(file);
+        heldPreview = {
+          mode,
+          headers: preview.headers,
+          rows: preview.rows,
+          sheetName: preview.sheetName,
+        };
+        this.sheetName = preview.sheetName;
+        this.headers = preview.headers;
+        this.rowCount = preview.rows.length;
         this.fileMode = mode;
         this.previewToken += 1;
       }
@@ -223,11 +193,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
         heldPreview = null;
         this.selectedFile = null;
         this.previewToken += 1;
-        this.errorMessage = error instanceof SyntaxError
-          ? "File JSON tidak valid."
-          : error instanceof Error
-            ? error.message
-            : "File tidak bisa dibaca.";
+        this.errorMessage = error instanceof Error ? error.message : "File tidak bisa dibaca.";
       }
       finally {
         this.isReading = false;
@@ -406,39 +372,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
     },
 
     async importFile() {
-      if (this.fileMode === "json") {
-        await this.importJsonDirect();
-        return;
-      }
       await this.submitMultipart(false);
-    },
-
-    async importJsonDirect() {
-      if (!this.selectedFile || this.fileMode !== "json") {
-        this.errorMessage = "Pilih file JSON terlebih dahulu.";
-        return;
-      }
-      const body = heldPreview?.jsonBody;
-      if (!body) {
-        this.errorMessage = "Isi JSON tidak terbaca. Pilih ulang file.";
-        return;
-      }
-      this.errorMessage = "";
-      this.isUploading = true;
-      const { $api } = useNuxtApp();
-      try {
-        this.importResult = await $api<Record<string, any>>(
-          `${getApiBaseUrl()}${this.kind.endpoints.json}`,
-          { method: "POST", body },
-        );
-      }
-      catch (error) {
-        this.importResult = null;
-        this.errorMessage = readUploadError(error, "Import data transaksi gagal.");
-      }
-      finally {
-        this.isUploading = false;
-      }
     },
 
     stopJobPolling() {

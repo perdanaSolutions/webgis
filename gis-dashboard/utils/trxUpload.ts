@@ -1,11 +1,22 @@
-/** Katalog upload transaksi Excel/JSON. Nama kolom mengikuti header yang diterima backend. */
+/** Katalog upload transaksi (hanya file Excel .xlsx/.xls). Nama kolom mengikuti header yang diterima backend. */
 
 /** Tidak dibatasi di browser; file besar dipecah per part lalu antre ke worker. */
 export const TRX_UPLOAD_MAX_BYTES = Number.POSITIVE_INFINITY;
 
 export type TrxKindId = "areal-statement" | "rotasi-pusingan";
-export type TrxFileMode = "excel" | "json";
-export type JsonScalar = string | number | boolean | null;
+export type TrxFileMode = "excel";
+export type CellScalar = string | number | boolean | null;
+
+/** Hanya file Excel yang boleh diupload di halaman /transaksi. */
+export const TRX_ALLOWED_EXTENSIONS = [".xlsx", ".xls"] as const;
+export const TRX_FILE_ACCEPT = ".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export const TRX_UNSUPPORTED_FILE_MESSAGE =
+  "Format file tidak didukung. Hanya file Excel (.xlsx atau .xls) yang bisa diupload.";
+
+export function isTrxExcelFile(name: string | null | undefined): boolean {
+  const lower = String(name ?? "").trim().toLowerCase();
+  return TRX_ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 export type TrxColumnGroup = {
   label: string;
@@ -17,17 +28,15 @@ export type TrxKindSpec = {
   label: string;
   description: string;
   excelFilename: string;
-  jsonFilename: string;
   endpoints: {
     analyze: string;
     excel: string;
-    json: string;
   };
   /** Kode `layer` untuk POST /v1/upload-jobs (sama dengan id jenis). */
   uploadJobLayer: TrxKindId;
   columns: string[];
   requiredGroups: TrxColumnGroup[];
-  example: Record<string, JsonScalar>;
+  example: Record<string, CellScalar>;
   rules: string[];
 };
 
@@ -42,11 +51,9 @@ export const TRX_KINDS: TrxKindSpec[] = [
     label: "Areal Statement",
     description: "Upsert data areal per blok dan bulan. Blok yang tidak ada di file tidak dihapus.",
     excelFilename: "template-areal-statement.xlsx",
-    jsonFilename: "contoh-areal-statement.json",
     endpoints: {
       analyze: "/v1/areal-statement/import-excel/analyze",
       excel: "/v1/areal-statement/import-excel",
-      json: "/v1/areal-statement/import-json",
     },
     uploadJobLayer: "areal-statement",
     columns: [
@@ -138,11 +145,9 @@ export const TRX_KINDS: TrxKindSpec[] = [
     label: "Rotasi & Pusingan",
     description: "Upsert rotasi dan pusingan per blok dan bulan. Blok yang tidak ada di file tidak dihapus.",
     excelFilename: "template-rotasi-pusingan.xlsx",
-    jsonFilename: "contoh-rotasi-pusingan.json",
     endpoints: {
       analyze: "/v1/trx-rotasi-pusingan/import-rotasi-pusingan/analyze",
       excel: "/v1/trx-rotasi-pusingan/import-rotasi-pusingan",
-      json: "/v1/trx-rotasi-pusingan/import-json",
     },
     uploadJobLayer: "rotasi-pusingan",
     columns: [
@@ -228,20 +233,7 @@ export function normalizeCell(value: unknown): string {
 }
 
 export function fileModeFromName(name: string): TrxFileMode | null {
-  const lower = name.toLowerCase();
-  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "excel";
-  if (lower.endsWith(".json")) return "json";
-  return null;
-}
-
-export function collectHeaders(rows: Record<string, unknown>[], preferred: string[]) {
-  const seen = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) seen.add(key);
-  }
-  const known = preferred.filter((column) => seen.has(column));
-  const extra = [...seen].filter((column) => !preferred.includes(column));
-  return [...known, ...extra];
+  return isTrxExcelFile(name) ? "excel" : null;
 }
 
 function isPeriodGroup(group: TrxColumnGroup) {
@@ -267,55 +259,4 @@ export function missingHeaderGroups(headers: string[], spec: TrxKindSpec) {
     missing.unshift({ label: "Periode (Year + Month, atau Tanggal)", names: [] });
   }
   return missing;
-}
-
-export function buildJsonImport(parsed: unknown, fallbackSumber: string) {
-  let sumber = fallbackSumber.replace(/\.json$/i, "").slice(0, 255) || "JSON API";
-  let rows: unknown;
-  if (Array.isArray(parsed)) {
-    rows = parsed;
-  }
-  else if (parsed && typeof parsed === "object" && Array.isArray((parsed as { data?: unknown }).data)) {
-    const body = parsed as { sumber?: unknown; data: unknown[] };
-    rows = body.data;
-    if (typeof body.sumber === "string" && body.sumber.trim()) {
-      sumber = body.sumber.trim().slice(0, 255);
-    }
-  }
-  else {
-    throw new Error("JSON harus berupa array baris, atau objek dengan field data.");
-  }
-
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error("File JSON tidak berisi baris data.");
-  }
-
-  const data = rows.map((row, index) => {
-    if (!row || typeof row !== "object" || Array.isArray(row)) {
-      throw new Error(`Baris ${index + 1} harus berupa objek kolom.`);
-    }
-    const clean: Record<string, JsonScalar> = {};
-    for (const [key, value] of Object.entries(row)) {
-      if (value != null && typeof value === "object") {
-        throw new Error(`Kolom ${key} pada baris ${index + 1} harus berupa teks atau angka.`);
-      }
-      if (typeof value === "string") {
-        const text = normalizeCell(value);
-        clean[key] = text === "" ? null : text;
-        continue;
-      }
-      clean[key] = (value ?? null) as JsonScalar;
-    }
-    return clean;
-  });
-
-  return { sumber, data };
-}
-
-export function displayRows(rows: Record<string, JsonScalar>[], headers: string[]) {
-  return rows.map((row) => {
-    const display: Record<string, string> = {};
-    for (const header of headers) display[header] = row[header] == null ? "" : String(row[header]);
-    return display;
-  });
 }

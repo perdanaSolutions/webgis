@@ -4,7 +4,8 @@ import * as XLSX from "xlsx"
 import { readExcelPreview, buildExcelTemplate } from "./trxExcelFile"
 import {
   TRX_KINDS,
-  buildJsonImport,
+  fileModeFromName,
+  isTrxExcelFile,
   missingHeaderGroups,
   normalizeCell,
 } from "./trxUpload"
@@ -45,17 +46,22 @@ describe("katalog upload transaksi", () => {
     expect(missing.map((item) => item.label)).not.toContain("Periode (Year + Month, atau Tanggal)")
   })
 
-  it("membaca objek JSON { sumber, data } dan array polos", () => {
-    const wrapped = buildJsonImport({
-      sumber: "Engine",
-      data: [{ Year: 2026, StatusTanam: "(blank)", LuasTanam: 1.5 }],
-    }, "file.json")
-    expect(wrapped.sumber).toBe("Engine")
-    expect(wrapped.data[0]).toEqual({ Year: 2026, StatusTanam: null, LuasTanam: 1.5 })
+  it("hanya menerima file Excel (.xlsx/.xls), .json ditolak", () => {
+    expect(isTrxExcelFile("data.xlsx")).toBe(true)
+    expect(isTrxExcelFile("DATA.XLS")).toBe(true)
+    expect(isTrxExcelFile(" laporan.Xlsx ")).toBe(true)
+    for (const name of ["data.json", "data.geojson", "data.csv", "data.xlsx.json", "xlsx", "", null, undefined]) {
+      expect(isTrxExcelFile(name)).toBe(false)
+    }
+    expect(fileModeFromName("a.xlsx")).toBe("excel")
+    expect(fileModeFromName("a.json")).toBeNull()
+  })
 
-    const plain = buildJsonImport([{ Blok: "C012" }], "rotasi.json")
-    expect(plain.sumber).toBe("rotasi")
-    expect(plain.data).toEqual([{ Blok: "C012" }])
+  it("katalog tidak punya endpoint/contoh JSON lagi", () => {
+    for (const kind of TRX_KINDS) {
+      expect(Object.keys(kind.endpoints).sort()).toEqual(["analyze", "excel"])
+      expect("jsonFilename" in kind).toBe(false)
+    }
   })
 })
 
