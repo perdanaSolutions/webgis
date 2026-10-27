@@ -2,8 +2,23 @@ export const MAINTENANCE_PATH = "/maintenance";
 export const MAINTENANCE_STATE_KEY = "maintenance-status";
 /** Endpoint status (relatif ke apiBaseUrlPython yang sudah berakhiran /api). */
 export const MAINTENANCE_STATUS_ENDPOINT = "/v1/system/maintenance";
-/** Polling latar di semua halaman (client). */
-export const MAINTENANCE_POLL_MS = 30 * 1000;
+/** Polling latar berkala di semua halaman (client): 15 menit. */
+export const MAINTENANCE_POLL_MS = 15 * 60 * 1000;
+/** Cek pemulihan di halaman /maintenance (ubah di sini bila perlu). */
+export const MAINTENANCE_PAGE_RECOVERY_POLL_MS = 60 * 1000;
+/** Setelah maintenance/server pulih user wajib login ulang (sesi sudah dihapus). */
+export const MAINTENANCE_RECOVERY_PATH = "/login";
+
+/**
+ * URL absolut status maintenance: selalu <origin>/api/v1/system/maintenance.
+ * Base boleh "https://x/api", "https://x/api/", "https://x/api/v1", atau "https://x".
+ */
+export function maintenanceStatusUrl(baseURL: string): string {
+  let base = String(baseURL || "").trim().replace(/\/+$/, "");
+  base = base.replace(/\/v1$/, "");
+  if (!/\/api$/.test(base)) base = `${base}/api`;
+  return `${base}${MAINTENANCE_STATUS_ENDPOINT}`;
+}
 export const MAINTENANCE_DEFAULT_MESSAGE =
   "Kami sedang melakukan perbaikan dan peningkatan sistem. Mohon coba beberapa saat lagi.";
 
@@ -59,15 +74,15 @@ export function shouldFetchMaintenanceOnRoute(path: string, _isAuthenticated?: b
 }
 
 /** Target /maintenance (mode maintenance) dengan path asal agar bisa kembali. */
-export function maintenanceTarget(fromFullPath?: string) {
-  const from = sanitizeReturnPath(fromFullPath ?? "/");
-  return from === "/" ? MAINTENANCE_PATH : `${MAINTENANCE_PATH}?${new URLSearchParams({ from }).toString()}`;
+export function maintenanceTarget(_fromFullPath?: string) {
+  // Tidak membawa `from`: setelah maintenance user harus login ulang.
+  return MAINTENANCE_PATH;
 }
 
 /**
  * Ke mana harus pindah setelah status diketahui; null = tetap di halaman.
- * - maintenance aktif & bukan di /maintenance -> /maintenance?from=<path>
- * - maintenance mati & di /maintenance (bukan reason=server-error) -> kembali ke `from` (disanitasi)
+ * - maintenance aktif & bukan di /maintenance -> /maintenance
+ * - maintenance mati & di /maintenance (bukan reason=server-error) -> /login (sesi sudah dihapus)
  */
 export function maintenanceRedirect(
   path: string,
@@ -79,7 +94,7 @@ export function maintenanceRedirect(
   if (maintenance && !onPage) return maintenanceTarget(options?.fullPath ?? path);
   // reason=server-error: halaman /maintenance sendiri yang mengurus pemulihan.
   const serverError = (Array.isArray(reason) ? reason[0] : reason) === "server-error";
-  if (!maintenance && onPage && !serverError) return sanitizeReturnPath(options?.from);
+  if (!maintenance && onPage && !serverError) return MAINTENANCE_RECOVERY_PATH;
   return null;
 }
 
@@ -94,8 +109,7 @@ export function isMaintenanceResponse(status: number | undefined, body: unknown)
  */
 export async function fetchMaintenanceStatus(baseURL: string): Promise<MaintenanceStatus> {
   try {
-    const res = await $fetch.raw<Partial<MaintenanceStatus>>(MAINTENANCE_STATUS_ENDPOINT, {
-      baseURL,
+    const res = await $fetch.raw<Partial<MaintenanceStatus>>(maintenanceStatusUrl(baseURL), {
       timeout: 5000,
       headers: { accept: "application/json" },
     });

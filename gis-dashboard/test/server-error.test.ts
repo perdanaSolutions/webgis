@@ -50,12 +50,12 @@ describe("sanitizeReturnPath", () => {
 });
 
 describe("serverErrorRedirectTarget", () => {
-  it("membawa reason & from", () => {
+  it("membawa reason tanpa from", () => {
     const t = serverErrorRedirectTarget("/peta", "/peta?a=1")!;
     const u = new URL(t, "http://x");
     expect(u.pathname).toBe("/maintenance");
     expect(u.searchParams.get("reason")).toBe("server-error");
-    expect(u.searchParams.get("from")).toBe("/peta?a=1");
+    expect(u.searchParams.get("from")).toBeNull();
   });
   it("tidak redirect saat sudah di /maintenance (anti loop)", () => {
     expect(serverErrorRedirectTarget("/maintenance")).toBeNull();
@@ -68,8 +68,8 @@ describe("serverErrorRedirectTarget", () => {
   });
   it("middleware maintenance tidak memantulkan halaman server-error ke /", () => {
     expect(maintenanceRedirect("/maintenance", false, "server-error")).toBeNull();
-    expect(maintenanceRedirect("/maintenance", false)).toBe("/");
-    expect(maintenanceRedirect("/dashboard", true, "server-error")).toBe("/maintenance?from=%2Fdashboard");
+    expect(maintenanceRedirect("/maintenance", false)).toBe("/login");
+    expect(maintenanceRedirect("/dashboard", true, "server-error")).toBe("/maintenance");
   });
 });
 
@@ -88,8 +88,7 @@ describe("debounce", () => {
     d.reset();
     expect(d.pending()).toBeNull();
   });
-  it("interval pemulihan 15-30 detik", () => {
-    expect(SERVER_RECOVERY_POLL_MS).toBeGreaterThanOrEqual(15000);
-    expect(SERVER_RECOVERY_POLL_MS).toBeLessThanOrEqual(30000);
+  it("interval pemulihan halaman /maintenance 60 detik", () => {
+    expect(SERVER_RECOVERY_POLL_MS).toBe(60 * 1000);
   });
 });

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import bannerImage from '~/assets/image/banner-login.png'
 import logoImage from '~/assets/image/logo-1.svg'
-import { MAINTENANCE_DEFAULT_MESSAGE, MAINTENANCE_STATE_KEY, type MaintenanceStatus } from '~/utils/maintenance'
+import { MAINTENANCE_DEFAULT_MESSAGE, MAINTENANCE_RECOVERY_PATH, MAINTENANCE_STATE_KEY, type MaintenanceStatus } from '~/utils/maintenance'
+import { clearLoginSession } from '~/utils/clearLoginSession'
 import {
   checkBackendHealth,
   isServerErrorReason,
-  sanitizeReturnPath,
   SERVER_RECOVERY_POLL_MS,
 } from '~/utils/serverError'
 
@@ -19,11 +19,14 @@ const config = useRuntimeConfig()
 const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null)
 
 const isServerError = computed(() => isServerErrorReason(route.query.reason))
-const returnPath = computed(() => sanitizeReturnPath(route.query.from))
 const message = computed(() =>
   isServerError.value ? SERVER_ERROR_MESSAGE : state.value?.message || MAINTENANCE_DEFAULT_MESSAGE,
 )
 const checking = ref(false)
+
+// Sudah benar-benar di /maintenance: hapus seluruh sesi login (SSR: Set-Cookie expire; client: storage + state).
+const nuxtApp = useNuxtApp()
+await clearLoginSession(nuxtApp)
 const stillDown = ref(false)
 
 let timer: ReturnType<typeof setInterval> | null = null
@@ -41,13 +44,11 @@ async function checkRecovery() {
     if (health.maintenance) {
       // Mode maintenance masih aktif: tetap di sini, tampilkan pesan dari API.
       state.value = { maintenance: true, message: health.message || MAINTENANCE_DEFAULT_MESSAGE }
-      if (isServerError.value) {
-        await navigateTo({ path: '/maintenance', query: { from: returnPath.value } }, { replace: true })
-      }
+      if (isServerError.value) await navigateTo('/maintenance', { replace: true })
       return
     }
-    // Muat ulang penuh agar data halaman asal diambil ulang dari server yang sudah pulih.
-    window.location.replace(returnPath.value)
+    // Sesi sudah dihapus saat masuk halaman ini: user wajib login ulang (muat ulang penuh).
+    window.location.replace(MAINTENANCE_RECOVERY_PATH)
   }
   finally {
     checking.value = false
@@ -91,7 +92,7 @@ onBeforeUnmount(stopPolling)
         </h1>
         <p class="mt-3 text-14 leading-relaxed text-[#3d4a34]">{{ message }}</p>
         <p class="mt-2 text-13 text-[#6b7563]">
-          Halaman ini akan kembali otomatis setelah perbaikan selesai. Terima kasih atas kesabaran Anda.
+          Setelah perbaikan selesai, Anda akan diarahkan ke halaman login untuk masuk kembali. Terima kasih atas kesabaran Anda.
         </p>
         <p v-if="isServerError && stillDown" class="mt-2 text-12 text-[#a15c2b]" role="status">
           Server masih belum merespons. Kami akan mencoba lagi otomatis.

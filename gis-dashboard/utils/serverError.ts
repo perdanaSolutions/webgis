@@ -2,7 +2,8 @@ import {
   isMaintenancePath,
   isMaintenanceResponse,
   MAINTENANCE_PATH,
-  MAINTENANCE_STATUS_ENDPOINT,
+  MAINTENANCE_PAGE_RECOVERY_POLL_MS,
+  maintenanceStatusUrl,
   parseMaintenanceBody,
   sanitizeReturnPath,
 } from "./maintenance";
@@ -12,7 +13,7 @@ export const SERVER_ERROR_REASON = "server-error";
 /** Status HTTP yang dianggap "server bermasalah" dan memicu redirect ke /maintenance. */
 export const SERVER_ERROR_STATUSES: readonly number[] = [500, 502, 503, 504];
 /** Interval cek pemulihan di halaman /maintenance?reason=server-error. */
-export const SERVER_RECOVERY_POLL_MS = 20 * 1000;
+export const SERVER_RECOVERY_POLL_MS = MAINTENANCE_PAGE_RECOVERY_POLL_MS;
 /** Jendela debounce: banyak 5xx bersamaan hanya menghasilkan satu navigasi. */
 export const SERVER_REDIRECT_DEBOUNCE_MS = 5 * 1000;
 
@@ -66,8 +67,8 @@ export { sanitizeReturnPath };
 /** Target redirect untuk error server; null bila sudah di /maintenance (cegah loop). */
 export function serverErrorRedirectTarget(currentPath: string, currentFullPath?: string): string | null {
   if (isMaintenancePath(currentPath)) return null;
-  const from = sanitizeReturnPath(currentFullPath ?? currentPath);
-  const query = new URLSearchParams({ reason: SERVER_ERROR_REASON, from });
+  void currentFullPath; // `from` tidak dipakai lagi: setelah pulih user login ulang.
+  const query = new URLSearchParams({ reason: SERVER_ERROR_REASON });
   return `${MAINTENANCE_PATH}?${query.toString()}`;
 }
 
@@ -104,8 +105,7 @@ export type BackendHealth = { ok: boolean; maintenance: boolean; message: string
 /** Cek pemulihan: ok = backend menjawab (200, atau 503 dengan body maintenance). */
 export async function checkBackendHealth(baseURL: string): Promise<BackendHealth> {
   try {
-    const res = await $fetch.raw<{ maintenance?: boolean; message?: string }>(MAINTENANCE_STATUS_ENDPOINT, {
-      baseURL,
+    const res = await $fetch.raw<{ maintenance?: boolean; message?: string }>(maintenanceStatusUrl(baseURL), {
       timeout: 5000,
       headers: { accept: "application/json" },
     });

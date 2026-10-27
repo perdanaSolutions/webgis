@@ -11,6 +11,9 @@ import {
   MAINTENANCE_PATH,
   MAINTENANCE_POLL_MS,
   MAINTENANCE_STATUS_ENDPOINT,
+  MAINTENANCE_PAGE_RECOVERY_POLL_MS,
+  MAINTENANCE_RECOVERY_PATH,
+  maintenanceStatusUrl,
 } from "../utils/maintenance";
 import { classifyFetchError, redirectsToMaintenance } from "../utils/serverError";
 
@@ -57,17 +60,16 @@ describe("isMaintenanceResponse & klasifikasi error", () => {
 });
 
 describe("keputusan middleware / redirect", () => {
-  it("maintenance aktif: semua halaman ke /maintenance dengan from", () => {
-    expect(maintenanceRedirect("/dashboard", true, undefined, { fullPath: "/dashboard?x=1" }))
-      .toBe("/maintenance?from=%2Fdashboard%3Fx%3D1");
-    expect(maintenanceRedirect("/login", true)).toBe("/maintenance?from=%2Flogin");
+  it("maintenance aktif: semua halaman ke /maintenance (tanpa from)", () => {
+    expect(maintenanceRedirect("/dashboard", true, undefined, { fullPath: "/dashboard?x=1" })).toBe(MAINTENANCE_PATH);
+    expect(maintenanceRedirect("/login", true)).toBe(MAINTENANCE_PATH);
     expect(maintenanceRedirect("/", true)).toBe(MAINTENANCE_PATH);
     expect(maintenanceRedirect("/maintenance", true)).toBeNull();
   });
-  it("maintenance mati: kembali ke from (disanitasi)", () => {
-    expect(maintenanceRedirect("/maintenance", false)).toBe("/");
-    expect(maintenanceRedirect("/maintenance/", false, undefined, { from: "/peta" })).toBe("/peta");
-    expect(maintenanceRedirect("/maintenance", false, undefined, { from: "//evil.com" })).toBe("/");
+  it("maintenance mati: ke /login (wajib login ulang), from diabaikan", () => {
+    expect(maintenanceRedirect("/maintenance", false)).toBe("/login");
+    expect(maintenanceRedirect("/maintenance/", false, undefined, { from: "/peta" })).toBe("/login");
+    expect(MAINTENANCE_RECOVERY_PATH).toBe("/login");
     expect(maintenanceRedirect("/maintenance", false, "server-error", { from: "/peta" })).toBeNull();
     expect(maintenanceRedirect("/dashboard", false)).toBeNull();
   });
@@ -83,8 +85,19 @@ describe("keputusan middleware / redirect", () => {
     expect(isMaintenancePath("/maintenance/")).toBe(true);
     expect(isLoginPath("/login/")).toBe(true);
   });
-  it("endpoint v1 dan poll 30 detik", () => {
+  it("endpoint v1 dan interval", () => {
     expect(MAINTENANCE_STATUS_ENDPOINT).toBe("/v1/system/maintenance");
-    expect(MAINTENANCE_POLL_MS).toBe(30 * 1000);
+    expect(MAINTENANCE_POLL_MS).toBe(15 * 60 * 1000);
+    expect(MAINTENANCE_PAGE_RECOVERY_POLL_MS).toBe(60 * 1000);
+  });
+  it("URL status selalu <origin>/api/v1/system/maintenance", () => {
+    const want = "https://api-webgis-prod.perdanasolusiteknologi.com/api/v1/system/maintenance";
+    for (const b of [
+      "https://api-webgis-prod.perdanasolusiteknologi.com/api",
+      "https://api-webgis-prod.perdanasolusiteknologi.com/api/",
+      "https://api-webgis-prod.perdanasolusiteknologi.com/api/v1",
+      "https://api-webgis-prod.perdanasolusiteknologi.com",
+    ]) expect(maintenanceStatusUrl(b)).toBe(want);
+    expect(maintenanceStatusUrl("http://127.0.0.1:8002/api")).toBe("http://127.0.0.1:8002/api/v1/system/maintenance");
   });
 });
