@@ -7,7 +7,7 @@ import {
   type MaintenanceStatus,
 } from "~/utils/maintenance";
 
-// Cadangan: cek berkala setiap 30 menit (login enter + ganti menu tetap jadi pemicu utama).
+// Cek berkala setiap 30 detik di halaman selain /maintenance (halaman itu polling sendiri).
 export default defineNuxtPlugin((nuxtApp) => {
   const config = useRuntimeConfig();
   const router = useRouter();
@@ -15,11 +15,12 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   async function check() {
     const route = router.currentRoute.value;
-    // Di /maintenance?reason=server-error pemulihan ditangani halaman itu sendiri.
-    if (isMaintenancePath(route.path) && route.query.reason === "server-error") return;
+    if (isMaintenancePath(route.path)) return;
     const status = await fetchMaintenanceStatus(String(config.public.apiBaseUrlPython || ""));
     state.value = status;
-    const target = maintenanceRedirect(route.path, status.maintenance, route.query.reason);
+    const target = maintenanceRedirect(route.path, status.maintenance, route.query.reason, {
+      fullPath: route.fullPath,
+    });
     if (target) await nuxtApp.runWithContext(() => navigateTo(target, { replace: true }));
   }
 

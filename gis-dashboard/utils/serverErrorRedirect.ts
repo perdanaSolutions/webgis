@@ -1,5 +1,11 @@
 import type { NuxtApp } from "#app";
 import {
+  maintenanceTarget,
+  MAINTENANCE_STATE_KEY,
+  parseMaintenanceBody,
+  type MaintenanceStatus,
+} from "./maintenance";
+import {
   classifyFetchError,
   createRedirectDebouncer,
   serverErrorRedirectTarget,
@@ -14,18 +20,30 @@ export function pendingServerErrorRedirect(): string | null {
 }
 
 /**
- * Handler pusat: arahkan user ke /maintenance?reason=server-error bila error = masalah server.
+ * Handler pusat: maintenance -> /maintenance?from=..; masalah server -> /maintenance?reason=server-error&from=..
  * Mengembalikan true jika error tergolong masalah server (redirect dipicu / sudah berjalan).
  */
 export function redirectOnServerProblem(error: unknown, nuxtApp?: NuxtApp): boolean {
-  if (classifyFetchError(error) !== "server") return false;
+  const kind = classifyFetchError(error);
+  if (kind !== "server" && kind !== "maintenance") return false;
   const app = nuxtApp ?? useNuxtApp();
   const route = app.$router?.currentRoute?.value;
   const path = import.meta.client ? window.location.pathname : route?.path ?? "/";
   const fullPath = import.meta.client
     ? `${window.location.pathname}${window.location.search}${window.location.hash}`
     : route?.fullPath ?? path;
-  const target = serverErrorRedirectTarget(path, fullPath);
+  let target: string | null;
+  if (kind === "maintenance") {
+    // Body { maintenance: true } / errors[].type === "maintenance" (HTTP 200 atau 503).
+    const err = error as { response?: { _data?: unknown }; data?: unknown };
+    const parsed = parseMaintenanceBody(err?.response?._data ?? err?.data);
+    if (parsed) app.runWithContext(() => {
+      useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null).value = parsed;
+    });
+    target = serverErrorRedirectTarget(path, fullPath) ? maintenanceTarget(fullPath) : null;
+  } else {
+    target = serverErrorRedirectTarget(path, fullPath);
+  }
   if (!target) return true; // sudah di /maintenance: jangan loop
 
   if (import.meta.server) {

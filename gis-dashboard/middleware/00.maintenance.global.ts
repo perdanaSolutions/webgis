@@ -6,23 +6,13 @@ import {
   type MaintenanceStatus,
 } from "~/utils/maintenance";
 
-// Berjalan sebelum auth.global.
-// Hit API hanya: masuk/reload login, atau ganti menu saat sudah login.
+// Berjalan sebelum auth.global, di setiap navigasi (termasuk load pertama / SSR).
 export default defineNuxtRouteMiddleware(async (to) => {
   const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null);
+  const opts = { fullPath: to.fullPath, from: to.query.from };
 
-  let isAuthenticated = false;
-  try {
-    isAuthenticated = Boolean(useAuthStore().token);
-  } catch {
-    isAuthenticated = false;
-  }
-
-  if (!shouldFetchMaintenanceOnRoute(to.path, isAuthenticated)) {
-    if (state.value != null) {
-      const target = maintenanceRedirect(to.path, state.value.maintenance, to.query.reason);
-      if (target) return navigateTo(target, { replace: true });
-    }
+  if (!shouldFetchMaintenanceOnRoute(to.path)) {
+    // Di /maintenance: halaman sendiri yang polling & mengembalikan user.
     return;
   }
 
@@ -32,6 +22,6 @@ export default defineNuxtRouteMiddleware(async (to) => {
   );
   const status = await fetchMaintenanceStatus(baseURL);
   state.value = status;
-  const target = maintenanceRedirect(to.path, status.maintenance, to.query.reason);
+  const target = maintenanceRedirect(to.path, status.maintenance, to.query.reason, opts);
   if (target) return navigateTo(target, { replace: true });
 });

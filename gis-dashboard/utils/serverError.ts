@@ -1,4 +1,11 @@
-import { isMaintenancePath, isMaintenanceResponse, MAINTENANCE_PATH } from "./maintenance";
+import {
+  isMaintenancePath,
+  isMaintenanceResponse,
+  MAINTENANCE_PATH,
+  MAINTENANCE_STATUS_ENDPOINT,
+  parseMaintenanceBody,
+  sanitizeReturnPath,
+} from "./maintenance";
 
 /** Nilai query `reason` di /maintenance saat backend error (bukan mode maintenance dari DB). */
 export const SERVER_ERROR_REASON = "server-error";
@@ -44,25 +51,17 @@ export function classifyFetchError(error: unknown): "server" | "maintenance" | "
   return "client";
 }
 
+/** Error yang membuat user diarahkan ke /maintenance (server bermasalah ATAU mode maintenance). */
+export function redirectsToMaintenance(error: unknown): boolean {
+  const kind = classifyFetchError(error);
+  return kind === "server" || kind === "maintenance";
+}
+
 export function isServerProblemError(error: unknown): boolean {
   return classifyFetchError(error) === "server";
 }
 
-/** Hanya path internal; tolak open redirect (//evil, http:, /\\evil) dan /maintenance itu sendiri. */
-export function sanitizeReturnPath(raw: unknown, fallback = "/"): string {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof value !== "string" || !value) return fallback;
-  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return fallback;
-  if (/[\u0000-\u001f\\]/.test(value)) return fallback;
-  try {
-    const url = new URL(value, "http://internal.invalid");
-    if (url.origin !== "http://internal.invalid") return fallback;
-    if (isMaintenancePath(url.pathname)) return fallback;
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return fallback;
-  }
-}
+export { sanitizeReturnPath };
 
 /** Target redirect untuk error server; null bila sudah di /maintenance (cegah loop). */
 export function serverErrorRedirectTarget(currentPath: string, currentFullPath?: string): string | null {
@@ -102,28 +101,20 @@ export function createRedirectDebouncer(windowMs = SERVER_REDIRECT_DEBOUNCE_MS, 
 
 export type BackendHealth = { ok: boolean; maintenance: boolean; message: string | null };
 
-/** Cek pemulihan: ok hanya jika GET /system/maintenance HTTP 200. */
+/** Cek pemulihan: ok = backend menjawab (200, atau 503 dengan body maintenance). */
 export async function checkBackendHealth(baseURL: string): Promise<BackendHealth> {
   try {
-    const res = await $fetch.raw<{ maintenance?: boolean; message?: string }>("/system/maintenance", {
+    const res = await $fetch.raw<{ maintenance?: boolean; message?: string }>(MAINTENANCE_STATUS_ENDPOINT, {
       baseURL,
       timeout: 5000,
       headers: { accept: "application/json" },
     });
     if (res.status !== 200) return { ok: false, maintenance: false, message: null };
-    const data = res._data;
-    return {
-      ok: true,
-      maintenance: data?.maintenance === true,
-      message: typeof data?.message === "string" && data.message ? data.message : null,
-    };
+    const parsed = parseMaintenanceBody(res._data);
+    return { ok: true, maintenance: !!parsed, message: parsed?.message ?? null };
   } catch (error) {
-    const status = (error as FetchLikeError)?.response?.status;
-    const body = (error as FetchLikeError)?.response?._data;
-    if (isMaintenanceResponse(status, body)) {
-      const message = (body as { message?: unknown }).message;
-      return { ok: true, maintenance: true, message: typeof message === "string" ? message : null };
-    }
+    const parsed = parseMaintenanceBody((error as FetchLikeError)?.response?._data);
+    if (parsed) return { ok: true, maintenance: true, message: parsed.message };
     return { ok: false, maintenance: false, message: null };
   }
 }

@@ -39,9 +39,11 @@ async function checkRecovery() {
     }
     stillDown.value = false
     if (health.maintenance) {
-      // Server pulih tetapi mode maintenance aktif: tampilkan pesan maintenance dari DB.
+      // Mode maintenance masih aktif: tetap di sini, tampilkan pesan dari API.
       state.value = { maintenance: true, message: health.message || MAINTENANCE_DEFAULT_MESSAGE }
-      await navigateTo('/maintenance', { replace: true })
+      if (isServerError.value) {
+        await navigateTo({ path: '/maintenance', query: { from: returnPath.value } }, { replace: true })
+      }
       return
     }
     // Muat ulang penuh agar data halaman asal diambil ulang dari server yang sudah pulih.
@@ -54,7 +56,8 @@ async function checkRecovery() {
 
 function startPolling() {
   stopPolling()
-  if (isServerError.value) timer = setInterval(checkRecovery, SERVER_RECOVERY_POLL_MS)
+  // Server-error & mode maintenance: cek berkala, kembali ke `from` bila pulih / maintenance mati.
+  timer = setInterval(checkRecovery, SERVER_RECOVERY_POLL_MS)
 }
 function stopPolling() {
   if (timer) clearInterval(timer)
@@ -62,11 +65,14 @@ function stopPolling() {
 }
 
 function retry() {
-  if (isServerError.value) return checkRecovery()
-  window.location.replace('/')
+  return checkRecovery()
 }
 
-onMounted(startPolling)
+onMounted(() => {
+  startPolling()
+  // Isi pesan dari API bila belum ada (mis. reload langsung di /maintenance).
+  if (!isServerError.value && !state.value?.message) void checkRecovery()
+})
 watch(isServerError, startPolling)
 onBeforeUnmount(stopPolling)
 </script>

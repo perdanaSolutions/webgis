@@ -1,7 +1,9 @@
 export const MAINTENANCE_PATH = "/maintenance";
 export const MAINTENANCE_STATE_KEY = "maintenance-status";
-/** Polling latar: cukup jarang; cek utama lewat login enter/reload dan ganti menu. */
-export const MAINTENANCE_POLL_MS = 30 * 60 * 1000;
+/** Endpoint status (relatif ke apiBaseUrlPython yang sudah berakhiran /api). */
+export const MAINTENANCE_STATUS_ENDPOINT = "/v1/system/maintenance";
+/** Polling latar di semua halaman (client). */
+export const MAINTENANCE_POLL_MS = 30 * 1000;
 export const MAINTENANCE_DEFAULT_MESSAGE =
   "Kami sedang melakukan perbaikan dan peningkatan sistem. Mohon coba beberapa saat lagi.";
 
@@ -15,53 +17,101 @@ export function isLoginPath(path: string) {
   return path.replace(/\/+$/, "") === "/login";
 }
 
-/**
- * Kapan middleware boleh hit API status:
- * - halaman login (reload / baru masuk)
- * - navigasi menu saat user sudah login
- */
-export function shouldFetchMaintenanceOnRoute(path: string, isAuthenticated: boolean) {
-  if (isMaintenancePath(path)) return false;
-  if (isLoginPath(path)) return true;
-  return isAuthenticated;
+/** Hanya path internal; tolak open redirect (//evil, http:, /\\evil) dan /maintenance itu sendiri. */
+export function sanitizeReturnPath(raw: unknown, fallback = "/"): string {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" || !value) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return fallback;
+  if (/[\u0000-\u001f\\]/.test(value)) return fallback;
+  try {
+    const url = new URL(value, "http://internal.invalid");
+    if (url.origin !== "http://internal.invalid") return fallback;
+    if (isMaintenancePath(url.pathname)) return fallback;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return fallback;
+  }
 }
 
-/** Ke mana harus pindah setelah status diketahui; null = tetap di halaman. */
-export function maintenanceRedirect(path: string, maintenance: boolean, reason?: unknown): string | null {
+/**
+ * Body bertanda maintenance: `maintenance: true` ATAU errors[].type === "maintenance".
+ * Contoh 503 dari middleware backend:
+ * { maintenance: true, message: "...", errors: [{ type: "maintenance", field: "global", msg: "..." }] }
+ */
+export function parseMaintenanceBody(body: unknown): MaintenanceStatus | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as { maintenance?: unknown; message?: unknown; errors?: unknown };
+  const errors = Array.isArray(b.errors) ? b.errors : [];
+  const err = errors.find(
+    (e) => !!e && typeof e === "object" && (e as { type?: unknown }).type === "maintenance",
+  ) as { msg?: unknown } | undefined;
+  if (b.maintenance !== true && !err) return null;
+  const message =
+    (typeof b.message === "string" && b.message)
+    || (typeof err?.msg === "string" && err.msg)
+    || MAINTENANCE_DEFAULT_MESSAGE;
+  return { maintenance: true, message };
+}
+
+/** Middleware: cek status di setiap navigasi kecuali di /maintenance (halaman itu polling sendiri). */
+export function shouldFetchMaintenanceOnRoute(path: string, _isAuthenticated?: boolean) {
+  return !isMaintenancePath(path);
+}
+
+/** Target /maintenance (mode maintenance) dengan path asal agar bisa kembali. */
+export function maintenanceTarget(fromFullPath?: string) {
+  const from = sanitizeReturnPath(fromFullPath ?? "/");
+  return from === "/" ? MAINTENANCE_PATH : `${MAINTENANCE_PATH}?${new URLSearchParams({ from }).toString()}`;
+}
+
+/**
+ * Ke mana harus pindah setelah status diketahui; null = tetap di halaman.
+ * - maintenance aktif & bukan di /maintenance -> /maintenance?from=<path>
+ * - maintenance mati & di /maintenance (bukan reason=server-error) -> kembali ke `from` (disanitasi)
+ */
+export function maintenanceRedirect(
+  path: string,
+  maintenance: boolean,
+  reason?: unknown,
+  options?: { fullPath?: string; from?: unknown },
+): string | null {
   const onPage = isMaintenancePath(path);
-  if (maintenance && !onPage) return MAINTENANCE_PATH;
-  // reason=server-error: halaman /maintenance sendiri yang mengurus pemulihan (cek health + kembali ke `from`).
+  if (maintenance && !onPage) return maintenanceTarget(options?.fullPath ?? path);
+  // reason=server-error: halaman /maintenance sendiri yang mengurus pemulihan.
   const serverError = (Array.isArray(reason) ? reason[0] : reason) === "server-error";
-  if (!maintenance && onPage && !serverError) return "/";
+  if (!maintenance && onPage && !serverError) return sanitizeReturnPath(options?.from);
   return null;
 }
 
-/** Body 503 dari API lain saat middleware backend memblokir request. */
+/** Respons API lain (200 atau 503) yang bodinya menandakan maintenance. */
 export function isMaintenanceResponse(status: number | undefined, body: unknown) {
-  return status === 503 && !!body && typeof body === "object" && (body as { maintenance?: unknown }).maintenance === true;
+  return (status === 503 || status === 200) && parseMaintenanceBody(body) !== null;
 }
 
 /**
- * GET /system/maintenance harus HTTP 200 + { maintenance: boolean }.
- * Selain 200 (termasuk 404) dianggap bukan sinyal maintenance (fail open).
+ * GET /v1/system/maintenance. 200 -> baca flag; 503 + body maintenance -> maintenance aktif.
+ * Selain itu (404, 5xx lain, jaringan) fail open: website tidak dikunci.
  */
 export async function fetchMaintenanceStatus(baseURL: string): Promise<MaintenanceStatus> {
   try {
-    const res = await $fetch.raw<Partial<MaintenanceStatus>>("/system/maintenance", {
+    const res = await $fetch.raw<Partial<MaintenanceStatus>>(MAINTENANCE_STATUS_ENDPOINT, {
       baseURL,
       timeout: 5000,
       headers: { accept: "application/json" },
     });
-    if (res.status !== 200) {
-      return { maintenance: false, message: MAINTENANCE_DEFAULT_MESSAGE };
-    }
+    const parsed = parseMaintenanceBody(res._data);
+    if (parsed) return parsed;
     const data = res._data;
     return {
-      maintenance: data?.maintenance === true,
+      maintenance: false,
       message: (typeof data?.message === "string" && data.message) || MAINTENANCE_DEFAULT_MESSAGE,
     };
-  } catch {
-    // Backend tidak terjangkau / non-200: jangan kunci website (fail open).
+  } catch (error) {
+    // 503 dari middleware maintenance: body tetap dibaca (dulu tertelan di sini).
+    const body = (error as { response?: { _data?: unknown }; data?: unknown })?.response?._data
+      ?? (error as { data?: unknown })?.data;
+    const parsed = parseMaintenanceBody(body);
+    if (parsed) return parsed;
     return { maintenance: false, message: MAINTENANCE_DEFAULT_MESSAGE };
   }
 }

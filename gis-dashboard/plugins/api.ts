@@ -1,6 +1,6 @@
 import { AUTH_USER_STORAGE_KEY } from "~/utils/authSession";
 import { authCookieOptions } from "~/stores/authStore";
-import { isMaintenancePath, isMaintenanceResponse, MAINTENANCE_PATH } from "~/utils/maintenance";
+import { isMaintenanceResponse } from "~/utils/maintenance";
 import { isServerErrorStatus, type ServerErrorRedirectOptions } from "~/utils/serverError";
 import { redirectOnServerProblem } from "~/utils/serverErrorRedirect";
 
@@ -41,11 +41,16 @@ export default defineNuxtPlugin((nuxtApp) => {
       if ((options as ServerErrorRedirectOptions).skipServerErrorRedirect) return;
       redirectOnServerProblem(error, nuxtApp);
     },
+    onResponse({ response }) {
+      // HTTP 200 tetapi body menandakan maintenance -> /maintenance.
+      if (response?.status === 200 && isMaintenanceResponse(200, response._data)) {
+        redirectOnServerProblem({ response }, nuxtApp);
+      }
+    },
     async onResponseError({ response, options }) {
       if (isMaintenanceResponse(response?.status, response?._data)) {
-        if (import.meta.client && !isMaintenancePath(window.location.pathname)) {
-          window.location.replace(MAINTENANCE_PATH);
-        }
+        // 503 maintenance -> /maintenance (pesan dari body), tidak bisa di-opt-out.
+        redirectOnServerProblem({ response }, nuxtApp);
         return;
       }
       if (isServerErrorStatus(response?.status)) {

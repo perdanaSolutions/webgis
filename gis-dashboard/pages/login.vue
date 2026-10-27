@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isServerProblemError } from '~/utils/serverError'
+import { redirectsToMaintenance } from '~/utils/serverError'
 import { onMounted, reactive, ref } from 'vue'
 import bannerImage from '~/assets/image/banner-login.png'
 import logoImage from '~/assets/image/logo-1.svg'
@@ -79,8 +79,8 @@ async function onSubmit(event?: Event) {
   try {
     await authStore.login(email, password)
   } catch (error) {
-    // 5xx / server tidak terjangkau sudah dialihkan ke /maintenance oleh store.
-    if (isServerProblemError(error)) return
+    // 5xx / server tidak terjangkau / maintenance sudah dialihkan ke /maintenance oleh store.
+    if (redirectsToMaintenance(error)) return
     const info = mapLoginError(error)
     await alert.open({ icon: info.icon, title: info.title, text: info.text })
   }

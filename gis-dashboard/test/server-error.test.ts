@@ -69,7 +69,7 @@ describe("serverErrorRedirectTarget", () => {
   it("middleware maintenance tidak memantulkan halaman server-error ke /", () => {
     expect(maintenanceRedirect("/maintenance", false, "server-error")).toBeNull();
     expect(maintenanceRedirect("/maintenance", false)).toBe("/");
-    expect(maintenanceRedirect("/dashboard", true, "server-error")).toBe("/maintenance");
+    expect(maintenanceRedirect("/dashboard", true, "server-error")).toBe("/maintenance?from=%2Fdashboard");
   });
 });
 
