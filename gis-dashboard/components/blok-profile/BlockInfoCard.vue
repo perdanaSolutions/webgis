@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
+import { blokDataPeriodLabel } from "~/utils/blokPeriodLabel";
 
 const props = defineProps<{
   summary: {
@@ -15,6 +16,8 @@ const props = defineProps<{
     blokCount: number;
     filter: { grup: string; pt: string; estate: string; afdeling: string; blok: string };
     geojsonPeriod: { bulan: number | null; tahun: number } | null;
+    /** true = bulan periode dipilih di filter; false = data terbaru. */
+    periodSpecific?: boolean;
   };
   detail: Record<string, any> | null;
   loading: boolean;
@@ -34,12 +37,9 @@ function num(value: unknown, digits = 1) {
 
 const status = computed(() => STATUS[props.summary.status?.toUpperCase()] ?? null);
 
-const geojsonPeriodLabel = computed(() => {
-  const period = props.summary.geojsonPeriod;
-  if (!period?.tahun) return "";
-  const month = period.bulan ? MONTHS[period.bulan - 1] : "";
-  return [month, period.tahun].filter(Boolean).join(" ");
-});
+const geojsonPeriodLabel = computed(() =>
+  blokDataPeriodLabel(props.summary.geojsonPeriod, Boolean(props.summary.periodSpecific)),
+);
 
 const filterRows = computed(() => [
   { label: "Grup", value: props.summary.filter.grup },
@@ -88,7 +88,7 @@ const rows = computed(() => {
           :text="summary.title || '-'" />
         <TruncatedText tag="p" class="text-14 text-[#6e7866]" :text="summary.subtitle" />
         <p v-if="geojsonPeriodLabel" class="mt-2 text-13 leading-snug text-[#55604c]">
-          Data diambil dari GeoJSON periode terbaru: <span class="font-semibold text-[#1f2a18]">{{ geojsonPeriodLabel }}</span>.
+          {{ geojsonPeriodLabel }}
         </p>
       </div>
       <span v-if="status" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-12 font-semibold"

@@ -23,6 +23,7 @@ defineProps<{
     blokCount: number;
     filter: { grup: string; pt: string; estate: string; afdeling: string; blok: string };
     geojsonPeriod: { bulan: number | null; tahun: number } | null;
+    periodSpecific?: boolean;
   };
   detail: Record<string, any> | null;
   loadingDetail: boolean;
@@ -58,7 +59,6 @@ defineExpose({ sections });
     <header class="bp-print-section bp-print-intro">
       <p class="text-11 font-bold uppercase tracking-[0.12em] text-[#6e7866]">Informasi</p>
       <h2 class="mt-1 text-[22px] font-bold leading-tight text-[#1f2a18]">{{ scopeLabel }}</h2>
-      <p class="mt-1 text-13 leading-snug text-[#55604c]">{{ filterLine }}</p>
     </header>
 
     <div class="bp-print-section">

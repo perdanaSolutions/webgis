@@ -63,3 +63,11 @@ export function plainAttribution(html: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * PDF dibangun peta dulu lalu kartu. Halaman kartu pertama (Informasi Blok) dipindah ke depan:
+ * jsPDF.movePage(from, before). null bila belum ada halaman kartu.
+ */
+export function infoPageFirstMove(totalPages: number): { from: number; before: number } | null {
+  return totalPages >= 2 ? { from: 2, before: 1 } : null;
+}

@@ -10,7 +10,7 @@ import {
   type OverlayStyle,
   type LegendItem,
 } from "~/utils/mapLayers";
-import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch } from "~/utils/blokProfilePdf";
+import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch, infoPageFirstMove } from "~/utils/blokProfilePdf";
 import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
 
 export type PdfOverlay = {
@@ -65,7 +65,7 @@ function legendFrame(count: number) {
   const columns = count > 8 ? 4 : 3;
   const rows = count ? Math.ceil(count / columns) : 0;
   const legendH = rows * 6;
-  const mapY = MARGIN + 19;
+  const mapY = MARGIN + 10;
   const footerTop = PAGE_H - 8;
   const mapH = Math.max(70, footerTop - mapY - (legendH ? legendH + 2 : 0));
   return { columns, legendH, mapY, mapH, mapW: PAGE_W - MARGIN * 2, footerTop };
@@ -434,7 +434,7 @@ function drawLegend(pdf: import("jspdf").jsPDF, swatches: PdfSwatch[], x: number
 function placeCardPages(pdf: import("jspdf").jsPDF, shots: Shot[], input: PdfExportInput) {
   const bottom = PAGE_H - 12;
   const maxW = PAGE_W - MARGIN * 2;
-  const headerBottom = MARGIN + 14;
+  const headerBottom = MARGIN + 9;
   const maxH = bottom - headerBottom;
   for (const shot of shots) {
     pdf.addPage("a4", "landscape");
@@ -443,11 +443,11 @@ function placeCardPages(pdf: import("jspdf").jsPDF, shots: Shot[], input: PdfExp
     pdf.setTextColor(31, 42, 24);
     const title = pdf.splitTextToSize(input.scopeLabel || "Blok Profile", maxW - 28)[0] ?? "";
     pdf.text(String(title), MARGIN, MARGIN + 4);
+    // Subtitle baris filter dihapus (permintaan Bayu); judul + waktu cetak tetap.
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
-    pdf.setTextColor(85, 96, 76);
-    const filter = pdf.splitTextToSize(input.filterLine, maxW)[0] ?? "";
-    pdf.text(String(filter), MARGIN, MARGIN + 9);
+    pdf.setTextColor(110, 120, 102);
+    pdf.text(input.printedAt, PAGE_W - MARGIN, MARGIN + 4, { align: "right" });
 
     const aspect = shot.image.naturalWidth / shot.image.naturalHeight;
     let width = maxW;
@@ -489,9 +489,6 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
   pdf.setFontSize(8);
   pdf.setTextColor(110, 120, 102);
   pdf.text(input.printedAt, PAGE_W - MARGIN, MARGIN + 5, { align: "right" });
-  pdf.setTextColor(85, 96, 76);
-  const filter = pdf.splitTextToSize(input.filterLine, PAGE_W - MARGIN * 2).slice(0, 2);
-  pdf.text(filter, MARGIN, MARGIN + 11);
 
   pdf.addImage(mapShot.dataUrl, "PNG", MARGIN, frame.mapY, frame.mapW, frame.mapH, undefined, "FAST");
   if (swatches.length) drawLegend(pdf, swatches, MARGIN, frame.mapY + frame.mapH + 2, frame.mapW, frame.columns);
@@ -507,6 +504,9 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
   if (footerLine) pdf.text(String(footerLine), MARGIN, frame.footerTop + 3);
 
   placeCardPages(pdf, shots, input);
+  // Halaman Informasi Blok (kartu pertama) jadi halaman 1, peta jadi halaman 2.
+  const move = infoPageFirstMove(pdf.getNumberOfPages());
+  if (move) pdf.movePage(move.from, move.before);
 
   const total = pdf.getNumberOfPages();
   for (let page = 1; page <= total; page += 1) {
