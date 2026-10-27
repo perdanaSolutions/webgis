@@ -30,8 +30,8 @@ import { readBudgetCategory } from "~/utils/mapLayers";
  *   pembanding hanya dikirim ke GeoJSON batas blok
  *   (`year_to_date`, `bulan_comparison` + `tahun_comparison`), bukan ke layer lain.
  * - Popup blok dibuka pada bulan produksi yang mewarnai blok itu (produksi_tbs.periode).
- * - Blok hanya MEMILIH satu blok di dalam scope (peta tidak difilter ulang ke
- *   satu poligon), sehingga tetangga tetap terlihat.
+ * - Blok spesifik: GeoJSON hanya batas poligon blok terpilih (`kode_blok`).
+ *   Tanpa pilihan blok, batas mengikuti estate/afdeling/area seperti biasa.
  * Pilihan dibatasi `akses_data` user (superadmin bebas).
  * Muatan awal: satu perusahaan terpilih, lalu area pertama perusahaan itu.
  * Estate, afdeling, dan blok memuat seluruh data pada area itu (tanpa memilih satu).
@@ -903,6 +903,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     kode_pt: applied.value.pt || undefined,
     kode_est: applied.value.estate || undefined,
     kode_afd: applied.value.afdeling || undefined,
+    kode_blok: applied.value.blokId || undefined,
     ownership: applied.value.ownership || undefined,
     bulan: applied.value.bulan,
     tahun: applied.value.tahun || currentYear(),
