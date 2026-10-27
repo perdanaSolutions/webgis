@@ -45,6 +45,7 @@ watch(isShell, (shell) => {
     <p>Memeriksa akses menu...</p>
   </div>
   <ClientOnly>
+    <AppAlert />
     <AppModalTeleport>
       <div
         v-if="accessDeniedOpen"
