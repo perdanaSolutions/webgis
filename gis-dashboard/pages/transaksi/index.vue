@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
+import UploadFailedRowsDownload from "~/components/upload/FailedRowsDownload.vue";
+import { countQuarantined } from "~/utils/failedRowsDownload";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
@@ -87,6 +89,10 @@ const jobQueuedTooLong = computed(
 
 const analysis = computed(() => trxUploadStore.liveAnalyze ?? trxUploadStore.analysis);
 const displayAnalysis = computed(() => trxUploadStore.analysis);
+const analyzeFailedCount = computed(
+  () => Object.values(trxUploadStore.previewAnalysis).filter((r) => r?.status_analisa === "GAGAL").length,
+);
+const importFailedCount = computed(() => countQuarantined(trxUploadStore.importResult));
 const hasNoValidData = computed(() => displayAnalysis.value?.status_analisis === "TIDAK_ADA_DATA_VALID");
 const previewRows = computed(() => trxUploadStore.previewRows);
 
@@ -631,7 +637,10 @@ onMounted(async () => {
 
         <div v-if="displayAnalysis" class="mt-6 space-y-4">
           <div class="rounded-2xl border border-default bg-surface p-6 shadow-sm">
-            <h3 class="mb-1 text-18 font-bold text-brand">Hasil analisis</h3>
+            <div class="mb-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <h3 class="text-18 font-bold text-brand">Hasil analisis</h3>
+              <UploadFailedRowsDownload :job-id="trxUploadStore.failedRowsJobId.analyze" :count="analyzeFailedCount" />
+            </div>
             <p class="mb-4 text-size-sm text-muted">
               Uji coba ini tidak menyimpan data. Angkanya sama dengan hasil import sungguhan.
             </p>
@@ -660,6 +669,10 @@ onMounted(async () => {
             {{ trxUploadStore.importResult.message || "Proses impor selesai." }}
             Baris yang ditolak tersimpan di karantina, dan blok yang tidak ada di file tidak dihapus.
           </p>
+          <div v-if="importFailedCount > 0" class="mt-3 flex justify-end">
+            <UploadFailedRowsDownload :job-id="trxUploadStore.failedRowsJobId.execute" :count="importFailedCount"
+              label="Download Baris Ditolak (.xlsx)" />
+          </div>
           <div v-if="primaryStats.length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
             <div v-for="stat in primaryStats" :key="stat.key"
               class="flex items-center justify-between gap-3 rounded-xl border border-default-60 bg-surface px-3 py-2">

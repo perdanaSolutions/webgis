@@ -11,14 +11,16 @@ Sengaja TIDAK di bawah /spatial: semua GET /spatial/... di-cache Redis per user
 from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from fastapi import APIRouter, Form, HTTPException, status
+from fastapi import APIRouter, Form, HTTPException, Response, status
 
 from app.api.deps import CurrentUser, DbSession, user_has_permission
 from app.api.params import UploadedFile, read_upload
-from app.services.upload import jobs, runner
+from app.core.exceptions import not_found
+from app.services.upload import failed_export, jobs, runner
 from app.services.upload.trx_runner import is_trx_layer
 
 router = APIRouter()
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _ensure_upload_access(db, user, layer: str) -> None:
@@ -102,6 +104,27 @@ def active_jobs(db: DbSession, user: CurrentUser):
 @router.get("/{job_id}", summary="Status job; `result` berisi respons upload-analyze/upload-execute setelah selesai")
 def get_job(job_id: UUID, db: DbSession, user: CurrentUser):
     return jobs.get(db, job_id, user.id)
+
+
+@router.get(
+    "/{job_id}/data-gagal.xlsx",
+    summary="Unduh SEMUA data gagal (semua part) hasil analisis/simpan sebagai Excel",
+    response_class=Response,
+    responses={200: {"content": {XLSX_MEDIA_TYPE: {}}}, 404: {"description": "Job tidak ada / tidak ada data gagal"}},
+)
+def download_failed_rows(job_id: UUID, db: DbSession, user: CurrentUser):
+    """Job milik user (sama seperti GET status job). Semua part dalam grup upload yang sama digabung.
+    analyze: data gagal + atribut & geometri asli; execute: data karantina (termasuk GAGAL_DISIMPAN)."""
+    info = failed_export.collect(db, job_id, user.id)
+    if not info["rows"]:
+        raise not_found("Tidak ada data gagal pada proses upload ini.")
+    content = failed_export.build_workbook(info)
+    filename = failed_export.export_filename(info)
+    return Response(content, media_type=XLSX_MEDIA_TYPE, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Cache-Control": "no-store",
+    })
 
 
 @router.post("/{job_id}/cancel", summary="Batalkan job (data tidak disimpan)")

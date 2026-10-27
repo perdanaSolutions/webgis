@@ -207,5 +207,9 @@ def build(
             "data_ditolak": sorted(report.rejected, key=lambda r: r["no_preview"])[:DETAIL_LIMIT],
         },
         # Daftar lengkap (tanpa batas) untuk table_preview per part; tidak ikut ke respons.
-        "penolakan": sorted(report.rejected, key=lambda r: r["no_preview"]),
+        "penolakan": [
+            {**r, "sumber": report.features[r["no_preview"] - 1]}
+            if 0 < r["no_preview"] <= len(report.features) else r
+            for r in sorted(report.rejected, key=lambda r: r["no_preview"])
+        ],
     }

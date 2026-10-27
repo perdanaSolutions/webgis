@@ -58,7 +58,7 @@ def run_job(job: dict) -> str:
     set_audit_actor(db, job["user_id"])
     try:
         with jobs.Heartbeat(engine, job_id, settings.UPLOAD_JOB_HEARTBEAT_SECONDS):
-            result = runner.run(db, job["kind"], job["layer"], data, progress)
+            result = runner.run_for_job(db, job["kind"], job["layer"], data, progress)
     except UploadCancelled:
         db.rollback()
         jobs.close_open_batch(engine, progress.batch_id, jobs.CANCELLED_MESSAGE)

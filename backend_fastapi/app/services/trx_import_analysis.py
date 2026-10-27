@@ -116,7 +116,7 @@ def analyze_excel(db: Session, kind: TrxKind, filename: str | None, content: byt
         first_row = 2
         report["_total_fitur"] = len(rows)
         report["_penolakan"] = [
-            {"no_preview": r.no - first_row + 1, "kode": r.code, "alasan": r.reason}
+            {"no_preview": r.no - first_row + 1, "kode": r.code, "alasan": r.reason, "sumber": r.data}
             for r in result.rejected
         ]
         return report

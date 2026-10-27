@@ -5,6 +5,8 @@ import CreateThemeModal from "~/components/upload/CreateThemeModal.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadTemplateDownload from "~/components/upload/TemplateDownload.vue";
+import UploadFailedRowsDownload from "~/components/upload/FailedRowsDownload.vue";
+import { countQuarantined } from "~/utils/failedRowsDownload";
 import { GROUP_FILTER_DEFS, findGroupColumns } from "~/utils/uploadPreviewFilters";
 import { useDocumentUploadStore } from "~/stores/documentUploadStore";
 
@@ -321,6 +323,8 @@ const analysis = computed<Record<string, any>>(() => {
   // Jika 'data' masih berupa string JSON, parse dulu. Jika sudah objek, langsung return.
   return typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
 });
+
+const executeFailedCount = computed(() => countQuarantined(documentUploadStore.executeResponse));
 
 const hasNoValidData = computed(() => analysis.value.status_analisis === "TIDAK_ADA_DATA_VALID");
 
@@ -804,7 +808,11 @@ watch(
         <div v-if="Object.keys(documentUploadStore.summaryAnalyze).length > 0" class="mt-6 space-y-6">
 
           <div class="bg-surface rounded-2xl border border-default p-6 shadow-sm">
-            <h3 class="mb-4 text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
+            <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <h3 class="text-18 font-bold text-brand">Rincian Analisa Aman &amp; Analisa Gagal</h3>
+              <UploadFailedRowsDownload :job-id="documentUploadStore.failedRowsJobId.analyze"
+                :count="analysisStatusCounts.gagal" />
+            </div>
             <UploadAnalysisGroups :analysis="analysis" :parts="documentUploadStore.analyzeParts" />
           </div>
 
@@ -826,6 +834,10 @@ watch(
               {{ executeView.title }}
             </p>
             <p class="mt-1 text-size-sm text-label">{{ executeView.message }}</p>
+            <div v-if="executeFailedCount > 0" class="mt-3 flex justify-end">
+              <UploadFailedRowsDownload :job-id="documentUploadStore.failedRowsJobId.execute"
+                :count="executeFailedCount" label="Download Data Gagal Disimpan (.xlsx)" />
+            </div>
             <p v-if="executeView.statusProses" class="mt-2 text-size-sm text-label">
               Status proses: <span class="font-semibold">{{ executeView.statusProses }}</span>
               <span v-if="executeView.total != null"> · {{ Number(executeView.total).toLocaleString('id-ID') }} data
