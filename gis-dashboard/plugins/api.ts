@@ -1,6 +1,8 @@
 import { AUTH_USER_STORAGE_KEY } from "~/utils/authSession";
 import { authCookieOptions } from "~/stores/authStore";
 import { isMaintenancePath, isMaintenanceResponse, MAINTENANCE_PATH } from "~/utils/maintenance";
+import { isServerErrorStatus, type ServerErrorRedirectOptions } from "~/utils/serverError";
+import { redirectOnServerProblem } from "~/utils/serverErrorRedirect";
 
 function readAuthHeader() {
   try {
@@ -15,7 +17,7 @@ function readAuthHeader() {
   return null;
 }
 
-export default defineNuxtPlugin(() => {
+export default defineNuxtPlugin((nuxtApp) => {
   const config = useRuntimeConfig();
 
   const api = $fetch.create({
@@ -34,10 +36,22 @@ export default defineNuxtPlugin(() => {
 
       options.headers = headers;
     },
-    async onResponseError({ response }) {
+    onRequestError({ error, options }) {
+      // Tidak ada respons (backend mati / jaringan putus / timeout) -> masalah server.
+      if ((options as ServerErrorRedirectOptions).skipServerErrorRedirect) return;
+      redirectOnServerProblem(error, nuxtApp);
+    },
+    async onResponseError({ response, options }) {
       if (isMaintenanceResponse(response?.status, response?._data)) {
         if (import.meta.client && !isMaintenancePath(window.location.pathname)) {
           window.location.replace(MAINTENANCE_PATH);
+        }
+        return;
+      }
+      if (isServerErrorStatus(response?.status)) {
+        // 500/502/503/504: arahkan ke /maintenance?reason=server-error (kecuali opt-out).
+        if (!(options as ServerErrorRedirectOptions).skipServerErrorRedirect) {
+          redirectOnServerProblem({ response }, nuxtApp);
         }
         return;
       }

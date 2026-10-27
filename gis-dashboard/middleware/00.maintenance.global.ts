@@ -20,7 +20,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   if (!shouldFetchMaintenanceOnRoute(to.path, isAuthenticated)) {
     if (state.value != null) {
-      const target = maintenanceRedirect(to.path, state.value.maintenance);
+      const target = maintenanceRedirect(to.path, state.value.maintenance, to.query.reason);
       if (target) return navigateTo(target, { replace: true });
     }
     return;
@@ -32,6 +32,6 @@ export default defineNuxtRouteMiddleware(async (to) => {
   );
   const status = await fetchMaintenanceStatus(baseURL);
   state.value = status;
-  const target = maintenanceRedirect(to.path, status.maintenance);
+  const target = maintenanceRedirect(to.path, status.maintenance, to.query.reason);
   if (target) return navigateTo(target, { replace: true });
 });

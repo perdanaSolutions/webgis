@@ -1,5 +1,6 @@
 import {
   fetchMaintenanceStatus,
+  isMaintenancePath,
   maintenanceRedirect,
   MAINTENANCE_POLL_MS,
   MAINTENANCE_STATE_KEY,
@@ -13,9 +14,12 @@ export default defineNuxtPlugin((nuxtApp) => {
   const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null);
 
   async function check() {
+    const route = router.currentRoute.value;
+    // Di /maintenance?reason=server-error pemulihan ditangani halaman itu sendiri.
+    if (isMaintenancePath(route.path) && route.query.reason === "server-error") return;
     const status = await fetchMaintenanceStatus(String(config.public.apiBaseUrlPython || ""));
     state.value = status;
-    const target = maintenanceRedirect(router.currentRoute.value.path, status.maintenance);
+    const target = maintenanceRedirect(route.path, status.maintenance, route.query.reason);
     if (target) await nuxtApp.runWithContext(() => navigateTo(target, { replace: true }));
   }
 

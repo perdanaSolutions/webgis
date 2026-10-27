@@ -268,7 +268,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
 
         await sleep(JOB_POLL_MS);
         try {
-          current = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${current.job_id}`);
+          current = await $api<UploadJob>(`${getApiBaseUrl()}/v1/upload-jobs/${current.job_id}`, { skipServerErrorRedirect: true });
           this.jobPollErrors = 0;
           this.activeJob = current;
         }
@@ -472,7 +472,7 @@ export const useTrxUploadStore = defineStore("trx-upload", {
       try {
         let job: UploadJob | null = null;
         if (savedId) {
-          job = await $api<UploadJob>(`${baseUrl}/v1/upload-jobs/${savedId}`).catch(() => null);
+          job = await $api<UploadJob>(`${baseUrl}/v1/upload-jobs/${savedId}`, { skipServerErrorRedirect: true }).catch(() => null);
         }
         if (!job) {
           const active = await $api<UploadJob[]>(`${baseUrl}/v1/upload-jobs/active`);

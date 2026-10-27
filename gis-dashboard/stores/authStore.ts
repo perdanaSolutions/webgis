@@ -1,3 +1,4 @@
+import { redirectOnServerProblem } from "~/utils/serverErrorRedirect";
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { AUTH_USER_STORAGE_KEY, SESSION_MAX_AGE_SECONDS, isAccessTokenExpired } from "~/utils/authSession";
@@ -243,6 +244,8 @@ export const useAuthStore = defineStore("auth", () => {
       return response;
     } catch (error: any) {
       clearAuthData();
+      // 5xx / backend tidak terjangkau -> /maintenance (4xx tetap popup di halaman login).
+      redirectOnServerProblem(error);
       errorMessage.value = getErrorMessage(
         error,
         "Login gagal, Mohon periksa kembali inputan Anda.",
@@ -272,7 +275,9 @@ export const useAuthStore = defineStore("auth", () => {
 
       persistUser(normalizeUser(me));
       return user.value;
-    } catch {
+    } catch (error) {
+      // Server bermasalah: jangan hapus sesi (token masih valid), arahkan ke /maintenance.
+      if (redirectOnServerProblem(error)) return null;
       clearAuthData();
       if (redirect) await redirectToLogin();
       return null;

@@ -1,3 +1,4 @@
+import { pendingServerErrorRedirect } from "~/utils/serverErrorRedirect";
 import { dashboardStore } from "~/stores/dashboardStore";
 import {
   canonicalMenuRoute,
@@ -88,7 +89,7 @@ export function useMenuRouteGuard() {
     try {
       if (!auth.user?.id || !auth.hasStoredFullProfile()) {
         const me = await auth.validateToken({ redirect: false });
-        if (!me) return "/login";
+        if (!me) return pendingServerErrorRedirect() ?? "/login";
       }
       if (stale()) return null;
       if (auth.isSuperAdmin) {

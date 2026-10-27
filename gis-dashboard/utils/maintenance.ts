@@ -27,10 +27,12 @@ export function shouldFetchMaintenanceOnRoute(path: string, isAuthenticated: boo
 }
 
 /** Ke mana harus pindah setelah status diketahui; null = tetap di halaman. */
-export function maintenanceRedirect(path: string, maintenance: boolean): string | null {
+export function maintenanceRedirect(path: string, maintenance: boolean, reason?: unknown): string | null {
   const onPage = isMaintenancePath(path);
   if (maintenance && !onPage) return MAINTENANCE_PATH;
-  if (!maintenance && onPage) return "/";
+  // reason=server-error: halaman /maintenance sendiri yang mengurus pemulihan (cek health + kembali ke `from`).
+  const serverError = (Array.isArray(reason) ? reason[0] : reason) === "server-error";
+  if (!maintenance && onPage && !serverError) return "/";
   return null;
 }
 

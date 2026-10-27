@@ -555,6 +555,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         try {
           current = await $api<UploadJob>(
             `${getApiBaseUrl()}/v1/upload-jobs/${current.job_id}`,
+            { skipServerErrorRedirect: true },
           );
           this.jobPollErrors = 0;
           this.activeJob = current;
@@ -604,6 +605,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
       try {
         const job = await $api<UploadJob>(
           `${getApiBaseUrl()}/v1/upload-jobs/${jobId}`,
+          { skipServerErrorRedirect: true },
         );
         this.jobPollErrors = 0;
         this.activeJob = job;
@@ -711,6 +713,7 @@ export const useDocumentUploadStore = defineStore("document-upload", {
         if (savedId) {
           job = await $api<UploadJob>(
             `${baseUrl}/v1/upload-jobs/${savedId}`,
+            { skipServerErrorRedirect: true },
           ).catch(() => null);
         }
         if (!job) {

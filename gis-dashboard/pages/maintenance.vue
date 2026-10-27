@@ -2,16 +2,73 @@
 import bannerImage from '~/assets/image/banner-login.png'
 import logoImage from '~/assets/image/logo-1.svg'
 import { MAINTENANCE_DEFAULT_MESSAGE, MAINTENANCE_STATE_KEY, type MaintenanceStatus } from '~/utils/maintenance'
+import {
+  checkBackendHealth,
+  isServerErrorReason,
+  sanitizeReturnPath,
+  SERVER_RECOVERY_POLL_MS,
+} from '~/utils/serverError'
 
 defineOptions({ name: 'MaintenancePage' })
 useHead({ title: 'Website Sedang Dalam Perbaikan' })
 
-const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null)
-const message = computed(() => state.value?.message || MAINTENANCE_DEFAULT_MESSAGE)
+const SERVER_ERROR_MESSAGE = 'Terjadi gangguan pada server, kami sedang menanganinya.'
 
-function reload() {
+const route = useRoute()
+const config = useRuntimeConfig()
+const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null)
+
+const isServerError = computed(() => isServerErrorReason(route.query.reason))
+const returnPath = computed(() => sanitizeReturnPath(route.query.from))
+const message = computed(() =>
+  isServerError.value ? SERVER_ERROR_MESSAGE : state.value?.message || MAINTENANCE_DEFAULT_MESSAGE,
+)
+const checking = ref(false)
+const stillDown = ref(false)
+
+let timer: ReturnType<typeof setInterval> | null = null
+
+async function checkRecovery() {
+  if (checking.value) return
+  checking.value = true
+  try {
+    const health = await checkBackendHealth(String(config.public.apiBaseUrlPython || ''))
+    if (!health.ok) {
+      stillDown.value = true
+      return
+    }
+    stillDown.value = false
+    if (health.maintenance) {
+      // Server pulih tetapi mode maintenance aktif: tampilkan pesan maintenance dari DB.
+      state.value = { maintenance: true, message: health.message || MAINTENANCE_DEFAULT_MESSAGE }
+      await navigateTo('/maintenance', { replace: true })
+      return
+    }
+    // Muat ulang penuh agar data halaman asal diambil ulang dari server yang sudah pulih.
+    window.location.replace(returnPath.value)
+  }
+  finally {
+    checking.value = false
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  if (isServerError.value) timer = setInterval(checkRecovery, SERVER_RECOVERY_POLL_MS)
+}
+function stopPolling() {
+  if (timer) clearInterval(timer)
+  timer = null
+}
+
+function retry() {
+  if (isServerError.value) return checkRecovery()
   window.location.replace('/')
 }
+
+onMounted(startPolling)
+watch(isServerError, startPolling)
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>
@@ -30,12 +87,16 @@ function reload() {
         <p class="mt-2 text-13 text-[#6b7563]">
           Halaman ini akan kembali otomatis setelah perbaikan selesai. Terima kasih atas kesabaran Anda.
         </p>
+        <p v-if="isServerError && stillDown" class="mt-2 text-12 text-[#a15c2b]" role="status">
+          Server masih belum merespons. Kami akan mencoba lagi otomatis.
+        </p>
         <button
           type="button"
-          class="mt-6 rounded-xl bg-[#638840] px-5 py-2.5 text-13 font-semibold text-white"
-          @click="reload"
+          class="mt-6 rounded-xl bg-[#638840] px-5 py-2.5 text-13 font-semibold text-white disabled:opacity-60"
+          :disabled="checking"
+          @click="retry"
         >
-          Coba Lagi
+          {{ checking ? 'Memeriksa…' : 'Coba Lagi' }}
         </button>
       </section>
     </div>
