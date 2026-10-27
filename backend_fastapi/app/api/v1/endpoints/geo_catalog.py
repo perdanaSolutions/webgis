@@ -13,6 +13,7 @@ from app.api.deps import CanUploadGeojson, CurrentUser, DbSession
 from app.api.params import (
     BlockFilterDep, Bulan, BulanWajib, Limit, Page, Tahun, TahunWajib, UploadedFile, read_upload,
 )
+from app.core.exceptions import not_found
 from app.services import user_access
 from app.services.block_filter import BlockFilter
 from app.services.layers import catalog_service
@@ -35,7 +36,7 @@ class JenisCreateRequest(BaseModel):
     nama: str
     deskripsi: str | None = None
     geometry_type: str = Field(description="POINT | LINESTRING | POLYGON | MULTIPOINT | MULTILINESTRING | MULTIPOLYGON")
-    relasi_blok: bool = Field(True, description="Data terikat ke blok (hierarki kebun)?")
+    relasi_blok: bool = Field(True, description="Wajib true: semua layer terikat blok (hierarki kebun).")
     kolom: list[KolomSchema]
 
 
@@ -136,8 +137,12 @@ def _scoped_filter(db, user, layer: dict, flt: BlockFilter, blok_id: str | None)
     """Filter hierarki + scope wilayah user (seperti layer bawaan). `blok_id` = alias lama untuk kode_blok."""
     if blok_id and not flt.blok:
         flt.blok = blok_id.strip() or None
-    if layer["relasi_blok"]:
-        user_access.apply_data_scope(db, user, flt)
+    if not layer["relasi_blok"]:
+        # Layer lama tanpa relasi blok tidak bisa dibatasi wilayah -> hanya superadmin.
+        if user_access.resolve_scope(db, user).block_clause() is not None:
+            raise not_found("Layer belum terikat blok; data tidak termasuk wilayah yang boleh diakses.")
+        return flt
+    user_access.apply_data_scope(db, user, flt)
     return flt
 
 

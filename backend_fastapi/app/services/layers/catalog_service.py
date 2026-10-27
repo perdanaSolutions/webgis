@@ -201,8 +201,29 @@ def analyze_sample(content: bytes) -> dict:
     }
 
 
+NO_BLOCK_MESSAGE = (
+    "Semua layer wajib terikat ke blok kebun (Estate/Afdeling/Blok) supaya data bisa dibatasi hak akses wilayah. "
+    "relasi_blok=false tidak lagi didukung."
+)
+
+
+def require_block_relation(layer: dict) -> None:
+    """Layer lama dengan relasi_blok=false tidak boleh menerima upload (data tidak bisa dibatasi wilayah)."""
+    if not layer.get("relasi_blok"):
+        raise bad_request(f"Layer '{layer.get('kode')}' belum terikat blok. {NO_BLOCK_MESSAGE}", field="relasi_blok")
+
+
+def _table_has_block_id(db: Session, table_name: str) -> bool:
+    schema, _, table = table_name.partition(".")
+    return bool(db.execute(text(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema = :s AND table_name = :t AND column_name = 'block_id'"
+    ), {"s": schema, "t": table}).first())
+
+
 def create_layer(db: Session, *, kode: str, nama: str, deskripsi: str | None, geometry_type: str, relasi_blok: bool,
                  kolom: list[dict], created_by: str | None) -> dict:
+    if not relasi_blok:
+        raise bad_request(NO_BLOCK_MESSAGE, field="relasi_blok")
     geometry_type = geometry_type.upper().strip()
     if geometry_type not in GEOMETRY_TYPES:
         raise bad_request(f"Tipe geometry '{geometry_type}' tidak didukung.", field="geometry_type")
@@ -268,6 +289,8 @@ def create_layer(db: Session, *, kode: str, nama: str, deskripsi: str | None, ge
 
 def register_legacy(db: Session, *, kode: str, nama: str, deskripsi: str | None, table_name: str, geometry_type: str,
                     relasi_blok: bool, endpoints: dict) -> dict:
+    if not relasi_blok:
+        raise bad_request(NO_BLOCK_MESSAGE, field="relasi_blok")
     geometry_type = geometry_type.upper().strip()
     if geometry_type not in GEOMETRY_TYPES:
         raise bad_request(f"Tipe geometry '{geometry_type}' tidak didukung.", field="geometry_type")
@@ -279,6 +302,8 @@ def register_legacy(db: Session, *, kode: str, nama: str, deskripsi: str | None,
     quote_table(table_name)  # validasi format schema.tabel
     if not db.execute(text("SELECT to_regclass(:t) IS NOT NULL"), {"t": table_name}).scalar():
         raise bad_request(f"Tabel '{table_name}' tidak ditemukan di database.", field="table_name")
+    if not _table_has_block_id(db, table_name):
+        raise bad_request(f"Tabel '{table_name}' tidak punya kolom block_id. {NO_BLOCK_MESSAGE}", field="table_name")
 
     layer_id = db.execute(
         text("""
@@ -297,7 +322,7 @@ def register_legacy(db: Session, *, kode: str, nama: str, deskripsi: str | None,
 
 DEFAULT_LEGACY_LAYERS = [
     {"kode": "blok", "nama": "Blok Kebun", "table_name": "spatial.block_boundaries", "geometry_type": "MULTIPOLYGON",
-     "relasi_blok": False, "deskripsi": "Master data & geometri polygon blok kebun.",
+     "relasi_blok": True, "deskripsi": "Master data & geometri polygon blok kebun.",
      "endpoints": {"upload_analyze": "/blok-geometry/upload-analyze", "upload_execute": "/blok-geometry/upload-execute",
                    "geojson": "/geojson", "list": "/blok", "cleanup_period": "/cleanup-period"}},
     *[
@@ -412,8 +437,9 @@ def _cast(value, data_type: str):
 def _prepare(db: Session, layer: dict, content: bytes, with_wkb: bool = True, progress: Progress = SILENT) -> dict:
     progress.stage("membaca_file")
     features = parse_features(content)
+    require_block_relation(layer)
     columns = _attribute_columns(db, layer)
-    has_block = layer["relasi_blok"]
+    has_block = True
     has_objectid = any(c["column"] == "objectid" for c in columns)
     stats = {"total": len(features), "invalid_props": 0, "invalid_geom": 0, "duplicates": 0, "invalid_values": 0}
     invalid_samples: list[str] = []
