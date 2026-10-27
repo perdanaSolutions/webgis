@@ -621,7 +621,7 @@ onBeforeUnmount(() => {
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
-            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
+            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope" :field-loading="store.fieldLoading"
             :filter-generation="store.filterGeneration" @update:grup="store.setGrup" @update:area="store.setArea"
             @update:pt="store.setPt" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
             @update:blok="store.setBlok" @update:ownership="store.setOwnership" @update:bulan="store.setBulan"
