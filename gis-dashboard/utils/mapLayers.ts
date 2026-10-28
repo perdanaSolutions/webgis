@@ -278,7 +278,8 @@ export type OverlayStyle = {
   popupFields: Array<[string, string]>;
 };
 
-const BLOCK_FIELDS: Array<[string, string]> = [
+/** Tiga baris pertama semua popup layer (t121u): Estate, Afdeling, Blok — mengikuti slope. */
+export const BLOCK_FIELDS: Array<[string, string]> = [
   ["kode_est", "Estate"],
   ["kode_afd", "Afdeling"],
   ["kode_blok", "Blok"],
@@ -291,11 +292,11 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     defaultColor: "#64748b",
     radius: 3,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["objectid", "Object ID"],
       ["kategori", "Kondisi"],
       ["diameter", "Diameter"],
       ["jarak", "Jarak"],
-      ...BLOCK_FIELDS,
     ],
   },
   tph: {
@@ -304,9 +305,9 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     defaultColor: "#f97316",
     radius: 5,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["tph_id", "ID TPH"],
       ["kategori", "Kategori"],
-      ...BLOCK_FIELDS,
     ],
   },
   slope: {
@@ -335,11 +336,11 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     weight: 0.6,
     fillOpacity: 0.55,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["landuse", "Land Use"],
       ["landuse_class", "Kelas"],
       ["ownership", "Kepemilikan"],
       ["luas", "Luas (ha)"],
-      ...BLOCK_FIELDS,
     ],
   },
   jalan: {
@@ -353,26 +354,27 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     defaultColor: "#a16207",
     weight: 3,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["kategori", "Kategori"],
       ["lebar", "Lebar (m)"],
       ["panjang", "Panjang (m)"],
       ["ownership", "Kepemilikan"],
-      ...BLOCK_FIELDS,
     ],
   },
   jembatan: {
     defaultColor: "#0284c7",
     radius: 7,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["kategori", "Kategori"],
       ["objectid", "Object ID"],
-      ...BLOCK_FIELDS,
     ],
   },
   drainase: {
     defaultColor: "#0891b2",
     radius: 5,
     popupFields: [
+      ...BLOCK_FIELDS,
       ["nama", "Nama"],
       ["kategori", "Kategori"],
       ["jenis", "Jenis"],
@@ -381,7 +383,6 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
       ["kedalaman", "Kedalaman"],
       ["kondisi", "Kondisi"],
       ["keterangan", "Keterangan"],
-      ...BLOCK_FIELDS,
     ],
   },
 };

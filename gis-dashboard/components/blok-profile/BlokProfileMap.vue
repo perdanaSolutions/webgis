@@ -12,7 +12,7 @@ import {
   probeWmsReachable,
   type BasemapStatus,
 } from "~/utils/mapBasemap";
-import { BASEMAPS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory, readPlantingYear } from "~/utils/mapLayers";
+import { BASEMAPS, BLOCK_FIELDS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory, readPlantingYear } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -794,12 +794,15 @@ function overlayPane(type: string) {
   return t.includes("POINT") ? "bp-points" : t.includes("LINE") ? "bp-lines" : "bp-polygons";
 }
 
+const BLOCK_KEYS = new Set(BLOCK_FIELDS.map(([key]) => key));
+
 function overlayFields(layer: OverlayLayer, properties: Record<string, any>): Array<[string, string]> {
   const named = layer.style.popupFields.filter(([key]) => {
     const value = properties[key];
     return value !== null && value !== undefined && value !== "";
   });
-  if (named.length) return named;
+  // Estate/Afdeling/Blok selalu 3 baris teratas (t121u); "-" bila memang kosong.
+  if (named.length) return [...BLOCK_FIELDS, ...named.filter(([key]) => !BLOCK_KEYS.has(key))];
   return Object.keys(properties)
     .filter((key) => !HIDDEN_POPUP_KEYS.has(key) && properties[key] !== null && properties[key] !== undefined && properties[key] !== "" && typeof properties[key] !== "object")
     .map((key) => [key, POPUP_LABELS[key] ?? key.replace(/_/g, " ")]);
@@ -810,7 +813,7 @@ function overlayPopup(layer: OverlayLayer, properties: Record<string, any>) {
     .map(([key, label]) => {
       const raw = properties[key];
       const estate = key === "kode_est" ? props.estateShortNames?.[String(raw ?? "").trim()] : undefined;
-      const value = estate || (typeof raw === "number" ? fmt(raw, 2) : raw);
+      const value = estate || (typeof raw === "number" ? fmt(raw, 2) : raw === null || raw === undefined || raw === "" ? "-" : raw);
       return `<div class="bp-detail-row"><span>${escapeHtml(label)}</span><span>:</span><span>${escapeHtml(value)}</span></div>`;
     })
     .join("");
