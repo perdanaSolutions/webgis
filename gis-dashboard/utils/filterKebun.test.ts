@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockOptionsFrom, geometrySimplifyMeters, isAllScope } from "./filterKebun";
+import { afdelingOptionsFrom, blockOptionsFrom, geometrySimplifyMeters, isAllScope } from "./filterKebun";
 
 describe("filterKebun", () => {
   it("Semua area / area / PT -> geometri disederhanakan 1 m; estate ke bawah asli", () => {
@@ -11,6 +11,22 @@ describe("filterKebun", () => {
   it("isAllScope: semua field kosong = semua wilayah hak akses", () => {
     expect(isAllScope({ area: "", pt: "", estate: "", afdeling: "", blokId: "" })).toBe(true);
     expect(isAllScope({ area: "BERAU", pt: "", estate: "", afdeling: "", blokId: "" })).toBe(false);
+  });
+
+  it("opsi afdeling: kode kembar digabung jadi satu", () => {
+    expect(
+      afdelingOptionsFrom([
+        { kode_afd: "AFDI02" },
+        { kode_afd: "AFDI01" },
+        { kode_afd: "AFDI02" },
+        { kode_afd: "AFDI02" },
+        { kode_afd: "" },
+        { kode_afd: null },
+      ]),
+    ).toEqual([
+      { label: "AFDI01", value: "AFDI01" },
+      { label: "AFDI02", value: "AFDI02" },
+    ]);
   });
 
   it("opsi blok: urut, kode kembar diberi estate/afdeling, id kosong dibuang", () => {

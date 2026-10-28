@@ -108,6 +108,14 @@
   font-family: inherit;
   height: 46px;
   min-height: 46px;
+  max-height: 46px;
+  overflow: hidden;
+}
+.bp-autocomplete .v-autocomplete__selection {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bp-autocomplete .v-field__overlay {
   opacity: 0;

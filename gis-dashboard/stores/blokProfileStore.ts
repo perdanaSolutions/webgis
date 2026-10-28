@@ -4,7 +4,7 @@ import { defineStore } from "pinia";
 import { useAuthStore } from "~/stores/authStore";
 import { expandTransactionGrants, grantCovers } from "~/utils/accessGrants";
 import { fetchMapCached } from "~/utils/mapCacheSchema";
-import { blockOptionsFrom, geometrySimplifyMeters } from "~/utils/filterKebun";
+import { afdelingOptionsFrom, blockOptionsFrom, geometrySimplifyMeters } from "~/utils/filterKebun";
 import { popupPeriodFromProperties } from "~/utils/mapBlokPopup";
 import { readBudgetCategory } from "~/utils/mapLayers";
 
@@ -862,7 +862,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       epoch,
     );
     if (!filterAlive(epoch)) return;
-    afdelingOptions.value = items
+    // Satu kode_afd boleh muncul di banyak estate ("Semua estate"). Nilai ganda
+    // di v-autocomplete membuat chip AFDI02 menumpuk dan meluber ke field Blok.
+    const filtered = items
       .filter((item) => isAfdelingAllowed(item))
       .filter(
         (item) =>
@@ -870,8 +872,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
           !area.value ||
           !estateCodes.size ||
           estateCodes.has(norm(item.kode_est)),
-      )
-      .map((item) => ({ label: item.kode_afd, value: item.kode_afd }));
+      );
+    afdelingOptions.value = afdelingOptionsFrom(filtered);
   }
 
   // ------------------------------------------------------------------ scope & data
@@ -1275,10 +1277,18 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     }
   }
 
+  /** Remount dropdown Filter Kebun agar pilihan anak tidak menahan label lama setelah cascade. */
+  function remountFilterFields() {
+    filterGeneration.value += 1;
+  }
+
   /** Estate yang dipilih menyaring afdeling dan blok. Kosong = semua data pada area. */
   async function refillFromEstate(epoch: number) {
     afdeling.value = "";
     blokId.value = "";
+    afdelingOptions.value = [];
+    blokOptions.value = [];
+    remountFilterFields();
     await loadAfdelings();
     if (!filterAlive(epoch)) return;
     await loadBloks();
@@ -1293,6 +1303,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blokId.value = "";
     afdelingOptions.value = [];
     blokOptions.value = [];
+    remountFilterFields();
     await loadEstates();
     if (!filterAlive(epoch)) return;
     await loadAfdelings();
@@ -1361,7 +1372,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     );
     if (next === afdeling.value) return;
     afdeling.value = next;
+    // Ganti afdeling → blok wajib reset lalu muat ulang opsi sesuai afdeling baru.
     blokId.value = "";
+    blokOptions.value = [];
+    remountFilterFields();
     await loadBloks();
   }
 

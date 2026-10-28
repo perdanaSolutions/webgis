@@ -178,7 +178,7 @@ function go(next: number) {
       </div>
 
       <div>
-        <p class="mb-2 text-13 font-bold text-[#1f2a18]">Slope (Kemiringan Lereng) :</p>
+        <p class="mb-2 text-13 font-bold text-[#1f2a18]">Total Slope Kemiringan Lereng</p>
         <div class="overflow-x-auto rounded-xl border border-[#c5cdd4]">
           <table class="w-full min-w-[460px] border-collapse text-center text-12">
             <thead>

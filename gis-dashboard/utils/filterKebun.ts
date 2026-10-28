@@ -13,6 +13,19 @@ export function geometrySimplifyMeters(scope: Pick<FilterScope, "estate" | "afde
 
 export type BlockOptionRow = { blok_id: string | number; kode_blok?: string | null; kode_afd?: string | null; kode_est?: string | null };
 
+/** Opsi dropdown afdeling: unik per kode_afd (kode sama di banyak estate digabung). */
+export function afdelingOptionsFrom(
+  rows: Array<{ kode_afd?: string | null }>,
+): Array<{ label: string; value: string }> {
+  const unique = new Map<string, { label: string; value: string }>();
+  for (const row of rows) {
+    const code = String(row.kode_afd ?? "").trim();
+    if (!code || unique.has(code)) continue;
+    unique.set(code, { label: code, value: code });
+  }
+  return [...unique.values()].sort((a, b) => a.label.localeCompare(b.label, "id"));
+}
+
 /** Opsi dropdown blok: label = kode blok (+ afdeling/estate bila kode sama muncul di beberapa tempat), urut kode. */
 export function blockOptionsFrom(rows: BlockOptionRow[]): Array<{ label: string; value: string }> {
   const counts = new Map<string, number>();

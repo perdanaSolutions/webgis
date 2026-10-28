@@ -59,7 +59,7 @@ const rows = computed(() => {
       kerangka,
       { label: "Luas Tanam", value: `${num(props.summary.luas)} Ha` },
       { label: "Total Pokok", value: num(props.summary.pokok, 0) },
-      { label: "SPH Rata-rata", value: num(sph, 0) },
+      { label: "SPH", value: num(sph, 0) },
     ];
   }
   const info = props.detail?.informasi_blok ?? {};
@@ -75,7 +75,7 @@ const rows = computed(() => {
     { label: "Tahun Tanam", value: info.tahun_tanam ?? "-" },
     { label: "Jenis Tanah", value: info.jenis_tanah ?? "-" },
     { label: "Bibit", value: info.jenis_bibit ?? "-" },
-    { label: "Transaksi Year to Date", value: updated },
+    { label: "Pembaruan Data", value: updated },
   ];
 });
 </script>

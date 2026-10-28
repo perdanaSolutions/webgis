@@ -46,7 +46,7 @@ const props = defineProps<{
   allowAll?: boolean;
   /** Indikator memuat per field (area/estate/afdeling/blok). */
   fieldLoading?: Partial<Record<FieldKey, boolean>>;
-  /** Naik setiap filter dikosongkan, supaya input tidak menahan pilihan lama. */
+  /** Naik setiap Reset atau cascade (ganti grup→afdeling), supaya anak tidak menahan pilihan lama. */
   filterGeneration: number;
   /** Bagian yang ditampilkan. Tiap tombol collapse membuka satu bagian. */
   section: "filter" | "layer" | "basemap";
