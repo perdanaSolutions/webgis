@@ -286,6 +286,13 @@ export const BLOCK_FIELDS: Array<[string, string]> = [
 ];
 
 export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
+  // Batas afdeling (garis kuning-oranye tanpa isi); popup khusus di utils/afdelingBoundary.ts.
+  afdeling: {
+    defaultColor: "#f59e0b",
+    weight: 2.75,
+    fillOpacity: 0,
+    popupFields: [],
+  },
   sawit: {
     colorBy: "kategori",
     colors: { Normal: "#16a34a", Kuning: "#eab308", Mati: "#dc2626" },

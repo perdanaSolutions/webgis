@@ -473,9 +473,9 @@ onBeforeUnmount(() => {
           :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
-          :show-area-bubbles="allScopeSelected" :area-names="areaNames"
-          :estate-short-names="store.estateShortNames"
-          @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" @map-click="closePanels" />
+          :show-area-bubbles="allScopeSelected" :area-names="areaNames" :estate-short-names="store.estateShortNames"
+          :selected-afdeling="store.scopeParams.kode_afd" @select="onSelectBlock" @deselect="onDeselectBlock"
+          @basemap-status="onBasemapStatus" @map-click="closePanels" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -647,11 +647,11 @@ onBeforeUnmount(() => {
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
             :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
-            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope" :field-loading="store.fieldLoading"
-            :filter-generation="store.filterGeneration" @update:grup="store.setGrup" @update:area="store.setArea"
-            @update:pt="store.setPt" @update:estate="store.setEstate" @update:afdeling="store.setAfdeling"
-            @update:blok="store.setBlok" @update:ownership="store.setOwnership" @update:bulan="store.setBulan"
-            @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
+            :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
+            :field-loading="store.fieldLoading" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
+            @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
+            @update:afdeling="store.setAfdeling" @update:blok="store.setBlok" @update:ownership="store.setOwnership"
+            @update:bulan="store.setBulan" @update:tahun="store.setTahun" @update:year-to-date="store.setYearToDate"
             @update:bulan-comparison="store.setBulanComparison" @update:tahun-comparison="store.setTahunComparison"
             @reset="onResetFilters" @apply="onApplyFilters" @toggle-layer="overlays.toggle"
             @toggle-blocks="showBlocks = !showBlocks" @toggle-yield-gap="toggleYieldGap"
@@ -716,8 +716,7 @@ onBeforeUnmount(() => {
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
           <ProductionChartCard :years="store.productionYears" :loading="store.loadingProduction" />
           <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
-            :months="store.selectedBlokId ? store.productionYears : null"
-            :loading="store.loadingProduction" />
+            :months="store.selectedBlokId ? store.productionYears : null" :loading="store.loadingProduction" />
         </div>
         <div v-else-if="activeRight === 'slope' && slopeLayerOn" id="bp-panel-slope" class="bp-collapse-panel">
           <SlopeInfoCard :features="slopeLayer?.data?.features ?? emptyFeatures" :loading="Boolean(slopeLayer?.loading)"

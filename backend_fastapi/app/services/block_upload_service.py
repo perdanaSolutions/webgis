@@ -23,6 +23,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services import division_boundary_service
 from app.services.data_version import GEOJSON, bump
 from app.services.upload import context as part_context
 from app.services.upload import quarantine
@@ -705,9 +706,12 @@ def execute(db: Session, content: bytes, filename: str | None, bulan: int, tahun
     }
     finish_batch(db, batch_id, status, success,
                  last_error or (None if status == "SUCCESS" else "Sebagian data tidak valid."), {"detail_statistik": stats})
+    # Data blok sudah di-commit. Batas afdeling dihitung di sesi terpisah: gagal di sini tidak membatalkan upload.
+    afdeling = (division_boundary_service.refresh_after_block_change(db.get_bind(), block_ids=saved_blocks, period=period)
+                if saved_blocks else {"status": "dilewati", "alasan": "Tidak ada batas blok yang tersimpan."})
     return {
         "batch_id": str(batch_id), "total_data_diproses": len(features), "status_proses": status,
-        "detail_status": stats, "versi_penyimpanan": stored_version,
+        "detail_status": stats, "versi_penyimpanan": stored_version, "batas_afdeling": afdeling,
     }
 
 
@@ -729,7 +733,10 @@ def cleanup_period(db: Session, bulan: int, tahun: int, generic_tables: list[tup
         deleted[label] = db.execute(text(f"DELETE FROM {quote_table(table)} WHERE period = :p"), {"p": period}).rowcount
     stored_version = bump(db, GEOJSON) if any(deleted.values()) else None
     db.commit()
+    afdeling = (division_boundary_service.refresh_after_block_change(db.get_bind(), period=period, all_in_period=True)
+                if deleted.get("geometri_polygon_blok") else None)
     return {
+        **({"batas_afdeling": afdeling} if afdeling else {}),
         "status": "success",
         "periode": period_label(period),
         "detail_terhapus": deleted,
