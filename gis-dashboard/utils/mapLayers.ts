@@ -315,11 +315,12 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     defaultColor: "#fca5a5",
     weight: 0.6,
     fillOpacity: 0.55,
+    // Urutan permintaan Bayu (t120u): Estate, Afdeling, Blok, Kelerengan, Kategori, Luas.
     popupFields: [
+      ...BLOCK_FIELDS,
       ["kelerengan", "Kelerengan (%)"],
       ["kategori", "Kategori"],
       ["luas", "Luas (ha)"],
-      ...BLOCK_FIELDS,
     ],
   },
   landuse: {

@@ -52,6 +52,8 @@ const props = defineProps<{
   showAreaBubbles?: boolean;
   /** kode_area -> nama area (dari opsi Filter Kebun). */
   areaNames?: Record<string, string>;
+  /** kode_est -> short name estate untuk baris "Estate" di popup layer data. */
+  estateShortNames?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -807,7 +809,8 @@ function overlayPopup(layer: OverlayLayer, properties: Record<string, any>) {
   const rows = overlayFields(layer, properties)
     .map(([key, label]) => {
       const raw = properties[key];
-      const value = typeof raw === "number" ? fmt(raw, 2) : raw;
+      const estate = key === "kode_est" ? props.estateShortNames?.[String(raw ?? "").trim()] : undefined;
+      const value = estate || (typeof raw === "number" ? fmt(raw, 2) : raw);
       return `<div class="bp-detail-row"><span>${escapeHtml(label)}</span><span>:</span><span>${escapeHtml(value)}</span></div>`;
     })
     .join("");
@@ -818,57 +821,10 @@ function overlayPopup(layer: OverlayLayer, properties: Record<string, any>) {
   return `<div class="bp-popup"><div class="bp-popup-title"><span class="bp-dot" style="background:${escapeHtml(layer.style.defaultColor)}"></span>${escapeHtml(layer.name)}${period}</div>${body}</div>`;
 }
 
-function slopeClassLabel(value: string) {
-  const text = value.trim().replace(/%/g, "");
-  return text ? `${text}%` : "";
-}
-
+/* Label "Slope · <blok>" dihapus (t120u): hanya label blok putih yang tampil. */
 function clearSlopeLabels() {
-  slopeLabelLayer?.removeFrom(map!);
+  if (map) slopeLabelLayer?.removeFrom(map);
   slopeLabelLayer = null;
-}
-
-/** Satu label per blok, di tengah kumpulan poligon slope blok itu. */
-function renderSlopeLabels(geo: import("leaflet").GeoJSON) {
-  if (!Lf || !map) return;
-  clearSlopeLabels();
-  const groups = new Map<string, { kode: string; classes: Set<string>; lat: number; lng: number; n: number }>();
-  geo.eachLayer((layer: any) => {
-    const feature = layer.feature as GeoJSON.Feature | undefined;
-    const properties = (feature?.properties ?? {}) as Record<string, any>;
-    const kode = String(properties.kode_blok ?? "").trim();
-    const id = String(properties.blok_id ?? `${properties.kode_est ?? ""}|${properties.kode_afd ?? ""}|${kode}`);
-    const bounds = layer.getBounds?.() as import("leaflet").LatLngBounds | undefined;
-    if (!bounds?.isValid?.()) return;
-    const center = bounds.getCenter();
-    const kelas = String(properties.kelerengan ?? "").trim();
-    const current = groups.get(id);
-    if (!current) {
-      groups.set(id, { kode, classes: new Set(kelas ? [kelas] : []), lat: center.lat, lng: center.lng, n: 1 });
-      return;
-    }
-    current.n += 1;
-    current.lat += center.lat;
-    current.lng += center.lng;
-    if (kelas) current.classes.add(kelas);
-  });
-
-  slopeLabelLayer = Lf.layerGroup();
-  groups.forEach((group) => {
-    const classes = [...group.classes];
-    const kelas = classes.length === 1 ? slopeClassLabel(classes[0] ?? "") : "";
-    const title = ["Slope", group.kode, kelas].filter(Boolean).join(" · ");
-    Lf!.marker([group.lat / group.n, group.lng / group.n], {
-      pane: "bp-labels",
-      interactive: false,
-      icon: Lf!.divIcon({
-        className: "bp-slope-label",
-        html: `<div class="bp-slope-pill">${escapeHtml(title)}</div>`,
-        iconSize: [0, 0],
-      }),
-    }).addTo(slopeLabelLayer!);
-  });
-  updateSlopeLabelVisibility();
 }
 
 function updateSlopeLabelVisibility() {
@@ -937,7 +893,6 @@ function renderOverlays() {
     (geo as any)._bpData = layer.data;
     geo.addTo(map);
     overlayLayers.set(layer.code, geo);
-    if (layer.code === "slope") renderSlopeLabels(geo);
   }
 }
 
