@@ -24,6 +24,8 @@ import {
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
 import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
+import { areaBubblesVisible, bubbleSize, groupBlocksByArea } from "~/utils/areaBubbles";
+import { installSmoothWheelZoom } from "~/utils/smoothWheelZoom";
 import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
@@ -46,6 +48,10 @@ const props = defineProps<{
   requestDetail: (blokId: string, bulan: string, tahun: string) => Promise<Record<string, any>>;
   /** Periode awal popup untuk properti blok (bulan produksi yang mewarnai blok). */
   popupPeriod: (properties?: Record<string, any>) => { bulan: string; tahun: string };
+  /** Filter Kebun "Semua" di semua level -> tampilkan bubble jumlah blok per area. */
+  showAreaBubbles?: boolean;
+  /** kode_area -> nama area (dari opsi Filter Kebun). */
+  areaNames?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -90,6 +96,8 @@ const LABEL_MAX_SCALE_M = 2000;
 /** Batas jumlah label di layar sekaligus (hanya blok di dalam area pandang yang diberi label). */
 const LABEL_MAX_ON_SCREEN = 900;
 let labelMarkers: import("leaflet").Marker[] = [];
+let areaBubbleLayer: import("leaflet").LayerGroup | null = null;
+let stopSmoothWheel: (() => void) | null = null;
 /** Lebar garis skala (px) — dasar definisi "100 m" dan "500 m". */
 const SCALE_PX = 100;
 /** Padding simetris saat fit semua blok. */
@@ -202,7 +210,12 @@ function mountBasemap(option: (typeof BASEMAPS)[number]) {
   stopBasemapWatch = null;
   basemapLayers.forEach((layer) => layer.removeFrom(map!));
   applyBasemapZoom(map, option);
-  basemapLayers = option.tiles.map((tile) => createBasemapTileLayer(Lf!, tile).addTo(map!));
+  basemapLayers = option.tiles.map((tile) => {
+    const layer = createBasemapTileLayer(Lf!, tile);
+    // Ubin baru dimuat setelah gestur zoom berhenti (bukan tiap frame); ubin sekitar disimpan agar pan mulus.
+    Object.assign(layer.options, { updateWhenZooming: false, keepBuffer: 4 });
+    return layer.addTo(map!);
+  });
 }
 
 async function applyBasemap() {
@@ -578,6 +591,7 @@ function renderBlocks(fit: boolean) {
 
     if (props.showBlocks) blockLayer.addTo(map);
     renderBlockMarks();
+    renderAreaBubbles();
     if (fit) fitVisibleBlocks();
     renderSelected();
   } finally {
@@ -629,6 +643,69 @@ function renderBlockMarks() {
   });
 
   updateLabelVisibility();
+}
+
+/** Bubble jumlah blok per area: dihitung sekali per data GeoJSON, bukan setiap zoom. */
+function renderAreaBubbles() {
+  if (!Lf || !map) return;
+  areaBubbleLayer?.removeFrom(map);
+  areaBubbleLayer = null;
+  if (!props.showAreaBubbles || !props.blocks?.features?.length) return;
+  areaBubbleLayer = Lf.layerGroup();
+  for (const b of groupBlocksByArea(props.blocks.features)) {
+    const size = bubbleSize(b.count);
+    const areaName = props.areaNames?.[b.kodeArea] || b.kodeArea || "-";
+    const marker = Lf.marker([b.lat, b.lng], {
+      pane: "bp-bubbles",
+      keyboard: true,
+      title: `${areaName}: ${b.count} blok`,
+      icon: Lf.divIcon({
+        className: "bp-area-bubble",
+        html: `<span style="width:${size}px;height:${size}px">${b.count.toLocaleString("id-ID")}</span>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+      }),
+    });
+    marker.bindPopup(
+      `<div class="bp-popup"><div class="bp-popup-title"><span class="bp-dot" style="background:#e07b2a"></span>Jumlah Blok per Area</div>`
+      + `<div class="bp-detail-row"><span>Nama PT</span><span>:</span><span>${escapeHtml(b.namaPt || "-")}</span></div>`
+      + `<div class="bp-detail-row"><span>Area</span><span>:</span><span>${escapeHtml(areaName)}</span></div>`
+      + `<div class="bp-detail-row"><span>Total blok</span><span>:</span><span>${b.count.toLocaleString("id-ID")}</span></div></div>`,
+      { className: "bp-popup-wrap", maxWidth: viewportPopupMaxWidth(280), autoPan: !isMobileViewport(), ...popupPanPadding() },
+    );
+    // Klik bubble = klik di peta: kartu kiri/kanan ditutup agar popup terlihat (terutama di mobile).
+    marker.on("click", () => emit("map-click"));
+    marker.on("popupopen", () => centerPopupOnMobile(marker));
+    marker.addTo(areaBubbleLayer);
+  }
+  syncAreaBubbles();
+}
+
+function syncAreaBubbles() {
+  if (!map || !areaBubbleLayer) return;
+  syncMarkLayer(areaBubbleLayer, areaBubblesVisible(currentScaleMeters()));
+}
+
+/**
+ * Pekerjaan setelah zoom/pan (culling label, visibilitas label/bubble/slope) dijadwalkan sekali per frame
+ * dan dilewati bila zoom & area pandang tidak berubah — tidak dijalankan di tengah gestur.
+ */
+let viewWorkRaf = 0;
+let lastViewKey = "";
+function scheduleViewWork() {
+  if (viewWorkRaf) return;
+  viewWorkRaf = requestAnimationFrame(() => {
+    viewWorkRaf = 0;
+    if (!map) return;
+    const b = map.getBounds();
+    const key = `${map.getZoom().toFixed(4)}|${b.toBBoxString()}`;
+    if (key === lastViewKey) return;
+    lastViewKey = key;
+    updateLabelVisibility();
+    if (labelLayer && map.hasLayer(labelLayer)) cullLabels();
+    updateSlopeLabelVisibility();
+    syncAreaBubbles();
+  });
 }
 
 function syncMarkLayer(layer: import("leaflet").LayerGroup | null, visible: boolean) {
@@ -894,7 +971,7 @@ onMounted(async () => {
   // zoomSnap 0: scroll/trackpad/pinch bebas mengikuti gerakan user (tanpa pembulatan level zoom),
   // juga tidak ada "lompatan" scroll pertama setelah zoom pecahan dari tombol +/−.
   map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true, zoomSnap: 0 }).setView([1.2, 117.5], 7);
-  for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
+  for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450], ["bp-bubbles", 460]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
@@ -922,14 +999,12 @@ onMounted(async () => {
     if (labelTimer) clearTimeout(labelTimer);
     labelTimer = setTimeout(() => labelPane.classList.remove("is-zooming"), 150);
   });
-  map.on("moveend", () => {
-    if (labelLayer && map!.hasLayer(labelLayer)) cullLabels();
-  });
   map.on("zoomend", () => {
     if (buttonScale !== null && (buttonZoom === null || Math.abs(map!.getZoom() - buttonZoom) > 1e-6)) buttonScale = null;
-    updateLabelVisibility();
-    updateSlopeLabelVisibility();
   });
+  map.on("moveend", scheduleViewWork);
+  // Wheel/trackpad/pinch-trackpad halus (rAF), menggantikan scrollWheelZoom bawaan (debounce 40 ms + animasi per langkah).
+  stopSmoothWheel = installSmoothWheelZoom(map, Lf);
   map.on("click", (event) => {
     emit("map-click");
     const layer = blockAt(event.latlng);
@@ -946,6 +1021,8 @@ onBeforeUnmount(() => {
   rebuilding = true;
   basemapToken += 1;
   stopBasemapWatch?.();
+  stopSmoothWheel?.();
+  if (viewWorkRaf) cancelAnimationFrame(viewWorkRaf);
   map?.remove();
   map = null;
   overlayLayers.clear();
@@ -984,6 +1061,7 @@ watch(() => [props.showYieldGap, props.showPlantingYear], () => {
   renderSelected();
 });
 watch(() => props.basemap, applyBasemap);
+watch(() => [props.showAreaBubbles, props.areaNames], renderAreaBubbles);
 watch(() => props.insets, applyInsets, { deep: true });
 </script>
 
@@ -992,7 +1070,27 @@ watch(() => props.insets, applyInsets, { deep: true });
 </template>
 
 <style>
-.bp-map { background: #3f4a3a; }
+.bp-map {
+  background: #3f4a3a;
+  /* Gestur di atas peta milik peta: halaman/induk tidak ikut scroll, tidak ada pull-to-refresh. */
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.bp-area-bubble { background: none; border: none; }
+.bp-area-bubble span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 9999px;
+  background: rgba(224, 123, 42, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.bp-area-bubble:hover span, .bp-area-bubble:focus span { background: #c9661c; }
 .bp-map .leaflet-bp-blocks-pane path { pointer-events: all !important; }
 
 .bp-map .leaflet-bp-labels-pane.is-zooming { display: none; }
