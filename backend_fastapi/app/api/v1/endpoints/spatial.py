@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 
 from app.api import deps
 from app.api.params import read_upload
-from app.core.exceptions import bad_request
+from app.core.exceptions import AppError, bad_request
 from app.schemas.spatial import PaginatedResponse
 from app.services import (
-    area_statement_summary_service, block_detail_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
+    area_statement_summary_service, block_detail_service, division_boundary_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
     user_access,
 )
 from app.services.block_filter import BlockFilter
@@ -253,6 +253,34 @@ def get_blocks_geojson(
     comparison = (bulan_comparison, tahun_comparison) if bulan_comparison is not None else None
     return map_service.blocks_geojson(db, flt, bulan, tahun, year_to_date=year_to_date, comparison=comparison,
                                       hide_keys=hide_keys, simplify_m=simplify)
+
+
+@router.get("/afdeling/geojson", summary="GeoJSON batas afdeling per periode (gabungan batas blok)",
+            description="Satu fitur per afdeling dari `spatial.division_boundaries`: batas TERBARU dengan periode <= "
+                        "bulan/tahun diminta (tanpa periode = terbaru), semantik sama dengan `GET /spatial/geojson`. "
+                        "Filter dan hak akses wilayah sama dengan GeoJSON blok (afdeling tampil bila minimal satu "
+                        "bloknya masuk filter). Properti: `kode_est`, `estate_short_name`, `kode_afd`, `n_blok`, "
+                        "`luas_ha`, `periode_batas`, `sumber` (derived/official).")
+def get_afdeling_geojson(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+    area_id: Optional[str] = Query(None),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    bulan: Optional[int] = Query(None, ge=1, le=12),
+    tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    if bulan is not None and tahun is None:
+        raise bad_request("tahun wajib diisi bila bulan diisi.", field="tahun")
+    if not division_boundary_service.table_exists(db):
+        raise AppError(503, "Tabel spatial.division_boundaries belum ada. Jalankan migrasi 021 "
+                                  "(python -m scripts.apply_migrations) lalu backfill "
+                                  "(python -m scripts.backfill_division_boundaries --all).", type_="service_unavailable")
+    flt = BlockFilter(grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd)
+    user_access.apply_data_scope(db, current_user, flt)
+    return division_boundary_service.afdeling_geojson(db, flt, bulan, tahun)
 
 
 @router.get("/blok/detail", summary="Atribut popup peta blok")
