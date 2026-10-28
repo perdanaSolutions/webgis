@@ -18,15 +18,22 @@ const route = useRoute()
 const config = useRuntimeConfig()
 const state = useState<MaintenanceStatus | null>(MAINTENANCE_STATE_KEY, () => null)
 
-const isServerError = computed(() => isServerErrorReason(route.query.reason))
+// Alasan lokal: server-error -> maintenance cukup ubah state ini, TANPA navigasi (cegah remount + cek ulang).
+const reasonSwitchedToMaintenance = ref(false)
+const isServerError = computed(() => !reasonSwitchedToMaintenance.value && isServerErrorReason(route.query.reason))
 const message = computed(() =>
   isServerError.value ? SERVER_ERROR_MESSAGE : state.value?.message || MAINTENANCE_DEFAULT_MESSAGE,
 )
 const checking = ref(false)
 
-// Sudah benar-benar di /maintenance: hapus seluruh sesi login (SSR: Set-Cookie expire; client: storage + state).
+// Sudah benar-benar di /maintenance: hapus seluruh sesi login sekali per muat halaman
+// (SSR: Set-Cookie expire; client: storage + state). Logout best-effort memakai $fetch mentah (tanpa handler redirect).
 const nuxtApp = useNuxtApp()
-await clearLoginSession(nuxtApp)
+const sessionCleared = useState('maintenance-session-cleared', () => false)
+if (!sessionCleared.value || import.meta.client) {
+  await clearLoginSession(nuxtApp)
+  if (import.meta.server) sessionCleared.value = true
+}
 const stillDown = ref(false)
 
 let timer: ReturnType<typeof setInterval> | null = null
@@ -44,7 +51,7 @@ async function checkRecovery() {
     if (health.maintenance) {
       // Mode maintenance masih aktif: tetap di sini, tampilkan pesan dari API.
       state.value = { maintenance: true, message: health.message || MAINTENANCE_DEFAULT_MESSAGE }
-      if (isServerError.value) await navigateTo('/maintenance', { replace: true })
+      reasonSwitchedToMaintenance.value = true
       return
     }
     // Sesi sudah dihapus saat masuk halaman ini: user wajib login ulang (muat ulang penuh).
@@ -74,7 +81,6 @@ onMounted(() => {
   // Isi pesan dari API bila belum ada (mis. reload langsung di /maintenance).
   if (!isServerError.value && !state.value?.message) void checkRecovery()
 })
-watch(isServerError, startPolling)
 onBeforeUnmount(stopPolling)
 </script>
 

@@ -1,11 +1,17 @@
 import { watch } from "vue";
 import { accessTokenExpiryMs, isAccessTokenExpired } from "~/utils/authSession";
+import { isOnMaintenancePage } from "~/utils/maintenance";
 
 export default defineNuxtPlugin((nuxtApp) => {
   const auth = useAuthStore();
   let timer = 0;
+  const appBase = useRuntimeConfig().app.baseURL;
+  // Di /maintenance sesi memang sudah dihapus: JANGAN lempar ke /login (middleware /login akan
+  // mengembalikan ke /maintenance -> loop reload tanpa henti selama maintenance aktif).
+  const onMaintenance = () => isOnMaintenancePage(window.location.pathname, appBase);
 
   function leaveIfSessionEnded() {
+    if (onMaintenance()) return;
     if (window.location.pathname === "/login") return;
     if (auth.token && !isAccessTokenExpired(auth.token)) return;
     auth.clearAuthData();
@@ -28,6 +34,8 @@ export default defineNuxtPlugin((nuxtApp) => {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") leaveIfSessionEnded();
     });
+
+    if (onMaintenance()) return;
 
     if (window.location.pathname === "/login") {
       armExpiryTimer();

@@ -1,6 +1,7 @@
 import {
   fetchMaintenanceStatus,
   isMaintenancePath,
+  isOnMaintenancePage,
   maintenanceRedirect,
   MAINTENANCE_POLL_MS,
   MAINTENANCE_STATE_KEY,
@@ -15,7 +16,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   async function check() {
     const route = router.currentRoute.value;
-    if (isMaintenancePath(route.path)) return;
+    if (isMaintenancePath(route.path) || isOnMaintenancePage(window.location.pathname, config.app.baseURL)) return;
     const status = await fetchMaintenanceStatus(String(config.public.apiBaseUrlPython || ""));
     state.value = status;
     const target = maintenanceRedirect(route.path, status.maintenance, route.query.reason, {
