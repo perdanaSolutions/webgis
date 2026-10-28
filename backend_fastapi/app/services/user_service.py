@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import security
@@ -9,6 +10,7 @@ from app.core.exceptions import bad_request, conflict, not_found
 from app.models.audit import UserActivity
 from app.models.auth import Role, User
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.services.user_email_rules import email_taken, is_email_unique_violation
 from app.utils.pagination import page_response
 
 
@@ -58,15 +60,27 @@ def get_user_response(db: Session, user_id: UUID) -> UserResponse:
 
 
 def _ensure_unique(db: Session, username: str | None, email: str | None, exclude_id: UUID | None = None) -> None:
-    for column, value, label in ((User.username, username, "Username sudah terpakai."),
-                                 (User.email, email, "Email sudah terdaftar.")):
+    for column, value in ((User.username, username), (User.email, email)):
         if value is None:
             continue
         query = select(User.id).where(func.lower(column) == value.lower())
         if exclude_id:
             query = query.where(User.id != exclude_id)
         if db.scalar(query):
-            raise conflict(label, field=column.key)
+            if column is User.email:
+                raise email_taken(value)
+            raise conflict("Username sudah terpakai.", field=column.key)
+
+
+def _commit_user(db: Session, email: str | None) -> None:
+    """Commit; bentrok unique index email (race) dipetakan ke pesan yang sama dengan cek aplikasi."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if email and is_email_unique_violation(exc):
+            raise email_taken(email) from exc
+        raise
 
 
 def _ensure_roles(db: Session, role_ids: list[UUID]) -> list[Role]:
@@ -88,7 +102,7 @@ def create_user(db: Session, payload: UserCreate) -> UserResponse:
     )
     user.roles = roles
     db.add(user)
-    db.commit()
+    _commit_user(db, email)
     db.refresh(user)
     return _to_user_response(user, False)
 
@@ -116,7 +130,7 @@ def update_user(db: Session, user_id: UUID, payload: UserUpdate) -> UserResponse
     if payload.password:
         user.hashed_password = security.get_password_hash(payload.password)
 
-    db.commit()
+    _commit_user(db, email)
     db.refresh(user)
     return _to_user_response(user, _user_has_activity(db, user.id))
 

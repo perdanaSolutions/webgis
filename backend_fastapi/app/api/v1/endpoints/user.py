@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 import math
 import secrets
@@ -12,9 +13,30 @@ from app.core import security
 from app.models.auth import User, Role, UserActivityLog
 from app.core.config import settings
 from app.schemas.user import ServiceTokenRequest, UserCreate, UserUpdate, UserResponse
+from app.services.user_email_rules import email_taken, is_email_unique_violation
 from app.schemas.spatial import PaginatedResponse  # Menggunakan wrapper pagination kita sebelumnya
 
 router = APIRouter()
+
+
+def _ensure_email_free(db: Session, email: str, exclude_id: UUID | None = None) -> None:
+    """Email unik tanpa beda huruf besar/kecil; user yang sedang diedit dikecualikan."""
+    query = db.query(User.id).filter(func.lower(User.email) == email.lower())
+    if exclude_id is not None:
+        query = query.filter(User.id != exclude_id)
+    if query.first():
+        raise email_taken(email.lower())
+
+
+def _commit_user(db: Session, email: str | None) -> None:
+    """Commit; bentrok unique index email (dua request bersamaan) -> pesan yang sama (409)."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if email and is_email_unique_violation(exc):
+            raise email_taken(email.lower()) from exc
+        raise
 
 
 def _roles_by_ids(db: Session, role_ids: list[UUID]) -> list[Role]:
@@ -134,9 +156,8 @@ def create_user(
     if db.query(User).filter(User.username == payload.username.lower()).first():
         raise HTTPException(status_code=409, detail="Username sudah terpakai.")
         
-    # Cek duplikasi email
-    if db.query(User).filter(User.email == payload.email.lower()).first():
-        raise HTTPException(status_code=409, detail="Email sudah terdaftar.")
+    # Cek duplikasi email (case-insensitive)
+    _ensure_email_free(db, payload.email)
 
     if payload.is_service_account and not _is_superadmin(current_user):
         raise HTTPException(status_code=403, detail="Hanya superadmin yang boleh membuat akun layanan.")
@@ -161,7 +182,7 @@ def create_user(
         token, _ = _issue_service_token(new_user, payload.masa_berlaku_token_hari)
     else:
         db.add(new_user)
-    db.commit()
+    _commit_user(db, payload.email)
     db.refresh(new_user)
     response = _to_user_response(new_user, False)
     return response.model_copy(update={"access_token": token, "token_type": "bearer" if token else None})
@@ -211,6 +232,7 @@ def update_user(
     if payload.username:
         user.username = payload.username.lower()
     if payload.email:
+        _ensure_email_free(db, payload.email, exclude_id=user.id)
         user.email = payload.email.lower()
     if payload.nama_lengkap:
         user.nama_lengkap = payload.nama_lengkap
@@ -228,7 +250,7 @@ def update_user(
     if payload.password:
         user.hashed_password = security.get_password_hash(payload.password)
 
-    db.commit()
+    _commit_user(db, payload.email)
     db.refresh(user)
     return _to_user_response(user, _user_has_activity(db, user.id))
 
