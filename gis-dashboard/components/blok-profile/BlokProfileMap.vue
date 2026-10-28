@@ -24,6 +24,7 @@ import {
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
 import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
+import { BLOCK_SCALE_M, bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 type L = typeof import("leaflet");
@@ -51,6 +52,8 @@ const emit = defineEmits<{
   (e: "select", blokId: string): void;
   (e: "deselect"): void;
   (e: "basemap-status", status: BasemapStatus): void;
+  /** Klik/tap di area peta (termasuk blok) -> induk menutup kartu kiri/kanan. */
+  (e: "map-click"): void;
 }>();
 
 const container = shallowRef<HTMLElement | null>(null);
@@ -75,6 +78,10 @@ let skipViewAdjust = false;
 let rebuilding = false;
 
 const LABEL_MIN_ZOOM = 14;
+/** Lebar garis skala (px) — dasar definisi "100 m" dan "500 m". */
+const SCALE_PX = 100;
+/** Padding simetris saat fit semua blok. */
+const FIT_PAD = 24;
 const SLOPE_LABEL_MIN_ZOOM = 12;
 /** Garis batas blok tanpa pewarnaan yield: abu-abu terang agar terbaca di citra satelit. */
 const BOUNDARY_STROKE = "#d4d4d4";
@@ -88,11 +95,6 @@ const POPUP_LABELS: Record<string, string> = {
 };
 
 // ------------------------------------------------------------------ util
-function padding() {
-  const i = props.insets;
-  return { paddingTopLeft: [i.left + 24, i.top + 24] as [number, number], paddingBottomRight: [i.right + 24, i.bottom + 24] as [number, number] };
-}
-
 function escapeHtml(value: unknown) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
@@ -219,6 +221,30 @@ function setPopupHtml(layer: LeafletLayer, html: string) {
   popup.setContent(html);
   popup.update();
   protectPopup(layer);
+  centerPopupOnMobile(layer);
+}
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 767px)").matches;
+}
+
+/**
+ * Mobile: popup Informasi Blok digeser ke tengah layar peta (horizontal & vertikal),
+ * bukan sekadar "masuk layar" seperti autoPan bawaan Leaflet.
+ */
+function centerPopupOnMobile(layer: LeafletLayer) {
+  if (!map || !container.value || !isMobileViewport()) return;
+  const popup = popupOf(layer);
+  const element = popup?.getElement?.() as HTMLElement | undefined;
+  if (!popup?.isOpen() || !element) return;
+  requestAnimationFrame(() => {
+    if (!map || !container.value || !popup.isOpen()) return;
+    const box = element.getBoundingClientRect();
+    const stage = container.value.getBoundingClientRect();
+    const dx = box.left + box.width / 2 - (stage.left + stage.width / 2);
+    const dy = box.top + box.height / 2 - (stage.top + stage.height / 2);
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) map.panBy([dx, dy], { animate: true, duration: 0.25 });
+  });
 }
 
 function attachPopupApply(layer: LeafletLayer, feature: GeoJSON.Feature) {
@@ -309,13 +335,14 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
       className: "map-blok-popup-wrapper",
       closeOnClick: false,
       autoClose: true,
-      autoPan: true,
-      keepInView: true,
+      autoPan: !isMobileViewport(),
+      keepInView: !isMobileViewport(),
       ...popupPanPadding(),
     },
   );
   layer.on("popupopen", () => {
     protectPopup(layer);
+    centerPopupOnMobile(layer);
     const current = props.popupPeriod(feature.properties as Record<string, any>);
     void loadBlockPopup(layer, feature, current.bulan, current.tahun, false);
   });
@@ -336,6 +363,7 @@ function bindBlockPopup(layer: LeafletLayer, feature: GeoJSON.Feature) {
 function openClickedBlock(layer: any, latlng: import("leaflet").LatLng) {
   const feature = layer.feature as GeoJSON.Feature | undefined;
   const id = feature ? featureBlokId(feature) : "";
+  emit("map-click");
   if (id && id !== props.selectedId) {
     panOnSelect = false;
     emit("select", id);
@@ -429,10 +457,57 @@ function anyBlockPopupOpen() {
   return open;
 }
 
+/** Layer blok terpilih (filter blok spesifik / klik peta). */
+function selectedLayer(): any {
+  if (!props.selectedId || !blockLayer) return null;
+  return blockLayer.getLayers().find((l: any) => String(l.feature?.properties?.blok_id) === props.selectedId) ?? null;
+}
+
+/** Jarak (meter) yang diwakili garis skala 100 px pada zoom sekarang — sama dengan cara Leaflet menghitung skala. */
+function currentScaleMeters() {
+  if (!map) return 0;
+  const y = map.getSize().y / 2;
+  return map.distance(map.containerPointToLatLng([0, y]), map.containerPointToLatLng([SCALE_PX, y]));
+}
+
+/** Zoom yang membuat garis skala bernilai `meters` di titik `center`. */
+function zoomAtScale(center: import("leaflet").LatLng, meters: number) {
+  if (!map) return 0;
+  const z0 = map.getZoom();
+  // Ukur pada zoom sekarang di lintang target, lalu skala ∝ 2^-zoom.
+  const p = map.project(center, z0);
+  const a = map.unproject(p.subtract([SCALE_PX / 2, 0]), z0);
+  const b = map.unproject(p.add([SCALE_PX / 2, 0]), z0);
+  const now = map.distance(a, b);
+  const z = zoomForScale(z0, now, meters * 1.0005);
+  return Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z));
+}
+
+/** Blok spesifik: pusat bbox blok, skala 100 m. */
+function focusBlock(layer: any) {
+  if (!map || !Lf) return false;
+  const box = featuresBBox([layer?.feature]);
+  if (!box) return false;
+  const c = bboxCenter(box);
+  const center = Lf.latLng(c.lat, c.lng);
+  map.setView(center, zoomAtScale(center, BLOCK_SCALE_M), { animate: true });
+  return true;
+}
+
+/**
+ * Tengah presisi: bbox barat–timur & selatan–utara SEMUA blok yang tampil, tengahnya dihitung sendiri,
+ * zoom dipilih agar lebar dan tinggi bbox muat. Padding simetris dan tidak dipengaruhi kartu kiri/kanan.
+ */
 function fitVisibleBlocks() {
-  if (!map || !blockLayer) return;
-  const bounds = blockLayer.getBounds();
-  if (bounds.isValid()) map.fitBounds(bounds, { ...padding(), maxZoom: 16 });
+  if (!map || !Lf || !blockLayer) return;
+  const chosen = selectedLayer();
+  if (chosen && focusBlock(chosen)) return;
+  const box = featuresBBox(props.blocks?.features ?? []);
+  if (!box) return;
+  const c = bboxCenter(box);
+  const bounds = Lf.latLngBounds([box.south, box.west], [box.north, box.east]);
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, Lf.point(FIT_PAD * 2, FIT_PAD * 2)), map.getMaxZoom());
+  map.setView(Lf.latLng(c.lat, c.lng), zoom, { animate: true });
 }
 
 function renderBlocks(fit: boolean) {
@@ -558,7 +633,7 @@ function renderSelected(pan = false) {
         iconSize: [0, 0],
       }),
     }).addTo(map!);
-    if (pan) map!.fitBounds(bounds, { ...padding(), maxZoom: Math.max(map!.getZoom(), 15) });
+    if (pan) focusBlock(layer);
   });
 }
 
@@ -725,16 +800,18 @@ function applyOverlayOpacity(geo: import("leaflet").GeoJSON, layer: OverlayLayer
 }
 
 // ------------------------------------------------------------------ kontrol
-function zoomIn() { map?.zoomIn(); }
-function zoomOut() { map?.zoomOut(); }
+/** Tombol zoom: garis skala bergeser satu anak tangga 500 m (100 m ↔ 500 m ↔ 1 km ↔ 1,5 km …), animasi halus. */
+function stepZoom(direction: "in" | "out") {
+  if (!map) return;
+  const target = scaleStep(currentScaleMeters(), direction);
+  map.setZoom(zoomAtScale(map.getCenter(), target), { animate: true });
+}
+function zoomIn() { stepZoom("in"); }
+function zoomOut() { stepZoom("out"); }
 function suppressNextPan() { skipViewAdjust = true; }
 function releasePanSkip() { skipViewAdjust = false; }
 function fitScope() {
-  if (!map) return;
-  const target = props.selectedId
-    ? (blockLayer?.getLayers().find((l: any) => String(l.feature?.properties?.blok_id) === props.selectedId) as any)?.getBounds?.()
-    : blockLayer?.getBounds();
-  if (target?.isValid()) map.fitBounds(target, { ...padding(), maxZoom: 16 });
+  fitVisibleBlocks();
 }
 
 function placeCornerControls() {
@@ -744,8 +821,8 @@ function placeCornerControls() {
   const scale = bl?.querySelector(".leaflet-control-scale");
   if (bl && scale) bl.insertBefore(scale, bl.firstChild);
   if (bl) {
-    const left = props.insets.left > 48 ? props.insets.left : 12;
-    bl.style.marginLeft = `${left}px`;
+    // Kartu kiri/kanan menimpa peta: skala km tetap di pojok kiri bawah.
+    bl.style.marginLeft = "12px";
     bl.style.marginBottom = "12px";
   }
   const br = container.value.querySelector(".leaflet-bottom.leaflet-right") as HTMLElement | null;
@@ -773,7 +850,8 @@ defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, inval
 onMounted(async () => {
   Lf = await import("leaflet");
   if (!container.value) return;
-  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true }).setView([1.2, 117.5], 7);
+  // zoomSnap 0: zoom pecahan agar skala tepat 100 m / kelipatan 500 m.
+  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true, zoomSnap: 0, wheelPxPerZoomLevel: 120 }).setView([1.2, 117.5], 7);
   for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
@@ -781,12 +859,16 @@ onMounted(async () => {
   pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
   polygonRenderer = Lf.canvas({ pane: "bp-polygons", padding: 0.5 }); // ribuan poligon landuse/slope: SVG terlalu berat
   map.attributionControl?.setPosition("bottomleft");
-  Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: 100 }).addTo(map);
+  const scale = Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: SCALE_PX });
+  const leafletRound = (scale as any)._getRoundNum.bind(scale);
+  (scale as any)._getRoundNum = (n: number) => roundScaleMeters(n, leafletRound);
+  scale.addTo(map);
   map.on("zoomend", () => {
     updateLabelVisibility();
     updateSlopeLabelVisibility();
   });
   map.on("click", (event) => {
+    emit("map-click");
     const layer = blockAt(event.latlng);
     if (!layer) return;
     openClickedBlock(layer, event.latlng);

@@ -100,6 +100,9 @@ function togglePlantingYear() {
   showPlantingYear.value = !showPlantingYear.value;
   if (showPlantingYear.value) showYieldGap.value = false;
 }
+/** Kartu keterangan bawah (Tahun Tanam / Yield Gap): tampil-sembunyi lewat tombol di samping Unduh Peta. Default tersembunyi. */
+const legendPlantingYear = ref(false);
+const legendYieldGap = ref(false);
 const plantingYears = computed(() => plantingYearLegend(store.visibleBlocks?.features ?? []));
 const yieldComparisonOn = computed(() => Boolean(store.appliedFilter.bulanComparison && store.appliedFilter.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
@@ -131,9 +134,6 @@ let mqDesktop: MediaQueryList | null = null;
 let mqMobile: MediaQueryList | null = null;
 let stageObserver: ResizeObserver | null = null;
 
-const LEFT_W = 340;
-const RIGHT_W = 380;
-const EDGE = 12;
 
 function measureStage() {
   stageW.value = stageRef.value?.clientWidth ?? window.innerWidth;
@@ -250,19 +250,12 @@ function syncOnline() {
   online.value = navigator.onLine;
 }
 
-function panelWidth(max: number) {
-  if (isMobile.value) return Math.max(0, stageW.value - EDGE * 2);
-  return Math.min(max, Math.max(0, stageW.value - EDGE * 2));
-}
-
-/** Bagian peta yang tertutup panel -> dipakai untuk zoom-to-fit. Kontrol pojok tidak memakai bar ringkasan. */
-const mapInsets = computed(() => {
-  const bottom = 16;
-  const pill = isMobile.value ? 0 : 200;
-  const left = activeLeft.value ? EDGE + panelWidth(LEFT_W) + pill : 16;
-  const right = activeRight.value ? EDGE + panelWidth(RIGHT_W) + pill : 72;
-  return { top: 16, left, right, bottom };
-});
+/**
+ * Kartu kiri/kanan menimpa peta (overlay), jadi area peta, pusat zoom-to-fit dan posisi skala km
+ * TIDAK ikut bergeser saat kartu dibuka. Inset dibuat tetap & simetris.
+ */
+const MAP_INSETS = Object.freeze({ top: 16, left: 16, right: 16, bottom: 16 });
+const mapInsets = computed(() => MAP_INSETS);
 
 const emptyFeatures: GeoJSON.Feature[] = [];
 const slopeLayer = computed(() => layers.value.find((layer) => layer.code === "slope") ?? null);
@@ -286,6 +279,8 @@ function onDeselectBlock() {
 }
 
 function onApplyFilters() {
+  // Kartu Filter Kebun otomatis tertutup setelah Apply agar peta hasil filter langsung terlihat.
+  if (activeLeft.value === "filter") activeLeft.value = null;
   void store.applyFilters();
 }
 
@@ -466,7 +461,7 @@ onBeforeUnmount(() => {
           :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
-          @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" />
+          @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" @map-click="closePanels" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -493,8 +488,11 @@ onBeforeUnmount(() => {
         <!-- Legenda + zoom: pojok kanan bawah -->
         <div v-show="!(isMobile && (activeLeft || activeRight))"
           class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <div v-if="showYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+          <div v-if="legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
+            <p v-if="!showYieldGap" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
+              Aktifkan Yield Gap di Layer Data untuk mewarnai blok.
+            </p>
             <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
               Isi blok mengikuti periode. Titik di tengah mengikuti pembanding.
             </p>
@@ -506,8 +504,12 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div v-if="showPlantingYear && plantingYears.length" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+          <div v-if="legendPlantingYear" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Tahun Tanam</p>
+            <p v-if="!showPlantingYear" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
+              Aktifkan Tahun Tanam di Layer Data untuk mewarnai blok.
+            </p>
+            <p v-if="!plantingYears.length" class="text-12 text-[#6e7866]">Belum ada data tahun tanam.</p>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
               <span v-for="item in plantingYears" :key="item.label"
                 class="inline-flex items-center gap-2 text-12 text-[#1f2a18] sm:text-13">
@@ -540,7 +542,17 @@ onBeforeUnmount(() => {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
               </svg>
             </button>
-            <div class="flex items-end gap-2">
+            <div class="flex flex-wrap items-end justify-end gap-2">
+              <button v-show="showMapDownload" type="button" class="bp-btn bp-legend-toggle"
+                :class="legendPlantingYear && 'is-active'" :aria-pressed="legendPlantingYear"
+                title="Tampilkan / sembunyikan informasi Tahun Tanam" @click="legendPlantingYear = !legendPlantingYear">
+                Tahun Tanam
+              </button>
+              <button v-show="showMapDownload" type="button" class="bp-btn bp-legend-toggle"
+                :class="legendYieldGap && 'is-active'" :aria-pressed="legendYieldGap"
+                title="Tampilkan / sembunyikan informasi Yield Gap" @click="legendYieldGap = !legendYieldGap">
+                Yield Gap
+              </button>
               <button v-show="showMapDownload" type="button" class="bp-btn bp-map-download"
                 title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
                 :aria-busy="exporting" @click="downloadPdf">

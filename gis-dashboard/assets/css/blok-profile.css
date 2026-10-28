@@ -364,6 +364,25 @@
 .bp-map-download-label {
   display: none;
 }
+/* Tombol tampil/sembunyi keterangan Tahun Tanam & Yield Gap (di samping Unduh Peta). */
+.bp-legend-toggle {
+  height: 2.75rem;
+  flex-shrink: 0;
+  justify-content: center;
+  border-radius: 1rem;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 10px 30px rgba(31, 42, 24, 0.12);
+}
+.bp-legend-toggle.is-active {
+  border-color: transparent;
+  background: #638840;
+  color: #fff !important;
+}
+.bp-legend-toggle.is-active:hover {
+  background: #527036;
+}
 @media (min-width: 640px) {
   .bp-map-download {
     height: 3rem;
@@ -374,6 +393,11 @@
   .bp-map-download-label {
     display: inline;
     white-space: nowrap;
+  }
+  .bp-legend-toggle {
+    height: 3rem;
+    padding: 0 14px;
+    font-size: 13px;
   }
 }
 @media (min-width: 768px) {

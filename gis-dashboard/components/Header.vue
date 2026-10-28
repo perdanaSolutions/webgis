@@ -373,40 +373,7 @@ onUnmounted(() => {
       </div>
 
       <div class="app-header__actions">
-        <div v-if="dashboardService.favoriteMenus.length" class="favorite-menu-container relative">
-          <button type="button" @click="toggleFavoriteMenu"
-            class="flex h-8 w-8 items-center justify-center rounded-full border border-header-soft bg-surface text-brand transition hover-bg-cream"
-            :aria-expanded="isFavoriteOpen" aria-label="Menu favorit">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
-            </svg>
-          </button>
-
-          <div v-if="isFavoriteOpen"
-            class="app-pop absolute right-0 z-[1500] mt-2 w-72 origin-top-right rounded-2xl border border-default bg-surface p-2 text-content shadow-xl">
-            <p class="px-3 py-2 text-12 font-semibold uppercase tracking-wide text-label">
-              Menu favorit
-            </p>
-            <button v-for="item in dashboardService.favoriteMenus" :key="`favorite-menu-${item.id}`" type="button"
-              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover-bg-cream"
-              @pointerenter="preloadMapViewIfNeeded(item.to)" @click="openFavoriteMenu(item.to)">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" :class="item.bgClass">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="item.iconClass" fill="none"
-                  viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
-                    :d="dashboardService.iconPath(item.icon)" />
-                </svg>
-              </span>
-              <span class="min-w-0">
-                <span class="block truncate text-14 font-bold text-brand">{{ item.title }}</span>
-                <span class="block truncate text-12 text-muted-light">{{ item.description || item.to }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
-
+        <!-- Tombol bintang "Menu favorit" dihapus (permintaan Bayu); data favoriteMenus tetap dipakai sidebar/dashboard. -->
         <div class="announcement-menu-container relative">
           <button type="button" @click="toggleAnnouncementMenu"
             class="relative flex h-8 w-8 items-center justify-center rounded-full bg-peach text-brand transition hover-bg-peach-hover"
@@ -903,7 +870,7 @@ onUnmounted(() => {
 @media (max-width: 767px) {
   .app-pop {
     position: fixed;
-    top: 3.7rem;
+    top: 5.4rem;
     right: 0.65rem;
     left: 0.65rem;
     width: auto;
@@ -924,8 +891,46 @@ onUnmounted(() => {
     display: none;
   }
 
+  /* Mobile: grid kiri (menu + judul) di atas, grid kanan (pengumuman, jam, profil) di bawahnya — ringkas. */
+  .app-header__bar,
   .app-header__bar:has(.app-header__mobile-logo) {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand center"
+      "actions actions";
+    row-gap: 0.15rem;
+    min-height: 0;
+    padding-block: 0.25rem;
+  }
+
+  .app-header__brand {
+    grid-area: brand;
+  }
+
+  .app-header__center {
+    grid-area: center;
+  }
+
+  .app-header__actions {
+    grid-area: actions;
+    justify-self: stretch;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding-top: 0.15rem;
+    border-top: 1px solid rgb(255 255 255 / 14%);
+  }
+
+  .app-header__logo {
+    height: 28px;
+    padding: 1px 4px;
+  }
+
+  .app-header__title {
+    font-size: 0.82rem;
+  }
+
+  .app-header__subtitle {
+    font-size: 0.66rem;
   }
 
   .app-header__mobile-logo {
