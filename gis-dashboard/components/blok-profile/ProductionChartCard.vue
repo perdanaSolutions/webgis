@@ -106,6 +106,18 @@ watch(pageCount, (count) => {
             <dt class="text-11 text-[#6e7866]">Ton/ha</dt>
             <dd class="font-semibold tabular-nums">{{ format(s.ton_ha, 2) }}</dd>
           </div>
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]" title="Rata-rata tertimbang: total Kg/Pkk ÷ total Jjg/Pkk">BJR (tertimbang)</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.bjr, 2) }}</dd>
+          </div>
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]">Total Jjg/Pkk</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.jjg_ppk, 2) }}</dd>
+          </div>
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]">Total Kg/Pkk</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.kg_ppk, 0) }}</dd>
+          </div>
         </dl>
       </div>
 
