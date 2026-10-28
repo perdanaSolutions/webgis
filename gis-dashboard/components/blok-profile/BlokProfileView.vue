@@ -257,6 +257,18 @@ function syncOnline() {
 const MAP_INSETS = Object.freeze({ top: 16, left: 16, right: 16, bottom: 16 });
 const mapInsets = computed(() => MAP_INSETS);
 
+/**
+ * Bubble jumlah blok per area: hanya saat Filter Kebun terapan "Semua" di setiap level (PT, area, estate,
+ * afdeling, blok). Jumlah dihitung dari GeoJSON yang dikembalikan backend, jadi otomatis sesuai hak akses user.
+ */
+const allScopeSelected = computed(() => {
+  const a = store.appliedFilter;
+  return !a.pt && !a.area && !a.estate && !a.afdeling && !a.blokId;
+});
+const areaNames = computed<Record<string, string>>(() =>
+  Object.fromEntries(store.areaOptions.map((item) => [String(item.value), String(item.label)])),
+);
+
 const emptyFeatures: GeoJSON.Feature[] = [];
 const slopeLayer = computed(() => layers.value.find((layer) => layer.code === "slope") ?? null);
 const slopeLayerOn = computed(() => Boolean(slopeLayer.value?.enabled));
@@ -461,6 +473,7 @@ onBeforeUnmount(() => {
           :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
+          :show-area-bubbles="allScopeSelected" :area-names="areaNames"
           @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" @map-click="closePanels" />
 
         <div v-if="store.statusNotice"
