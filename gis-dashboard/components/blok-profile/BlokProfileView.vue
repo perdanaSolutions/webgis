@@ -474,6 +474,7 @@ onBeforeUnmount(() => {
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
           :show-area-bubbles="allScopeSelected" :area-names="areaNames"
+          :estate-short-names="store.estateShortNames"
           @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" @map-click="closePanels" />
 
         <div v-if="store.statusNotice"

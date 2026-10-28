@@ -60,6 +60,7 @@ type EstateItem = {
   id: number;
   kode_est: string;
   nama_estate: string;
+  short_name?: string | null;
   kode_pt: string;
 };
 type AksesData = {
@@ -266,6 +267,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const estateOptions = ref<Option[]>([]);
   const afdelingOptions = ref<Option[]>([]);
   const estatesByCode = ref(new Map<string, EstateItem>());
+  /** kode_est -> short name estate (dari /spatial/estate). Terus ditambah, tidak dikosongkan saat filter berganti. */
+  const estateShortNames = ref<Record<string, string>>({});
 
   const grup = ref("");
   const area = ref("");
@@ -836,6 +839,12 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     ).filter(isEstateAllowed);
     if (!filterAlive(epoch)) return;
     estatesByCode.value = new Map(items.map((item) => [item.kode_est, item]));
+    const shortNames = { ...estateShortNames.value };
+    for (const item of items) {
+      const short = String(item.short_name ?? "").trim();
+      if (item.kode_est && short) shortNames[item.kode_est] = short;
+    }
+    estateShortNames.value = shortNames;
     estateOptions.value = items.map((item) => ({
       label: item.nama_estate,
       value: item.kode_est,
@@ -1853,6 +1862,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     scopeLabel,
     scopeParams,
     productionYears,
+    estateShortNames,
     productionGapBudget,
     productionGapSensus,
     slopeShares,
