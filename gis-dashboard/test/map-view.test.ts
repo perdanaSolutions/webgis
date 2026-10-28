@@ -39,6 +39,23 @@ describe("scaleStep", () => {
     expect(scaleStep(500, "in")).toBe(100);
     expect(scaleStep(100, "in")).toBe(100);
   });
+  it("zoom in dari skala bukan kelipatan selalu turun ke kelipatan 500 m di bawahnya", () => {
+    const seq = (start: number) => { const out = [start]; for (let i = 0; i < 6; i++) out.push(scaleStep(out.at(-1)!, "in")); return out; };
+    expect(seq(5000)).toEqual([5000, 4500, 4000, 3500, 3000, 2500, 2000]);
+    expect(seq(2300)).toEqual([2300, 2000, 1500, 1000, 500, 100, 100]);
+    expect(seq(700)).toEqual([700, 500, 100, 100, 100, 100, 100]);
+    expect(seq(476)).toEqual([476, 100, 100, 100, 100, 100, 100]);
+    // nilai terukur sedikit di atas target (faktor 1.0005) tidak boleh diam di tempat
+    expect(scaleStep(1000.5, "in")).toBe(500);
+    expect(scaleStep(1500.75, "in")).toBe(1000);
+    // regresi t114u: 2,5 km hasil tombol terukur 2501,25 m -> harus ke 2 km, bukan diam di 2,5 km
+    expect(scaleStep(2501.25, "in")).toBe(2000);
+    expect(scaleStep(7503.75, "in")).toBe(7000);
+    expect(scaleStep(7503.75, "out")).toBe(8000);
+  });
+  it("zoom in lalu zoom out simetris", () => {
+    for (const v of [500, 1000, 1500, 2000, 4500]) expect(scaleStep(scaleStep(v, "in"), "out")).toBe(v === 500 ? 500 : v);
+  });
   it("zoomForScale: skala 2x lebih kecil = zoom +1", () => {
     expect(zoomForScale(10, 1000, 500)).toBeCloseTo(11, 10);
   });

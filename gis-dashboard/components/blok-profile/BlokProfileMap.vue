@@ -84,20 +84,18 @@ const SCALE_PX = 100;
 const FIT_PAD = 24;
 /** Skala target terakhir dari tombol +/− (null = zoom bebas oleh user). */
 let buttonScale: number | null = null;
-let programmaticZoom = false;
+let buttonZoom: number | null = null;
 
 /**
- * Zoom pecahan (skala tepat 100 m / kelipatan 500 m) hanya untuk aksi program/tombol:
- * zoomSnap dimatikan sesaat, lalu kembali ke bawaan sehingga scroll/pinch tetap normal.
+ * Pastikan zoom pecahan (skala tepat 100 m / kelipatan 500 m) untuk aksi program/tombol
+ * tidak dibulatkan, apa pun nilai zoomSnap peta.
  */
 function freeZoom(run: () => void) {
   if (!map) return;
   const snap = map.options.zoomSnap;
   map.options.zoomSnap = 0;
-  programmaticZoom = true;
   try { run(); } finally {
     map.options.zoomSnap = snap;
-    programmaticZoom = false;
   }
 }
 const SLOPE_LABEL_MIN_ZOOM = 12;
@@ -825,8 +823,9 @@ function stepZoom(direction: "in" | "out") {
   if (!map) return;
   const target = scaleStep(currentScaleMeters(), direction);
   const zoom = zoomAtScale(map.getCenter(), target);
-  freeZoom(() => map!.setZoom(zoom, { animate: true }));
   buttonScale = target;
+  buttonZoom = zoom;
+  freeZoom(() => map!.setZoom(zoom, { animate: true }));
 }
 function zoomIn() { stepZoom("in"); }
 function zoomOut() { stepZoom("out"); }
@@ -872,8 +871,9 @@ defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, inval
 onMounted(async () => {
   Lf = await import("leaflet");
   if (!container.value) return;
-  // Zoom user (scroll, pinch, dblclick, keyboard) memakai perilaku bawaan Leaflet.
-  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true }).setView([1.2, 117.5], 7);
+  // zoomSnap 0: scroll/trackpad/pinch bebas mengikuti gerakan user (tanpa pembulatan level zoom),
+  // juga tidak ada "lompatan" scroll pertama setelah zoom pecahan dari tombol +/−.
+  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true, zoomSnap: 0 }).setView([1.2, 117.5], 7);
   for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
@@ -886,10 +886,10 @@ onMounted(async () => {
   // Label kelipatan 500 m HANYA setelah tombol +/−; zoom bebas memakai pembulatan bawaan Leaflet.
   (scale as any)._getRoundNum = (n: number) => (buttonScale !== null ? roundScaleMeters(n, leafletRound) : leafletRound(n));
   scale.addTo(map);
-  map.on("zoomstart", () => {
-    if (!programmaticZoom) buttonScale = null;
-  });
+  // zoomstart animasi Leaflet terpicu di frame berikutnya (setelah flag program di-reset), jadi
+  // penanda skala tombol dicek di zoomend: zoom akhir harus sama dengan zoom hasil tombol.
   map.on("zoomend", () => {
+    if (buttonScale !== null && (buttonZoom === null || Math.abs(map!.getZoom() - buttonZoom) > 1e-6)) buttonScale = null;
     updateLabelVisibility();
     updateSlopeLabelVisibility();
   });

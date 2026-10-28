@@ -67,8 +67,10 @@ export const MAX_SCALE_M = 100000;
  * Tangga: 100 m, 500 m, 1.000 m, 1.500 m, … (kelipatan 500 m). Tidak melompati anak tangga.
  */
 export function scaleStep(currentMeters: number, direction: "in" | "out"): number {
-  const eps = 1;
   const cur = Math.max(BLOCK_SCALE_M, Math.min(MAX_SCALE_M, currentMeters));
+  // Toleransi relatif: skala hasil tombol sengaja dibuat 0,05% di atas target (agar label tidak
+  // terbulatkan ke bawah) dan ada selisih ukur; toleransi tetap 1 m gagal mulai ~2 km (2500 m -> 2501,25 m).
+  const eps = Math.max(1, cur * 0.002);
   if (direction === "in") {
     if (cur <= ZOOM_STEP_M + eps) return BLOCK_SCALE_M;
     const next = Math.ceil((cur - eps) / ZOOM_STEP_M) * ZOOM_STEP_M - ZOOM_STEP_M;
