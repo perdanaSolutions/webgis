@@ -1,116 +1,35 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import logoImage from '~/assets/image/logo-1.svg'
 import handsImage from '~/assets/image/hand-deskripsi.svg'
 import modulesImage from '~/assets/image/base_modul_overlay.svg'
 import estateImage from '~/assets/image/kebun_dashboard.svg'
 import { useAuthStore } from '~/stores/authStore'
+import { useAppFullscreenStore } from '~/stores/appFullscreenStore'
 import Header from '~/components/Header.vue'
 import BannerCharts from '~/components/dashboard/BannerCharts.vue'
 
 const authStore = useAuthStore()
-const stageRef = ref<HTMLElement | null>(null)
-const isFullscreen = ref(false)
-const pseudoFullscreen = ref(false)
+const appFullscreen = useAppFullscreenStore()
+const { isFullscreen } = storeToRefs(appFullscreen)
 
 defineOptions({
   name: 'DashboardPage',
 })
 
-type FullscreenDocument = Document & {
-  webkitFullscreenElement?: Element | null
-  webkitExitFullscreen?: () => Promise<void> | void
-}
-
-type FullscreenHost = HTMLElement & {
-  webkitRequestFullscreen?: () => Promise<void> | void
-}
-
-function nativeFullscreenElement() {
-  const doc = document as FullscreenDocument
-  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null
-}
-
-function onFullscreenChange() {
-  const native = nativeFullscreenElement() === stageRef.value
-  if (!native) pseudoFullscreen.value = false
-  isFullscreen.value = native || pseudoFullscreen.value
-}
-
-async function enterFullscreen() {
-  const el = stageRef.value as FullscreenHost | null
-  if (!el) return
-  try {
-    if (typeof el.requestFullscreen === 'function') {
-      await el.requestFullscreen()
-      return
-    }
-    if (typeof el.webkitRequestFullscreen === 'function') {
-      await el.webkitRequestFullscreen()
-      return
-    }
-  } catch {
-    /* API ditolak browser — sembunyikan header dan perbesar area konten */
-  }
-  pseudoFullscreen.value = true
-  isFullscreen.value = true
-}
-
-async function exitFullscreen() {
-  pseudoFullscreen.value = false
-  const doc = document as FullscreenDocument
-  try {
-    if (nativeFullscreenElement()) {
-      if (document.exitFullscreen) await document.exitFullscreen()
-      else await doc.webkitExitFullscreen?.()
-      return
-    }
-  } catch {
-    /* lanjut menutup mode cadangan */
-  }
-  isFullscreen.value = false
-}
-
-async function toggleFullscreen() {
-  if (isFullscreen.value) await exitFullscreen()
-  else await enterFullscreen()
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  if (pseudoFullscreen.value) {
-    event.preventDefault()
-    void exitFullscreen()
-  }
-}
-
 onMounted(async () => {
-  window.addEventListener('keydown', onKeydown)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
-  document.addEventListener('webkitfullscreenchange', onFullscreenChange)
-
   const session = await authStore.ensureSession()
   if (!session) {
     window.location.replace('/login')
   }
 })
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
-  document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
-  if (nativeFullscreenElement() === stageRef.value) void document.exitFullscreen?.()
-})
 </script>
 
 <template>
   <main class="dash-page">
-    <Header v-show="!isFullscreen" />
-    <div
-      ref="stageRef"
-      class="dash-stage"
-      :class="{ 'dash-stage--pseudo-fs': pseudoFullscreen }"
-    >
+    <Header />
+    <div class="dash-stage">
       <img :src="estateImage" alt="" class="dash-home__estate">
       <section class="dash-home" aria-label="Ringkasan perkebunan">
         <div class="dash-home__panel">
@@ -140,7 +59,7 @@ onBeforeUnmount(() => {
         :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
         :title="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
         :aria-pressed="isFullscreen"
-        @click="toggleFullscreen"
+        @click="appFullscreen.toggleFullscreen()"
       >
         <svg
           v-if="!isFullscreen"
@@ -191,22 +110,6 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.dash-stage:fullscreen,
-.dash-stage:-webkit-full-screen {
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  background: #1f2a18;
-}
-
-.dash-stage--pseudo-fs {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  height: 100dvh;
-  max-height: none;
-}
-
 .dash-fs-btn {
   position: fixed;
   z-index: 50;
@@ -225,13 +128,6 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   cursor: pointer;
-}
-
-.dash-stage:fullscreen .dash-fs-btn,
-.dash-stage:-webkit-full-screen .dash-fs-btn,
-.dash-stage--pseudo-fs .dash-fs-btn {
-  position: absolute;
-  z-index: 20;
 }
 
 .dash-fs-btn:hover {

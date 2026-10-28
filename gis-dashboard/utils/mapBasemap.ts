@@ -95,9 +95,10 @@ export function basemapAccessMessage(kind: "blocked" | "unavailable", option: Ba
 export function createBasemapTileLayer(
   leaflet: LeafletNs,
   tile: BasemapTile,
-  extra?: { crossOrigin?: boolean | string },
+  extra?: { crossOrigin?: boolean | string; updateWhenZooming?: boolean },
 ) {
   const crossOrigin = extra?.crossOrigin;
+  const tilePerf = extra?.updateWhenZooming === false ? { updateWhenZooming: false } : {};
   if (tile.service === "wms") {
     const factory = leaflet.tileLayer as typeof leaflet.tileLayer & {
       wms: (url: string, options: Record<string, unknown>) => import("leaflet").TileLayer;
@@ -111,12 +112,14 @@ export function createBasemapTileLayer(
       attribution: tile.attribution,
       maxZoom: tile.maxZoom ?? 22,
       uppercase: true,
+      ...tilePerf,
       ...(crossOrigin ? { crossOrigin } : {}),
     });
   }
   return leaflet.tileLayer(tile.url, {
     attribution: tile.attribution,
     maxZoom: tile.maxZoom ?? 19,
+    ...tilePerf,
     ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
     ...(crossOrigin ? { crossOrigin } : {}),
   });

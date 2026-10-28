@@ -104,7 +104,7 @@ watch(divisionPageCount, (count) => {
   </section>
 
   <template v-else>
-    <section class="bp-card flex flex-col gap-3 p-4">
+    <!-- <section class="bp-card flex flex-col gap-3 p-4">
       <div class="flex items-baseline justify-between gap-3">
         <h2 class="text-16 font-bold text-[#1f2a18]">Tahun Tanam</h2>
         <span v-if="areaCode" class="shrink-0 text-12 text-[#6e7866]">{{ areaCode }}</span>
@@ -155,7 +155,7 @@ watch(divisionPageCount, (count) => {
           </div>
         </div>
       </template>
-    </section>
+</section> -->
 
     <section v-if="summary" class="bp-card flex flex-col gap-3 p-4" data-areal-report>
       <div class="flex items-baseline justify-between gap-3">

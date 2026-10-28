@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
 
     <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
-      <section class="absolute inset-0 z-0">
+      <section class="absolute inset-0 z-0 touch-none overscroll-none">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId"
           :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"

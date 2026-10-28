@@ -110,6 +110,40 @@ function freeZoom(run: () => void) {
     map.options.zoomSnap = snap;
   }
 }
+/** Setelah pan/zoom berhenti, baru jalankan culling label & layer berat (hindari jank tiap wheel tick). */
+const MAP_IDLE_MS = 140;
+let mapIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearMapIdleTimer() {
+  if (!mapIdleTimer) return;
+  clearTimeout(mapIdleTimer);
+  mapIdleTimer = null;
+}
+
+function markMapInteracting() {
+  clearMapIdleTimer();
+  container.value?.classList.add("is-interacting");
+  map?.getPane("bp-labels")?.classList.add("is-zooming");
+}
+
+function flushMapAfterInteraction() {
+  mapIdleTimer = null;
+  if (!map) return;
+  container.value?.classList.remove("is-interacting");
+  map.getPane("bp-labels")?.classList.remove("is-zooming");
+  if (buttonScale !== null && (buttonZoom === null || Math.abs(map.getZoom() - buttonZoom) > 1e-6)) {
+    buttonScale = null;
+  }
+  if (labelLayer && map.hasLayer(labelLayer)) cullLabels();
+  updateLabelVisibility();
+  updateSlopeLabelVisibility();
+}
+
+function scheduleMapIdle() {
+  clearMapIdleTimer();
+  mapIdleTimer = setTimeout(flushMapAfterInteraction, MAP_IDLE_MS);
+}
+
 const SLOPE_LABEL_MIN_ZOOM = 12;
 /** Garis batas blok tanpa pewarnaan yield: abu-abu terang agar terbaca di citra satelit. */
 const BOUNDARY_STROKE = "#d4d4d4";
@@ -202,7 +236,9 @@ function mountBasemap(option: (typeof BASEMAPS)[number]) {
   stopBasemapWatch = null;
   basemapLayers.forEach((layer) => layer.removeFrom(map!));
   applyBasemapZoom(map, option);
-  basemapLayers = option.tiles.map((tile) => createBasemapTileLayer(Lf!, tile).addTo(map!));
+  basemapLayers = option.tiles.map((tile) =>
+    createBasemapTileLayer(Lf!, tile, { updateWhenZooming: false }).addTo(map!),
+  );
 }
 
 async function applyBasemap() {
@@ -889,7 +925,13 @@ onMounted(async () => {
   if (!container.value) return;
   // zoomSnap 0: scroll/trackpad/pinch bebas mengikuti gerakan user (tanpa pembulatan level zoom),
   // juga tidak ada "lompatan" scroll pertama setelah zoom pecahan dari tombol +/−.
-  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true, zoomSnap: 0 }).setView([1.2, 117.5], 7);
+  map = Lf.map(container.value, {
+    zoomControl: false,
+    closePopupOnClick: true,
+    zoomSnap: 0,
+    wheelDebounceTime: 16,
+    wheelPxPerZoomLevel: 48,
+  }).setView([1.2, 117.5], 7);
   for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
@@ -905,27 +947,12 @@ onMounted(async () => {
   scale.addTo(map);
   // zoomstart animasi Leaflet terpicu di frame berikutnya (setelah flag program di-reset), jadi
   // penanda skala tombol dicek di zoomend: zoom akhir harus sama dengan zoom hasil tombol.
-  // Ratusan label teks (dengan bayangan) yang ikut dianimasikan tiap langkah zoom adalah penyebab
-  // scroll/pinch tersendat (terukur: long task 200–1000 ms). Label disembunyikan selama zoom berlangsung
-  // dan muncul lagi 150 ms setelah zoom berhenti.
-  const labelPane = map.getPane("bp-labels")!;
-  let labelTimer: ReturnType<typeof setTimeout> | null = null;
-  map.on("zoomstart", () => {
-    if (labelTimer) clearTimeout(labelTimer);
-    labelPane.classList.add("is-zooming");
-  });
-  map.on("zoomend", () => {
-    if (labelTimer) clearTimeout(labelTimer);
-    labelTimer = setTimeout(() => labelPane.classList.remove("is-zooming"), 150);
-  });
-  map.on("moveend", () => {
-    if (labelLayer && map!.hasLayer(labelLayer)) cullLabels();
-  });
-  map.on("zoomend", () => {
-    if (buttonScale !== null && (buttonZoom === null || Math.abs(map!.getZoom() - buttonZoom) > 1e-6)) buttonScale = null;
-    updateLabelVisibility();
-    updateSlopeLabelVisibility();
-  });
+  // Ratusan label + culling + ubin basemap saat zoom: jangan dijalankan tiap zoomend wheel/pinch,
+  // cukup sekali setelah interaksi map benar-benar berhenti (scheduleMapIdle).
+  map.on("zoomstart", markMapInteracting);
+  map.on("movestart", markMapInteracting);
+  map.on("zoomend", scheduleMapIdle);
+  map.on("moveend", scheduleMapIdle);
   map.on("click", (event) => {
     emit("map-click");
     const layer = blockAt(event.latlng);
@@ -939,6 +966,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearMapIdleTimer();
   rebuilding = true;
   basemapToken += 1;
   stopBasemapWatch?.();
@@ -988,10 +1016,16 @@ watch(() => props.insets, applyInsets, { deep: true });
 </template>
 
 <style>
-.bp-map { background: #3f4a3a; }
+.bp-map {
+  background: #3f4a3a;
+  touch-action: none;
+  overscroll-behavior: none;
+}
 .bp-map .leaflet-bp-blocks-pane path { pointer-events: all !important; }
 
+.bp-map.is-interacting .leaflet-bp-labels-pane,
 .bp-map .leaflet-bp-labels-pane.is-zooming { display: none; }
+.bp-map.is-interacting .bp-slope-label { visibility: hidden; }
 .bp-block-label {
   background: none;
   border: none;

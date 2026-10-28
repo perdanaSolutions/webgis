@@ -75,7 +75,7 @@ const rows = computed(() => {
     { label: "Tahun Tanam", value: info.tahun_tanam ?? "-" },
     { label: "Jenis Tanah", value: info.jenis_tanah ?? "-" },
     { label: "Bibit", value: info.jenis_bibit ?? "-" },
-    { label: "Pembaruan", value: updated },
+    { label: "Transaksi Year to Date", value: updated },
   ];
 });
 </script>
