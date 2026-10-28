@@ -78,6 +78,22 @@ const bars = computed(() => {
 
 const latest = computed(() => bars.value[bars.value.length - 1] ?? null);
 
+/** Ringkasan agregat seluruh periode pada filter tahun (bukan hanya periode terakhir). */
+const totals = computed(() => {
+  const list = bars.value;
+  const first = list[0];
+  const last = list[list.length - 1];
+  if (!first || !last) return null;
+  const period = first.key === last.key ? first.label : `${first.label} – ${last.label}`;
+  const n = list.length;
+  return {
+    period,
+    hari: list.reduce((sum, row) => sum + row.hari, 0) / n,
+    rotasi: list.reduce((sum, row) => sum + row.rotasi, 0),
+    luas: list.reduce((sum, row) => sum + row.luas, 0),
+  };
+});
+
 const listRows = computed(() => [...bars.value].reverse());
 
 function num(value: number, digits = 1) {
@@ -86,7 +102,7 @@ function num(value: number, digits = 1) {
 }
 
 function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok: number }) {
-  return `Rotasi terakhir ${num(row.rotasi)} · ${num(row.putaran, 0)} pusingan · ${num(row.luas)} ha · ${num(row.pokok, 0)} pokok`;
+  return `Rotasi terakhir ${num(row.rotasi)} · Luas Panen ${num(row.luas)} ha`;
 }
 </script>
 
@@ -94,7 +110,6 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
   <section class="bp-card p-5">
     <div class="mb-3 flex items-baseline justify-between gap-3">
       <h2 class="text-18 font-bold text-[#1f2a18]">Rotasi</h2>
-      <span class="text-12 text-[#6e7866]">rata-rata pusingan (hari)</span>
     </div>
 
     <div v-if="loading && !bars.length && !kegiatan?.length"
@@ -115,22 +130,22 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
     </p>
 
     <template v-else>
-      <div v-if="latest" class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div v-if="totals" class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-2">
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Periode</p>
-          <p class="text-14 font-semibold text-[#1f2a18]">{{ latest.label }}</p>
+          <p class="text-14 font-semibold text-[#1f2a18]">{{ totals.period }}</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Rata-rata pusingan</p>
-          <p class="text-14 font-semibold tabular-nums text-[#638840]">{{ num(latest.hari) }} hari</p>
+          <p class="text-14 font-semibold tabular-nums text-[#638840]">{{ num(totals.hari) }} hari</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
-          <p class="text-11 text-[#6e7866]">Rotasi terakhir</p>
-          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(latest.rotasi) }}</p>
+          <p class="text-11 text-[#6e7866]">Rotasi</p>
+          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(totals.rotasi) }}</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
-          <p class="text-11 text-[#6e7866]">Total pusingan</p>
-          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(latest.putaran, 0) }}</p>
+          <p class="text-11 text-[#6e7866]">Luas Panen</p>
+          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(totals.luas) }} ha</p>
         </div>
       </div>
 
@@ -140,8 +155,8 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
           <div v-for="bar in bars" :key="bar.key"
             class="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end"
             @mouseenter="hovered = bar.key" @mouseleave="hovered = null">
-            <span class="mb-1 text-11 tabular-nums"
-              :class="bar.latest || hovered === bar.key ? 'font-semibold text-[#1f2a18]' : 'text-transparent'">
+            <span class="mb-1 text-11 tabular-nums text-[#1f2a18]"
+              :class="bar.latest || hovered === bar.key ? 'font-semibold' : ''">
               {{ num(bar.hari) }}
             </span>
             <div class="w-full max-w-[36px] rounded-t-[4px] transition-colors"
@@ -156,10 +171,10 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
         </div>
       </div>
 
-      <div class="mt-3 flex items-center justify-between gap-2 text-12 text-[#6e7866]">
+      <!-- <div class="mt-3 flex items-center justify-between gap-2 text-12 text-[#6e7866]">
         <span>Luas {{ num(latest?.luas ?? 0) }} ha · {{ num(latest?.pokok ?? 0, 0) }} pokok</span>
         <span>{{ bars.length }} periode</span>
-      </div>
+      </div> -->
 
       <ul class="mt-3 space-y-0 pr-1" :class="expanded ? '' : 'max-h-[220px] overflow-y-auto'">
         <li v-for="bar in listRows" :key="`row-${bar.key}`" class="border-t border-[#e4e8de] py-2">
