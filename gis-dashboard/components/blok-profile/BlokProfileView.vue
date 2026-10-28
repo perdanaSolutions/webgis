@@ -461,6 +461,7 @@ onBeforeUnmount(() => {
           :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
           :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
+          :selected-afdeling="store.scopeParams.kode_afd"
           @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus" @map-click="closePanels" />
 
         <div v-if="store.statusNotice"

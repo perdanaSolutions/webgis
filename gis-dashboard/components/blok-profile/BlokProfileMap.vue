@@ -24,6 +24,9 @@ import {
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
 import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
+import {
+  AFDELING_HIT_PX, AFDELING_LAYER_CODE, afdelingLabelsVisible, afdelingPopupHtml, afdelingStyle, ringsDistance,
+} from "~/utils/afdelingBoundary";
 import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
@@ -46,6 +49,8 @@ const props = defineProps<{
   requestDetail: (blokId: string, bulan: string, tahun: string) => Promise<Record<string, any>>;
   /** Periode awal popup untuk properti blok (bulan produksi yang mewarnai blok). */
   popupPeriod: (properties?: Record<string, any>) => { bulan: string; tahun: string };
+  /** Kode/ID afdeling di filter kebun -> garis batas afdeling itu ditebalkan. */
+  selectedAfdeling?: string;
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +79,9 @@ let polygonRenderer: import("leaflet").Canvas | null = null;
 let blockRenderer: import("leaflet").Canvas | null = null;
 const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
 let slopeLabelLayer: import("leaflet").LayerGroup | null = null;
+/** Batas afdeling: canvas sendiri di pane bp-afd (di BAWAH garis blok), label kode afdeling di pane bp-labels. */
+let afdRenderer: import("leaflet").Canvas | null = null;
+let afdLabelLayer: import("leaflet").LayerGroup | null = null;
 const popupLoadSeq = new Map<string, number>();
 const popupCache = new Map<string, { bulan: string; tahun: string; popupData: BlokPopupData }>();
 let panOnSelect = true;
@@ -137,6 +145,7 @@ function flushMapAfterInteraction() {
   if (labelLayer && map.hasLayer(labelLayer)) cullLabels();
   updateLabelVisibility();
   updateSlopeLabelVisibility();
+  updateAfdelingLabelVisibility();
 }
 
 function scheduleMapIdle() {
@@ -605,6 +614,7 @@ function renderBlocks(fit: boolean) {
         bindBlockPopup(layer, feature);
         layer.on("click", (event) => {
           Lf?.DomEvent.stop(event);
+          if (openAfdelingAt(event.latlng)) return;
           openClickedBlock(layer, event.latlng);
         });
         layer.on("mouseover", () => (layer as any).setStyle?.({ weight: id === props.selectedId ? 3.5 : 2.4, opacity: 1 }));
@@ -809,6 +819,7 @@ function renderOverlays() {
   if (!Lf || !map) return;
   const wanted = new Set(props.overlays.filter((l) => l.enabled && l.data).map((l) => l.code));
   if (!wanted.has("slope")) clearSlopeLabels();
+  if (!wanted.has(AFDELING_LAYER_CODE)) clearAfdelingLabels();
   overlayLayers.forEach((layer, code) => {
     if (!wanted.has(code)) {
       layer.removeFrom(map!);
@@ -823,6 +834,10 @@ function renderOverlays() {
       continue;
     }
     existing?.removeFrom(map);
+    if (layer.code === AFDELING_LAYER_CODE) {
+      renderAfdeling(layer);
+      continue;
+    }
     if (layer.code === "slope") clearSlopeLabels();
     const pane = overlayPane(layer.geometryType);
     const isLine = layer.geometryType.toUpperCase().includes("LINE");
@@ -866,7 +881,103 @@ function renderOverlays() {
   }
 }
 
+// ------------------------------------------------------------------ batas afdeling
+function clearAfdelingLabels() {
+  if (map) afdLabelLayer?.removeFrom(map);
+  afdLabelLayer = null;
+}
+
+/** Titik label = pusat bagian poligon terbesar (afdeling bisa multi-bagian). */
+function afdelingLabelPoint(layer: any): import("leaflet").LatLng | null {
+  const parts: any[] = layer.getLatLngs?.() ?? [];
+  const polys = parts.length && Array.isArray(parts[0]?.[0]) ? parts : [parts];
+  let best: any = null;
+  let bestArea = -1;
+  for (const poly of polys) {
+    const ring: import("leaflet").LatLng[] = Array.isArray(poly[0]) ? poly[0] : poly;
+    if (!ring?.length) continue;
+    const b = Lf!.latLngBounds(ring);
+    const area = (b.getNorth() - b.getSouth()) * (b.getEast() - b.getWest());
+    if (area > bestArea) { bestArea = area; best = Lf!.polygon(poly).getBounds().getCenter(); }
+  }
+  return best;
+}
+
+function renderAfdeling(layer: OverlayLayer) {
+  if (!Lf || !map) return;
+  clearAfdelingLabels();
+  const geo = Lf.geoJSON(layer.data!, {
+    pane: "bp-afd",
+    interactive: false, // klik ditangani openAfdelingAt (canvas blok di atasnya menangkap event)
+    style: (f) => ({ ...(afdRenderer ? { renderer: afdRenderer } : {}), ...afdelingStyle(f?.properties, props.selectedAfdeling, props.opacity) }),
+    onEachFeature: (f, l) => {
+      l.bindPopup(() => afdelingPopupHtml((f.properties ?? {}) as Record<string, any>), {
+        className: "bp-popup-wrap", maxWidth: viewportPopupMaxWidth(280), autoClose: true, ...popupPanPadding(),
+      });
+    },
+  });
+  (geo as any)._bpData = layer.data;
+  geo.addTo(map);
+  overlayLayers.set(layer.code, geo);
+  afdLabelLayer = Lf.layerGroup();
+  geo.eachLayer((l: any) => {
+    const at = afdelingLabelPoint(l);
+    const code = l.feature?.properties?.kode_afd;
+    if (!at || !code) return;
+    Lf!.marker(at, {
+      pane: "bp-labels", interactive: false, keyboard: false,
+      icon: Lf!.divIcon({ className: "bp-afd-label", html: `<span>${escapeHtml(code)}</span>`, iconSize: [0, 0] }),
+    }).addTo(afdLabelLayer!);
+  });
+  updateAfdelingLabelVisibility();
+}
+
+function updateAfdelingLabelVisibility() {
+  if (!map || !afdLabelLayer) return;
+  const visible = afdelingLabelsVisible(currentScaleMeters());
+  if (visible && !map.hasLayer(afdLabelLayer)) afdLabelLayer.addTo(map);
+  if (!visible && map.hasLayer(afdLabelLayer)) afdLabelLayer.removeFrom(map);
+}
+
+function restyleAfdeling() {
+  overlayLayers.get(AFDELING_LAYER_CODE)?.eachLayer((l: any) =>
+    l.setStyle?.(afdelingStyle(l.feature?.properties, props.selectedAfdeling, props.opacity)));
+}
+
+/** Klik dekat garis batas afdeling (<= AFDELING_HIT_PX) -> popup afdeling. true = sudah ditangani. */
+function openAfdelingAt(latlng: import("leaflet").LatLng) {
+  const geo = overlayLayers.get(AFDELING_LAYER_CODE);
+  if (!map || !geo) return false;
+  const p = map.latLngToContainerPoint(latlng);
+  const view = map.getBounds().pad(0.1);
+  let hit: any = null;
+  let best = AFDELING_HIT_PX;
+  geo.eachLayer((l: any) => {
+    if (!view.intersects(l.getBounds())) return;
+    const rings: import("leaflet").LatLng[][] = (l.getLatLngs() as any[]).flat(1).filter((r: any) => Array.isArray(r));
+    const flat = rings.length ? rings : [l.getLatLngs() as import("leaflet").LatLng[]];
+    const d = ringsDistance(p, flat.map((ring) => ring.map((ll) => map!.latLngToContainerPoint(ll))));
+    if (d <= best) { best = d; hit = l; }
+  });
+  if (!hit) return false;
+  // Popup blok yang sudah terbuka otomatis (klik juga mengenai canvas blok) ditutup tanpa memicu "deselect".
+  const wasRebuilding = rebuilding;
+  rebuilding = true;
+  try {
+    map.closePopup();
+    hit.openPopup(latlng);
+  } finally {
+    rebuilding = wasRebuilding;
+  }
+  centerPopupOnMobile(hit);
+  return true;
+}
+
 function applyOverlayOpacity(geo: import("leaflet").GeoJSON, layer: OverlayLayer) {
+  if (layer.code === AFDELING_LAYER_CODE) {
+    restyleAfdeling();
+    return;
+  }
   geo.eachLayer((l: any) => l.setStyle?.({
     opacity: props.opacity,
     fillOpacity: (l instanceof Lf!.CircleMarker ? 1 : (layer.style.fillOpacity ?? 0.55)) * props.opacity,
@@ -936,12 +1047,13 @@ onMounted(async () => {
     wheelDebounceTime: 16,
     wheelPxPerZoomLevel: 48,
   }).setView([1.2, 117.5], 7);
-  for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
+  for (const [name, z] of [["bp-afd", 405], ["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
   pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
   polygonRenderer = Lf.canvas({ pane: "bp-polygons", padding: 0.5 });
+  afdRenderer = Lf.canvas({ pane: "bp-afd", padding: 0.5 });
   blockRenderer = Lf.canvas({ pane: "bp-blocks", padding: 0.5, tolerance: 2 }); // ribuan poligon landuse/slope: SVG terlalu berat
   map.attributionControl?.setPosition("bottomleft");
   const scale = Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: SCALE_PX });
@@ -959,6 +1071,7 @@ onMounted(async () => {
   map.on("moveend", scheduleMapIdle);
   map.on("click", (event) => {
     emit("map-click");
+    if (openAfdelingAt(event.latlng)) return;
     const layer = blockAt(event.latlng);
     if (!layer) return;
     openClickedBlock(layer, event.latlng);
@@ -978,6 +1091,7 @@ onBeforeUnmount(() => {
   map = null;
   overlayLayers.clear();
   slopeLabelLayer = null;
+  afdLabelLayer = null;
 });
 
 watch(() => props.blocks, () => renderBlocks(true));
@@ -1012,6 +1126,7 @@ watch(() => [props.showYieldGap, props.showPlantingYear], () => {
   renderSelected();
 });
 watch(() => props.basemap, applyBasemap);
+watch(() => props.selectedAfdeling, restyleAfdeling);
 watch(() => props.insets, applyInsets, { deep: true });
 </script>
 
@@ -1030,6 +1145,16 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-map.is-interacting .leaflet-bp-labels-pane,
 .bp-map .leaflet-bp-labels-pane.is-zooming { display: none; }
 .bp-map.is-interacting .bp-slope-label { visibility: hidden; }
+.bp-afd-label span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font: 700 12px/1 system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  color: #fde68a;
+  text-shadow: 0 0 3px #000, 0 0 2px #000, 0 1px 2px #000;
+  pointer-events: none;
+}
 .bp-block-label {
   background: none;
   border: none;

@@ -37,9 +37,9 @@ type CatalogItem = {
   endpoints: Record<string, string> | null;
 };
 
-const ORDER = ["tph", "sawit", "kuning", "landuse", "slope", "jalan", "jembatan", "drainase"];
+const ORDER = ["afdeling", "tph", "sawit", "kuning", "landuse", "slope", "jalan", "jembatan", "drainase"];
 const LABELS: Record<string, string> = {
-  tph: "TPH", sawit: "Pokok Sawit", kuning: "Pokok Kuning", landuse: "Landuse", slope: "Slope",
+  afdeling: "Batas Afdeling", tph: "TPH", sawit: "Pokok Sawit", kuning: "Pokok Kuning", landuse: "Landuse", slope: "Slope",
   jalan: "Jalan", jembatan: "Jembatan", drainase: "Drainase",
 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -101,6 +101,13 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
         filter: (p) => String(p.kategori ?? "").toLowerCase() === "kuning",
       });
     }
+    // Batas afdeling: turunan batas blok (spatial.division_boundaries), selalu tersedia; mulai nonaktif.
+    const afdStyle = getOverlayStyle("afdeling");
+    if (!items.some((item) => item.code === "afdeling")) items.push({
+      code: "afdeling", name: LABELS.afdeling!, geometryType: "MULTIPOLYGON", style: afdStyle,
+      legend: [], endpoint: "/afdeling/geojson", enabled: false,
+      loading: false, count: null, period: "", error: "", data: null,
+    });
     layers.value = items.sort((a, b) => rank(a.code) - rank(b.code));
     await Promise.all(layers.value.filter((l) => l.enabled).map(load));
   }
