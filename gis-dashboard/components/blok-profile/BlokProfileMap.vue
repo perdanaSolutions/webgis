@@ -82,6 +82,24 @@ const LABEL_MIN_ZOOM = 14;
 const SCALE_PX = 100;
 /** Padding simetris saat fit semua blok. */
 const FIT_PAD = 24;
+/** Skala target terakhir dari tombol +/− (null = zoom bebas oleh user). */
+let buttonScale: number | null = null;
+let programmaticZoom = false;
+
+/**
+ * Zoom pecahan (skala tepat 100 m / kelipatan 500 m) hanya untuk aksi program/tombol:
+ * zoomSnap dimatikan sesaat, lalu kembali ke bawaan sehingga scroll/pinch tetap normal.
+ */
+function freeZoom(run: () => void) {
+  if (!map) return;
+  const snap = map.options.zoomSnap;
+  map.options.zoomSnap = 0;
+  programmaticZoom = true;
+  try { run(); } finally {
+    map.options.zoomSnap = snap;
+    programmaticZoom = false;
+  }
+}
 const SLOPE_LABEL_MIN_ZOOM = 12;
 /** Garis batas blok tanpa pewarnaan yield: abu-abu terang agar terbaca di citra satelit. */
 const BOUNDARY_STROKE = "#d4d4d4";
@@ -490,7 +508,8 @@ function focusBlock(layer: any) {
   if (!box) return false;
   const c = bboxCenter(box);
   const center = Lf.latLng(c.lat, c.lng);
-  map.setView(center, zoomAtScale(center, BLOCK_SCALE_M), { animate: true });
+  buttonScale = null;
+  freeZoom(() => map!.setView(center, zoomAtScale(center, BLOCK_SCALE_M), { animate: true }));
   return true;
 }
 
@@ -507,7 +526,8 @@ function fitVisibleBlocks() {
   const c = bboxCenter(box);
   const bounds = Lf.latLngBounds([box.south, box.west], [box.north, box.east]);
   const zoom = Math.min(map.getBoundsZoom(bounds, false, Lf.point(FIT_PAD * 2, FIT_PAD * 2)), map.getMaxZoom());
-  map.setView(Lf.latLng(c.lat, c.lng), zoom, { animate: true });
+  buttonScale = null;
+  freeZoom(() => map!.setView(Lf!.latLng(c.lat, c.lng), zoom, { animate: true }));
 }
 
 function renderBlocks(fit: boolean) {
@@ -804,7 +824,9 @@ function applyOverlayOpacity(geo: import("leaflet").GeoJSON, layer: OverlayLayer
 function stepZoom(direction: "in" | "out") {
   if (!map) return;
   const target = scaleStep(currentScaleMeters(), direction);
-  map.setZoom(zoomAtScale(map.getCenter(), target), { animate: true });
+  const zoom = zoomAtScale(map.getCenter(), target);
+  freeZoom(() => map!.setZoom(zoom, { animate: true }));
+  buttonScale = target;
 }
 function zoomIn() { stepZoom("in"); }
 function zoomOut() { stepZoom("out"); }
@@ -850,8 +872,8 @@ defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, inval
 onMounted(async () => {
   Lf = await import("leaflet");
   if (!container.value) return;
-  // zoomSnap 0: zoom pecahan agar skala tepat 100 m / kelipatan 500 m.
-  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true, zoomSnap: 0, wheelPxPerZoomLevel: 120 }).setView([1.2, 117.5], 7);
+  // Zoom user (scroll, pinch, dblclick, keyboard) memakai perilaku bawaan Leaflet.
+  map = Lf.map(container.value, { zoomControl: false, closePopupOnClick: true }).setView([1.2, 117.5], 7);
   for (const [name, z] of [["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
@@ -861,8 +883,12 @@ onMounted(async () => {
   map.attributionControl?.setPosition("bottomleft");
   const scale = Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: SCALE_PX });
   const leafletRound = (scale as any)._getRoundNum.bind(scale);
-  (scale as any)._getRoundNum = (n: number) => roundScaleMeters(n, leafletRound);
+  // Label kelipatan 500 m HANYA setelah tombol +/−; zoom bebas memakai pembulatan bawaan Leaflet.
+  (scale as any)._getRoundNum = (n: number) => (buttonScale !== null ? roundScaleMeters(n, leafletRound) : leafletRound(n));
   scale.addTo(map);
+  map.on("zoomstart", () => {
+    if (!programmaticZoom) buttonScale = null;
+  });
   map.on("zoomend", () => {
     updateLabelVisibility();
     updateSlopeLabelVisibility();
