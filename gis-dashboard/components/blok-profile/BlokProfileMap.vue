@@ -24,7 +24,7 @@ import {
   type BlokPopupData,
 } from "~/utils/mapBlokPopup";
 import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
-import { BLOCK_SCALE_M, bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
+import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 type L = typeof import("leaflet");
@@ -511,15 +511,24 @@ function zoomAtScale(center: import("leaflet").LatLng, meters: number) {
   return Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z));
 }
 
-/** Blok spesifik: pusat bbox blok, skala 100 m. */
+/**
+ * Fit presisi ke bbox (barat–timur, selatan–utara): tengah bbox sebenarnya, zoom dipilih dari lebar & tinggi
+ * bbox terhadap ukuran peta saat ini (desktop/mobile), padding simetris. Kartu kiri/kanan tidak ikut dihitung.
+ */
+function fitBox(box: import("~/utils/mapView").BBox) {
+  if (!map || !Lf) return;
+  const c = bboxCenter(box);
+  const bounds = Lf.latLngBounds([box.south, box.west], [box.north, box.east]);
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, Lf.point(FIT_PAD * 2, FIT_PAD * 2)), map.getMaxZoom());
+  buttonScale = null;
+  freeZoom(() => map!.setView(Lf!.latLng(c.lat, c.lng), zoom, { animate: true }));
+}
+
+/** Blok spesifik: sama dengan level filter lain — fit bbox blok itu (bukan skala statis 100 m). */
 function focusBlock(layer: any) {
-  if (!map || !Lf) return false;
   const box = featuresBBox([layer?.feature]);
   if (!box) return false;
-  const c = bboxCenter(box);
-  const center = Lf.latLng(c.lat, c.lng);
-  buttonScale = null;
-  freeZoom(() => map!.setView(center, zoomAtScale(center, BLOCK_SCALE_M), { animate: true }));
+  fitBox(box);
   return true;
 }
 
@@ -532,12 +541,7 @@ function fitVisibleBlocks() {
   const chosen = selectedLayer();
   if (chosen && focusBlock(chosen)) return;
   const box = featuresBBox(props.blocks?.features ?? []);
-  if (!box) return;
-  const c = bboxCenter(box);
-  const bounds = Lf.latLngBounds([box.south, box.west], [box.north, box.east]);
-  const zoom = Math.min(map.getBoundsZoom(bounds, false, Lf.point(FIT_PAD * 2, FIT_PAD * 2)), map.getMaxZoom());
-  buttonScale = null;
-  freeZoom(() => map!.setView(Lf!.latLng(c.lat, c.lng), zoom, { animate: true }));
+  if (box) fitBox(box);
 }
 
 function renderBlocks(fit: boolean) {

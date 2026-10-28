@@ -1,14 +1,28 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import type { ProductionGapCategory, ProductionGapSummary } from "~/stores/blokProfileStore";
+import type { ProductionGapCategory, ProductionGapSummary, ProductionYear } from "~/stores/blokProfileStore";
 import { BUDGET_GAP_COLOR } from "~/utils/mapLayers";
 
 const props = defineProps<{
   budget: ProductionGapSummary | null;
   sensus: ProductionGapSummary | null;
   loading: boolean;
+  /** Filter blok spesifik: daftar gap per bulan (dari data histori) menggantikan ringkasan periode terakhir. */
+  months?: ProductionYear[] | null;
 }>();
+
+const monthRows = computed(() => (props.months ?? []).filter((row) => row.bulan));
+
+function monthLabel(row: ProductionYear) {
+  return `${MONTHS[(row.bulan ?? 1) - 1]} ${row.tahun}`;
+}
+
+function signedPct(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "";
+  const text = Math.abs(value).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${text}%`;
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
@@ -60,11 +74,43 @@ function tone(name: string) {
     <div class="mb-3">
       <h2 class="text-16 font-bold text-[#1f2a18]">Gap Produksi</h2>
       <p class="mt-0.5 text-12 leading-snug text-[#6e7866]">
-        Varians produksi aktual dibanding budget dan sensus pada periode terakhir.
+        {{ monthRows.length
+          ? "Varians produksi aktual blok ini dibanding budget dan sensus per bulan."
+          : "Varians produksi aktual dibanding budget dan sensus pada periode terakhir." }}
       </p>
     </div>
 
-    <div v-if="loading && !budget && !sensus" class="flex h-[132px] items-center justify-center text-13 text-[#6e7866]">
+    <div v-if="monthRows.length" class="overflow-x-auto rounded-xl border border-[#d5dcc8]">
+      <table class="w-full border-collapse text-left text-12 text-[#1f2a18]">
+        <thead>
+          <tr class="border-b border-[#d5dcc8]">
+            <th class="px-2.5 py-2 font-bold">Periode</th>
+            <th class="px-2.5 py-2 font-bold">Budget</th>
+            <th class="px-2.5 py-2 font-bold">Sensus</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, index) in monthRows" :key="`gap-${row.tahun}-${row.bulan}`"
+            class="border-t border-[#e6e6e6]" :class="index % 2 === 1 && 'bg-[#f2f2f2]'">
+            <td class="whitespace-nowrap px-2.5 py-1.5 tabular-nums">{{ monthLabel(row) }}</td>
+            <td v-for="key in (['budget', 'sensus'] as const)" :key="key" class="px-2.5 py-1.5">
+              <span v-if="key === 'budget' ? row.kategori_budget : row.kategori_sensus"
+                class="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <span class="h-2 w-2 shrink-0 rounded-[3px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
+                  :style="{ background: tone(String(key === 'budget' ? row.kategori_budget : row.kategori_sensus)) }" />
+                <span class="font-semibold">{{ key === 'budget' ? row.kategori_budget : row.kategori_sensus }}</span>
+                <span class="tabular-nums text-11 text-[#55604c]">
+                  {{ signedPct(key === 'budget' ? row.gap_budget_pct : row.gap_sensus_pct) }}
+                </span>
+              </span>
+              <span v-else class="text-[#6e7866]">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else-if="loading && !budget && !sensus" class="flex h-[132px] items-center justify-center text-13 text-[#6e7866]">
       Memuat…
     </div>
     <p v-else-if="!budget && !sensus" class="py-8 text-center text-13 text-[#6e7866]">
