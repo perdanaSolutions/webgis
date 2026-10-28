@@ -88,6 +88,11 @@ export type ProductionYear = {
   bjr: number;
   jjg_ppk: number;
   kg_ppk: number;
+  /** Gap per periode dari /spatial/history (data_histori). Untuk satu blok = gap blok itu per bulan. */
+  gap_budget_pct?: number | null;
+  gap_sensus_pct?: number | null;
+  kategori_budget?: string | null;
+  kategori_sensus?: string | null;
 };
 export type ProductionGapCategory = {
   kategori: string;
@@ -1590,6 +1595,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         bjr: Number(row.bjr ?? 0),
         jjg_ppk: Number(row.jjg_ppk ?? 0),
         kg_ppk: Number(row.kg_ppk ?? 0),
+        gap_budget_pct: row.gap_budget_pct == null ? null : Number(row.gap_budget_pct),
+        gap_sensus_pct: row.gap_sensus_pct == null ? null : Number(row.gap_sensus_pct),
+        kategori_budget: row.kategori_budget ?? null,
+        kategori_sensus: row.kategori_sensus ?? null,
       }))
       .filter((row) => Number.isFinite(row.tahun))
       .sort((a, b) => a.tahun - b.tahun || (a.bulan ?? 0) - (b.bulan ?? 0));

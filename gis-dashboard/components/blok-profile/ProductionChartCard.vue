@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 
 import type { ProductionYear } from "~/stores/blokProfileStore";
+import { yearlySummaries } from "~/utils/productionSummary";
 
 const PAGE_SIZE = 10;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -9,6 +10,9 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "
 const props = defineProps<{ years: ProductionYear[]; loading: boolean; expanded?: boolean }>();
 
 const page = ref(1);
+
+/** Ringkasan 1 tahun dari SEMUA baris (bukan hanya halaman aktif). */
+const summaries = computed(() => yearlySummaries(props.years));
 
 const pageCount = computed(() => Math.max(1, Math.ceil(props.years.length / PAGE_SIZE)));
 const rows = computed(() => (
@@ -83,6 +87,28 @@ watch(pageCount, (count) => {
     <p v-else-if="!years.length" class="py-8 text-center text-13 text-[#6e7866]">Belum ada data produksi untuk scope ini.</p>
 
     <template v-else>
+      <div v-for="s in summaries" :key="`sum-${s.tahun}`"
+        class="rounded-xl border border-[#d5dcc8] bg-[#eef3e7] px-3 py-2.5 text-[#1f2a18]">
+        <div class="mb-1.5 flex items-baseline justify-between gap-2">
+          <h3 class="text-13 font-bold">Total {{ s.tahun }}</h3>
+          <span class="text-11 text-[#55604c]">{{ s.periods.toLocaleString("id-ID") }} periode</span>
+        </div>
+        <dl class="grid grid-cols-3 gap-2 text-12">
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]">Luas{{ s.luasBulan ? ` (${MONTHS[s.luasBulan - 1]})` : "" }}</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.luas, 3) }}</dd>
+          </div>
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]">Total Ton</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.ton, 3) }}</dd>
+          </div>
+          <div class="min-w-0">
+            <dt class="text-11 text-[#6e7866]">Ton/ha</dt>
+            <dd class="font-semibold tabular-nums">{{ format(s.ton_ha, 2) }}</dd>
+          </div>
+        </dl>
+      </div>
+
       <div class="overflow-x-auto rounded-xl border border-[#d5dcc8]">
         <table class="w-full min-w-[640px] border-collapse text-left text-12">
           <thead>
