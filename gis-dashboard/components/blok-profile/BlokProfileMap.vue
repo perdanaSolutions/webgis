@@ -65,9 +65,13 @@ let stopBasemapWatch: (() => void) | null = null;
 let blockLayer: import("leaflet").GeoJSON | null = null;
 let labelLayer: import("leaflet").LayerGroup | null = null;
 let comparisonLayer: import("leaflet").LayerGroup | null = null;
-let selectedTag: import("leaflet").Marker | null = null;
 let pointRenderer: import("leaflet").Canvas | null = null;
 let polygonRenderer: import("leaflet").Canvas | null = null;
+/**
+ * Batas blok digambar di Canvas, bukan SVG. Ratusan poligon SVG (masing-masing ratusan titik)
+ * diproyeksikan ulang & ditulis ulang ke DOM di setiap zoomend -> scroll/pinch tersendat.
+ */
+let blockRenderer: import("leaflet").Canvas | null = null;
 const overlayLayers = new Map<string, import("leaflet").GeoJSON>();
 let slopeLabelLayer: import("leaflet").LayerGroup | null = null;
 const popupLoadSeq = new Map<string, number>();
@@ -77,7 +81,15 @@ let skipViewAdjust = false;
 /** Saat layer batas diganti, popup tertutup karena layer hilang — bukan aksi tutup user. */
 let rebuilding = false;
 
-const LABEL_MIN_ZOOM = 14;
+/**
+ * Label kode blok tampil bila garis skala menunjukkan "1 km" atau lebih dekat.
+ * Dihitung dari jarak nyata per 100 px (bukan level zoom bulat) agar tetap benar pada zoom pecahan.
+ * Label Leaflet "1 km" berlaku sampai < 2 km per 100 px.
+ */
+const LABEL_MAX_SCALE_M = 2000;
+/** Batas jumlah label di layar sekaligus (hanya blok di dalam area pandang yang diberi label). */
+const LABEL_MAX_ON_SCREEN = 900;
+let labelMarkers: import("leaflet").Marker[] = [];
 /** Lebar garis skala (px) — dasar definisi "100 m" dan "500 m". */
 const SCALE_PX = 100;
 /** Padding simetris saat fit semua blok. */
@@ -546,6 +558,7 @@ function renderBlocks(fit: boolean) {
 
     blockLayer = Lf.geoJSON(props.blocks!, {
       pane: "bp-blocks",
+      ...(blockRenderer ? { renderer: blockRenderer } : {}),
       style: (f) => blockStyle(f),
       onEachFeature: (feature, layer) => {
         const id = String(feature.properties?.blok_id ?? "");
@@ -573,6 +586,7 @@ function renderBlockMarks() {
   labelLayer?.removeFrom(map);
   comparisonLayer?.removeFrom(map);
   labelLayer = Lf.layerGroup();
+  labelMarkers = [];
   comparisonLayer = Lf.layerGroup();
 
   blockLayer.eachLayer((layer) => {
@@ -598,10 +612,8 @@ function renderBlockMarks() {
       }).addTo(comparisonLayer!);
     }
 
-    // Tag blok terpilih sudah menampilkan nama di pusat yang sama.
-    if (selected) return;
-
-    Lf!.marker(center, {
+    void selected; // blok terpilih memakai label putih biasa (permintaan t116u), tanpa tag hijau.
+    labelMarkers.push(Lf!.marker(center, {
       pane: "bp-labels",
       interactive: false,
       icon: Lf!.divIcon({
@@ -609,7 +621,7 @@ function renderBlockMarks() {
         html: `<span class="bp-block-label-text ${color ? "is-below" : "is-center"}">${kode}</span>`,
         iconSize: [0, 0],
       }),
-    }).addTo(labelLayer!);
+    }));
   });
 
   updateLabelVisibility();
@@ -621,36 +633,40 @@ function syncMarkLayer(layer: import("leaflet").LayerGroup | null, visible: bool
   if (!visible && map.hasLayer(layer)) layer.removeFrom(map);
 }
 
+/** Label hanya untuk blok di area pandang (+ sedikit margin) -> ringan meski ribuan blok. */
+function cullLabels() {
+  if (!map || !labelLayer) return;
+  const bounds = map.getBounds().pad(0.15);
+  const group = labelLayer;
+  let shown = 0;
+  for (const marker of labelMarkers) {
+    const inside = shown < LABEL_MAX_ON_SCREEN && bounds.contains(marker.getLatLng());
+    if (inside) shown += 1;
+    const has = group.hasLayer(marker);
+    if (inside && !has) group.addLayer(marker);
+    else if (!inside && has) group.removeLayer(marker);
+  }
+}
+
 function updateLabelVisibility() {
   if (!map || !labelLayer) return;
   const fewEnough = (props.blocks?.features.length ?? 0) <= 600;
-  const labelsVisible = props.showBlocks && map.getZoom() >= LABEL_MIN_ZOOM && fewEnough;
+  const labelsVisible = props.showBlocks && currentScaleMeters() < LABEL_MAX_SCALE_M;
+  // Saat pertama tampil saja; selama pan/zoom, culling dikerjakan sekali di moveend.
+  if (labelsVisible && !map.hasLayer(labelLayer)) cullLabels();
   syncMarkLayer(labelLayer, labelsVisible);
   syncMarkLayer(comparisonLayer, props.showBlocks && props.showYieldGap && fewEnough);
 }
 
 function renderSelected(pan = false) {
   if (!Lf || !map) return;
-  selectedTag?.removeFrom(map);
-  selectedTag = null;
   blockLayer?.eachLayer((layer) => {
     const feature = (layer as any).feature as GeoJSON.Feature;
     const id = String(feature.properties?.blok_id ?? "");
     paintBlock(layer, feature);
     if (id !== props.selectedId) return;
     (layer as any).bringToFront?.();
-    const bounds = (layer as any).getBounds() as import("leaflet").LatLngBounds;
-    const center = blockAnchor(layer) ?? bounds.getCenter();
-    const luas = feature.properties?.areal_statement?.luas_tanam;
-    selectedTag = Lf!.marker(center, {
-      pane: "bp-labels",
-      interactive: false,
-      icon: Lf!.divIcon({
-        className: "bp-selected-tag",
-        html: `<div class="bp-tag-inner"><span class="bp-pin" aria-hidden="true"></span>${escapeHtml(feature.properties?.kode_blok)}${luas ? ` · ${fmt(luas)} Ha` : ""}</div>`,
-        iconSize: [0, 0],
-      }),
-    }).addTo(map!);
+    // Tidak ada tag hijau lagi: blok terpilih memakai label putih biasa dari renderBlockMarks.
     if (pan) focusBlock(layer);
   });
 }
@@ -879,7 +895,8 @@ onMounted(async () => {
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
   pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
-  polygonRenderer = Lf.canvas({ pane: "bp-polygons", padding: 0.5 }); // ribuan poligon landuse/slope: SVG terlalu berat
+  polygonRenderer = Lf.canvas({ pane: "bp-polygons", padding: 0.5 });
+  blockRenderer = Lf.canvas({ pane: "bp-blocks", padding: 0.5, tolerance: 2 }); // ribuan poligon landuse/slope: SVG terlalu berat
   map.attributionControl?.setPosition("bottomleft");
   const scale = Lf.control.scale({ position: "bottomleft", imperial: false, maxWidth: SCALE_PX });
   const leafletRound = (scale as any)._getRoundNum.bind(scale);
@@ -888,6 +905,22 @@ onMounted(async () => {
   scale.addTo(map);
   // zoomstart animasi Leaflet terpicu di frame berikutnya (setelah flag program di-reset), jadi
   // penanda skala tombol dicek di zoomend: zoom akhir harus sama dengan zoom hasil tombol.
+  // Ratusan label teks (dengan bayangan) yang ikut dianimasikan tiap langkah zoom adalah penyebab
+  // scroll/pinch tersendat (terukur: long task 200–1000 ms). Label disembunyikan selama zoom berlangsung
+  // dan muncul lagi 150 ms setelah zoom berhenti.
+  const labelPane = map.getPane("bp-labels")!;
+  let labelTimer: ReturnType<typeof setTimeout> | null = null;
+  map.on("zoomstart", () => {
+    if (labelTimer) clearTimeout(labelTimer);
+    labelPane.classList.add("is-zooming");
+  });
+  map.on("zoomend", () => {
+    if (labelTimer) clearTimeout(labelTimer);
+    labelTimer = setTimeout(() => labelPane.classList.remove("is-zooming"), 150);
+  });
+  map.on("moveend", () => {
+    if (labelLayer && map!.hasLayer(labelLayer)) cullLabels();
+  });
   map.on("zoomend", () => {
     if (buttonScale !== null && (buttonZoom === null || Math.abs(map!.getZoom() - buttonZoom) > 1e-6)) buttonScale = null;
     updateLabelVisibility();
@@ -958,15 +991,16 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-map { background: #3f4a3a; }
 .bp-map .leaflet-bp-blocks-pane path { pointer-events: all !important; }
 
+.bp-map .leaflet-bp-labels-pane.is-zooming { display: none; }
 .bp-block-label {
   background: none;
   border: none;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75), 0 0 6px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
 }
 .bp-block-label-text.is-center,
 .bp-block-label-text.is-below {
