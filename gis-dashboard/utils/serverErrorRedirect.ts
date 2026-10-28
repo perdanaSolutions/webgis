@@ -1,5 +1,6 @@
 import type { NuxtApp } from "#app";
 import {
+  isOnMaintenancePage,
   maintenanceTarget,
   MAINTENANCE_STATE_KEY,
   parseMaintenanceBody,
@@ -28,6 +29,11 @@ export function redirectOnServerProblem(error: unknown, nuxtApp?: NuxtApp): bool
   if (kind !== "server" && kind !== "maintenance") return false;
   const app = nuxtApp ?? useNuxtApp();
   const route = app.$router?.currentRoute?.value;
+  // Guard pusat: sudah di /maintenance (query apa pun) -> tidak ada navigasi lagi.
+  const appBase = (app.$config?.app?.baseURL as string | undefined) ?? "/";
+  if (import.meta.client ? isOnMaintenancePage(window.location.pathname, appBase) : isOnMaintenancePage(route?.path, appBase)) {
+    return true;
+  }
   const path = import.meta.client ? window.location.pathname : route?.path ?? "/";
   const fullPath = import.meta.client
     ? `${window.location.pathname}${window.location.search}${window.location.hash}`

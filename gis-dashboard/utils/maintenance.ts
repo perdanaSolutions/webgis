@@ -28,6 +28,19 @@ export function isMaintenancePath(path: string) {
   return path.replace(/\/+$/, "") === MAINTENANCE_PATH;
 }
 
+/**
+ * Guard pusat "sudah di halaman /maintenance": abaikan query/hash, trailing slash, dan app.baseURL.
+ * Dipakai handler redirect, plugin API, plugin poll, plugin sesi, dan middleware agar tidak ada redirect ulang.
+ */
+export function isOnMaintenancePage(pathOrUrl: string | null | undefined, appBaseURL = "/"): boolean {
+  let path = String(pathOrUrl ?? "");
+  path = path.split(/[?#]/)[0] ?? "";
+  const base = String(appBaseURL || "/").replace(/\/+$/, "");
+  if (base && path.startsWith(`${base}/`)) path = path.slice(base.length);
+  if (!path.startsWith("/")) path = `/${path}`;
+  return isMaintenancePath(path);
+}
+
 export function isLoginPath(path: string) {
   return path.replace(/\/+$/, "") === "/login";
 }
