@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+import { statusTanamSummary, type StatusTanamSummary } from '~/utils/statusTanam'
+
 type ProductionRow = {
   tahun: number
   bulan: number | null
@@ -51,6 +53,8 @@ const production = ref<ProductionRow[]>([])
 const yieldSeries = ref<YieldRow[]>([])
 const rotation = ref<RotationRow[]>([])
 const statusSlices = ref<StatusSlice[]>([])
+const statusSummary = ref<StatusTanamSummary | null>(null)
+const statusPeriod = ref<{ tahun: number | null; bulan: number | null }>({ tahun: null, bulan: null })
 const productionAccess = ref(true)
 const yieldAccess = ref(true)
 const statusAccess = ref(true)
@@ -180,11 +184,6 @@ function areaPath(points: Point[], baseline: number) {
   return `${line} L ${last.x.toFixed(1)} ${baseline} L ${first.x.toFixed(1)} ${baseline} Z`
 }
 
-function jitter(seed: number) {
-  const value = Math.sin(seed * 127.1) * 43758.5453
-  return value - Math.floor(value)
-}
-
 onMounted(async () => {
   try {
     const { $api } = useNuxtApp()
@@ -217,14 +216,9 @@ onMounted(async () => {
       })
       .filter((row): row is YieldRow => row != null)
 
-    statusSlices.value = ((statusReport.per_status ?? []) as Array<Record<string, any>>)
-      .map((row) => ({
-        key: String(row.status ?? ''),
-        label: String(row.label ?? row.status ?? ''),
-        ha: Number(row.luas_tanam ?? 0),
-        pct: Number(row.persen ?? 0),
-      }))
-      .filter((row) => row.key && row.ha > 0)
+    statusSummary.value = statusTanamSummary(statusReport.per_status)
+    statusSlices.value = statusSummary.value?.slices ?? []
+    statusPeriod.value = { tahun: yearOf(statusReport.tahun), bulan: monthOf(statusReport.bulan) }
 
     rotation.value = ((rotasi.periode ?? []) as Array<Record<string, any>>)
       .map((row) => {
@@ -241,7 +235,6 @@ onMounted(async () => {
 const latestProduction = computed(() => production.value.at(-1) ?? null)
 const latestYield = computed(() => yieldSeries.value.at(-1) ?? null)
 const latestRotation = computed(() => rotation.value.at(-1) ?? null)
-const leadStatus = computed(() => [...statusSlices.value].sort((a, b) => b.pct - a.pct)[0] ?? null)
 const reportYear = computed(() => latestProduction.value?.tahun ?? latestYield.value?.tahun ?? latestRotation.value?.tahun ?? new Date().getFullYear())
 
 const productionBars = computed(() => {
@@ -335,38 +328,63 @@ const rotationMarkers = computed(() => rotation.value.flatMap((row, index) => {
   }]
 }))
 
-const slopeDots = computed(() => {
-  if (!statusSlices.value.length) return []
-  const dots: Array<Point & { tip: ChartTip }> = []
-  statusSlices.value.forEach((item, index) => {
-    const count = Math.min(7, Math.max(3, Math.round(item.pct / 7)))
-    for (let dot = 0; dot < count; dot += 1) {
-      const seed = index * 20 + dot + 1
-      const progress = (index + jitter(seed)) / statusSlices.value.length
-      const x = Math.min(276, Math.max(46, 52 + progress * 214 + (jitter(seed + 3) - 0.5) * 20))
-      const y = Math.min(112, Math.max(18, 24 + progress * 86 + (jitter(seed + 8) - 0.5) * 16))
-      dots.push({
-        x,
-        y,
-        tip: {
-          chart: 'status',
-          id: `status-${item.key}`,
-          title: item.label,
-          value: `${Math.round(item.pct)}% · ${num(item.ha)} HA`,
-          x,
-          y,
-        },
-      })
+/** Batang 3D (gaya kartu Produksi TBS) untuk LC, TBM, TM: tinggi ~ luas tanam, label ha & % di atas batang. */
+const STATUS_COLORS: Record<string, { front: string; side: string; top: string }> = {
+  LC: BAR_COLORS[0]!,
+  TBM: BAR_COLORS[1]!,
+  TM: GREEN_BAR,
+}
+const statusBars = computed(() => {
+  const rows = statusSlices.value
+  if (!rows.length) return []
+  const max = Math.max(...rows.map((row) => row.ha), 1)
+  const barWidth = 46
+  const gap = 38
+  const depthX = 14
+  const depthY = 10
+  const base = 124
+  const maxHeight = 64
+  const total = rows.length * barWidth + (rows.length - 1) * gap
+  const origin = (300 - total - depthX) / 2
+  return rows.map((row, index) => {
+    const height = row.ha > 0 ? Math.max((row.ha / max) * maxHeight, 4) : 1.5
+    const x = origin + index * (barWidth + gap)
+    const y = base - height
+    const cx = x + barWidth / 2 + depthX * 0.25
+    return {
+      row,
+      color: STATUS_COLORS[row.key] ?? GREEN_BAR,
+      x, y, base, barWidth, cx,
+      front: `${x},${y} ${x + barWidth},${y} ${x + barWidth},${base} ${x},${base}`,
+      top: `${x},${y} ${x + depthX},${y - depthY} ${x + barWidth + depthX},${y - depthY} ${x + barWidth},${y}`,
+      side: `${x + barWidth},${y} ${x + barWidth + depthX},${y - depthY} ${x + barWidth + depthX},${base - depthY} ${x + barWidth},${base}`,
+      pctText: `${num(row.pct, 1)}%`,
+      haText: `${num(row.ha, 0)} ha`,
+      tip: {
+        chart: 'status',
+        id: `status-${row.key}`,
+        title: `${row.key} · ${row.label}`,
+        value: `${num(row.pct, 2)}% · ${num(row.ha, 2)} HA`,
+        x: cx,
+        y: y - depthY,
+      } satisfies ChartTip,
     }
   })
-  return dots
 })
 
 const productionNote = computed(() => summary(production.value.map((row) => row.ton), 'produksi'))
 const yieldNote = computed(() => summary(yieldSeries.value.map((row) => row.ton_ha), 'yield'))
+const statusYear = computed(() => statusPeriod.value.tahun ?? reportYear.value)
 const statusNote = computed(() => {
-  if (!leadStatus.value) return 'Belum ada sebaran status tanam pada periode ini.'
-  return `Area ${leadStatus.value.key} mencakup ${Math.round(leadStatus.value.pct)}% lahan, dan menjadi gambaran status tanam pada periode ${reportYear.value}.`
+  const s = statusSummary.value
+  if (!s) return 'Belum ada sebaran status tanam pada periode ini.'
+  const part = (key: string) => {
+    const item = s.slices.find((x) => x.key === key)
+    return `${key} ${num(item?.pct ?? 0, 1)}% (${num(item?.ha ?? 0, 0)} ha)`
+  }
+  const bulan = statusPeriod.value.bulan ? `${MONTHS[statusPeriod.value.bulan - 1]} ` : ''
+  const lain = s.lainnya.blok > 0 ? ` ${num(s.lainnya.blok, 0)} blok tanpa status tidak dihitung.` : ''
+  return `Area TM mencakup ${num(s.tmPct, 1)}% dari ${num(s.total, 0)} ha luas tanam (LC + TBM + TM) periode ${bulan}${statusYear.value}: ${part('LC')}, ${part('TBM')}, ${part('TM')}.${lain}`
 })
 const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari), 'rotasi panen'))
 </script>
@@ -450,24 +468,22 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
     <article class="kpi">
       <h2>Status Tanam</h2>
       <div class="kpi__chart" @mouseleave="leaveChart('status')" @click="clearPin('status', $event)">
-        <p v-if="leadStatus" class="kpi__metric is-right is-ink">
-          {{ Math.round(leadStatus.pct) }} % AREA {{ leadStatus.key }}
+        <p v-if="statusSummary" class="kpi__metric is-right is-ink">
+          {{ Math.round(statusSummary.tmPct) }} % AREA TM
         </p>
         <p v-if="loading" class="kpi__empty">Memuat…</p>
         <p v-else-if="!statusSlices.length" class="kpi__empty">{{ statusAccess ? 'Belum ada data' : 'Tidak ada akses' }}</p>
         <svg v-else viewBox="0 0 300 148" class="kpi__svg" role="img"
           :aria-label="`Status tanam: ${statusSlices.map((item) => `${item.key} ${Math.round(item.pct)} persen`).join(', ')}`">
-          <defs>
-            <marker id="kpi-axis-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-              <path d="M0 0 L7 3.5 L0 7 Z" fill="#1a1a1a" />
-            </marker>
-          </defs>
-          <line x1="34" y1="122" x2="34" y2="16" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
-          <line x1="34" y1="122" x2="286" y2="122" class="kpi__axis-line" marker-end="url(#kpi-axis-arrow)" />
-          <g v-for="(dot, index) in slopeDots" :key="index">
-            <circle :cx="dot.x" :cy="dot.y" :r="tipOn(dot.tip.id) ? 5.4 : 4.1" class="kpi__dot" :class="{ 'is-hot': tipOn(dot.tip.id) }" />
-            <circle class="kpi__hit" :cx="dot.x" :cy="dot.y" r="9"
-              @pointerenter="enterTip(dot.tip)" @click.stop="toggleTip(dot.tip)" />
+          <g v-for="bar in statusBars" :key="bar.row.key" class="kpi__series" :class="{ 'is-hot': tipOn(bar.tip.id) }">
+            <polygon :points="bar.side" :fill="bar.color.side" />
+            <polygon :points="bar.front" :fill="bar.color.front" />
+            <polygon :points="bar.top" :fill="bar.color.top" />
+            <text :x="bar.cx" :y="bar.y - 24" text-anchor="middle" class="kpi__bar-pct">{{ bar.pctText }}</text>
+            <text :x="bar.cx" :y="bar.y - 13" text-anchor="middle" class="kpi__axis">{{ bar.haText }}</text>
+            <text :x="bar.cx" y="140" text-anchor="middle" class="kpi__axis kpi__bar-key">{{ bar.row.key }}</text>
+            <rect class="kpi__hit" :x="bar.x - 4" :y="bar.y - 34" :width="bar.barWidth + 22" :height="bar.base - bar.y + 52"
+              @pointerenter="enterTip(bar.tip)" @click.stop="toggleTip(bar.tip)" />
           </g>
           <template v-for="frame in [tipFrame(chartTip('status'), 300, 148)]" :key="frame?.title ?? 'status'">
             <g v-if="frame" class="kpi__tip">
@@ -479,7 +495,7 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
         </svg>
       </div>
       <div class="kpi__foot">
-        <h3>Ringkasan TM &amp; TBM {{ reportYear }}</h3>
+        <h3>Ringkasan LC, TBM &amp; TM {{ statusYear }}</h3>
         <p>{{ statusAccess ? statusNote : 'Tidak ada akses untuk data status tanam.' }}</p>
       </div>
     </article>
@@ -726,6 +742,16 @@ const rotationNote = computed(() => summary(rotation.value.map((row) => row.hari
   stroke: #1a1a1a;
   stroke-width: 1.7;
   stroke-linecap: round;
+}
+
+.kpi__bar-pct {
+  font-size: 11px;
+  font-weight: 800;
+  fill: #1a1a1a;
+}
+
+.kpi__bar-key {
+  font-weight: 800;
 }
 
 .kpi__dot {
