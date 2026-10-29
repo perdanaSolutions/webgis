@@ -29,6 +29,7 @@ defineProps<{
   loadingDetail: boolean;
   canViewProduction: boolean;
   productionYears: ProductionYear[];
+  productionRecap?: ProductionYear[];
   productionLoading: boolean;
   productionGapBudget: ProductionGapSummary | null;
   productionGapSensus: ProductionGapSummary | null;
@@ -67,7 +68,7 @@ defineExpose({ sections });
 
     <template v-if="canViewProduction">
       <div class="bp-print-section">
-        <ProductionChartCard :years="productionYears" :loading="productionLoading" expanded />
+        <ProductionChartCard :years="productionYears" :recap="productionRecap" :loading="productionLoading" expanded />
       </div>
       <div class="bp-print-section">
         <ProductionGapCard :budget="productionGapBudget" :sensus="productionGapSensus" :loading="productionLoading" />

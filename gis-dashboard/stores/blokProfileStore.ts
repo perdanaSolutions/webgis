@@ -94,6 +94,8 @@ export type ProductionYear = {
   gap_sensus_pct?: number | null;
   kategori_budget?: string | null;
   kategori_sensus?: string | null;
+  /** Hanya rekap_tahunan: jumlah bulan yang punya data produksi. */
+  jumlah_periode?: number;
 };
 export type ProductionGapCategory = {
   kategori: string;
@@ -1687,6 +1689,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       (production.value?.data_histori ?? []) as Array<Record<string, any>>,
     ),
   );
+  /** rekap_tahunan dari /spatial/history: satu baris per tahun (semua tahun dalam filter wilayah), tahun naik. */
+  const productionRecap = computed<ProductionYear[]>(() => {
+    const raw = (production.value?.rekap_tahunan ?? []) as Array<Record<string, any>>;
+    const counts = new Map(raw.map((r) => [Number(r.tahun), Number(r.jumlah_periode ?? 0)]));
+    return mapHistoriRows(raw.map((row) => ({ ...row, periode: row.tahun, bulan: null })))
+      .map((row) => ({ ...row, jumlah_periode: counts.get(row.tahun) ?? 0 }));
+  });
 
   const areaStatementView = computed<AreaStatementHistory | null>(
     () => areaStatement.value,
@@ -1876,6 +1885,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     scopeLabel,
     scopeParams,
     productionYears,
+    productionRecap,
     estateShortNames,
     productionGapBudget,
     productionGapSensus,
