@@ -714,7 +714,7 @@ onBeforeUnmount(() => {
           <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
         </div>
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
-          <ProductionChartCard :years="store.productionYears" :loading="store.loadingProduction" />
+          <ProductionChartCard :years="store.productionYears" :recap="store.productionRecap" :loading="store.loadingProduction" />
           <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
             :months="store.selectedBlokId ? store.productionYears : null" :loading="store.loadingProduction" />
         </div>
@@ -737,7 +737,7 @@ onBeforeUnmount(() => {
       <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel"
         :filter-line="pdfFilterLine" :summary="store.summary" :detail="store.detail"
         :loading-detail="store.loadingDetail" :can-view-production="store.canViewProduction"
-        :production-years="store.productionYears" :production-loading="store.loadingProduction"
+        :production-years="store.productionYears" :production-recap="store.productionRecap" :production-loading="store.loadingProduction"
         :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
         :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
         :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
