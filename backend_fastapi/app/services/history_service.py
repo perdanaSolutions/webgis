@@ -257,6 +257,80 @@ def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_fil
     }
 
 
+def yearly_recap_rows(months: list[dict]) -> list[dict]:
+    """Rekap per tahun dari baris BULANAN mentah (belum dibulatkan), tahun naik.
+
+    Rumus (selaras ringkasan tahunan frontend utils/productionSummary.ts):
+    - luas            : luas bulan TERAKHIR tahun itu yang punya luas (luas tanam berulang tiap bulan, tidak dijumlah).
+    - ton             : SUM ton bulanan.
+    - ton_ha          : ton / luas.
+    - ton_ha_budget   : SUM ton budget / luas (= jumlah ton/ha budget bulanan bila luas tetap; satu penyebut
+                        dengan ton_ha supaya gap tidak terdistorsi perubahan luas).  ton_ha_sensus: idem.
+    - gap_*_pct       : (ton_ha - ton_ha_target) / ton_ha_target * 100 (rumus bulanan, gap_pct).
+    - kategori_*      : gap_category(gap tahunan), ambang sama dengan bulanan.
+    - bjr             : SUM kg / SUM janjang (definisi BJR bulanan = kg / janjang).
+    - jjg_ppk, kg_ppk : SUM nilai bulanan (janjang/pokok, kg/pokok per bulan).
+    - jumlah_periode  : jumlah bulan yang punya data produksi.
+    """
+    years: dict[int, dict] = {}
+    for m in sorted(months, key=lambda r: (r["tahun"], r["bulan"])):
+        y = years.setdefault(m["tahun"], {"n": 0, "luas": None, "ffb": 0.0, "bgt": 0.0, "sns": 0.0, "has_bgt": False,
+                                          "has_sns": False, "bunches": 0.0, "jjg_ppk": None, "kg_ppk": None})
+        y["n"] += 1
+        if m["area"] is not None and num(m["area"]) > 0:
+            y["luas"] = num(m["area"])
+        y["ffb"] += num(m["ffb"])
+        if m["ffb_bgt"] is not None:
+            y["bgt"] += num(m["ffb_bgt"]); y["has_bgt"] = True
+        if m["ffb_sns"] is not None:
+            y["sns"] += num(m["ffb_sns"]); y["has_sns"] = True
+        y["bunches"] += num(m["bunches"])
+        trees = num(m["trees"])
+        if trees:
+            y["jjg_ppk"] = (y["jjg_ppk"] or 0.0) + num(m["bunches"]) / trees
+            y["kg_ppk"] = (y["kg_ppk"] or 0.0) + num(m["ffb"]) / trees
+
+    rnd = lambda v: round(v, 2) if v is not None else None  # noqa: E731
+    out = []
+    for tahun, y in sorted(years.items()):
+        luas = y["luas"] or 0.0
+        per_ha = lambda kg: kg / 1000.0 / luas if luas else None  # noqa: E731
+        y_act = per_ha(y["ffb"])
+        y_bgt = per_ha(y["bgt"]) if y["has_bgt"] else None
+        y_sns = per_ha(y["sns"]) if y["has_sns"] else None
+        gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
+        out.append({
+            "tahun": tahun,
+            "jumlah_periode": y["n"],
+            "luas": round(luas, 2),
+            "ton": round(y["ffb"] / 1000.0, 2),
+            "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
+            "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
+            "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
+            "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
+            "bjr": round(y["ffb"] / y["bunches"], 2) if y["bunches"] else 0.0,
+            "jjg_ppk": rnd(y["jjg_ppk"]),
+            "kg_ppk": round(y["kg_ppk"]) if y["kg_ppk"] is not None else None,
+        })
+    return out
+
+
+def yearly_recap(db: Session, blocks_sql: str, params: dict, *, planting_year: int | None = None) -> list[dict]:
+    """`rekap_tahunan`: SEMUA tahun produksi untuk filter wilayah + hak akses (blocks_sql), mengabaikan
+    filter `tahun`/`bulan`. Filter tahun tanam tetap dipakai bila tabel punya kolom planting_year."""
+    pf = "AND COALESCE(p.planting_year, 0) = :rk_py" if planting_year is not None else ""
+    months = db.execute(text(f"""
+        SELECT extract(year FROM p.period)::int AS tahun, extract(month FROM p.period)::int AS bulan,
+               SUM(p.ffb_actual_kg) AS ffb, SUM(p.ffb_budget_kg) AS ffb_bgt, SUM(p.ffb_census_kg) AS ffb_sns,
+               SUM(p.bunches_actual) AS bunches, SUM(a.planted_area_ha) AS area, SUM(a.tree_count) AS trees
+        FROM trx.block_productions p
+        LEFT JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
+        WHERE p.block_id IN ({blocks_sql}) {pf}
+        GROUP BY p.period
+    """), {**params, "rk_py": planting_year}).mappings().all()
+    return yearly_recap_rows([dict(m) for m in months])
+
+
 def _production(
     db: Session,
     blocks_sql: str,
@@ -351,6 +425,7 @@ def _production(
             "0-3%": round(num(slope["s0"]), 2), "3-8%": round(num(slope["s1"]), 2),
             "8-15%": round(num(slope["s2"]), 2), "15-25%": round(num(slope["s3"]), 2), ">25%": 0.0,
         },
+        "rekap_tahunan": yearly_recap(db, blocks_sql, params, planting_year=planting_year),
         "total_periode": len(rows),
         "data_histori": [history_row(r) for r in rows],
         "ringkasan_gap_budget": _production_gap_summary(db, blocks_sql, params, year_filter, "budget"),
