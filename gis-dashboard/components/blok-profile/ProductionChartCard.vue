@@ -31,7 +31,7 @@ const sections = computed(() => (
 ));
 
 /** Ringkasan 1 tahun dari SEMUA baris (bukan hanya halaman aktif). */
-const summaries = computed(() => yearlySummaries(props.years));
+const summaries = computed(() => yearlySummaries(props.years, props.recap ?? []));
 
 const pageCount = computed(() => Math.max(1, Math.ceil(active.value.length / PAGE_SIZE)));
 

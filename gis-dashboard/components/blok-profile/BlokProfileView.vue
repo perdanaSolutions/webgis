@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
           <ProductionChartCard :years="store.productionYears" :recap="store.productionRecap" :loading="store.loadingProduction" />
           <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
-            :months="store.selectedBlokId ? store.productionYears : null" :loading="store.loadingProduction" />
+            :months="store.gapMonths" :per-blok="!!store.selectedBlokId" :loading="store.loadingProduction" />
         </div>
         <div v-else-if="activeRight === 'slope' && slopeLayerOn" id="bp-panel-slope" class="bp-collapse-panel">
           <SlopeInfoCard :features="slopeLayer?.data?.features ?? emptyFeatures" :loading="Boolean(slopeLayer?.loading)"

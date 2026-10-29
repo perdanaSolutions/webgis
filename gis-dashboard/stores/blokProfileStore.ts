@@ -1,3 +1,4 @@
+import { ytdGapMonths } from "~/utils/productionSummary";
 import { computed, ref, shallowRef, markRaw, reactive } from "vue";
 import { defineStore } from "pinia";
 
@@ -1689,6 +1690,18 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
       (production.value?.data_histori ?? []) as Array<Record<string, any>>,
     ),
   );
+  /**
+   * Daftar gap per bulan untuk kartu Gap Produksi: blok spesifik (semua bulan) atau filter Year to Date
+   * di level wilayah mana pun (bulan Jan s/d akhir YTD tahun filter). Data = data_histori yang sudah
+   * diagregasi backend untuk filter + hak akses. null = tampilan ringkasan periode terakhir.
+   */
+  const gapMonths = computed<ProductionYear[] | null>(() => {
+    if (selectedBlokId.value) return productionYears.value;
+    if (!applied.value.yearToDate) return null;
+    const year = applied.value.tahun || currentYear();
+    return ytdGapMonths(productionYears.value, Number(year), Number(yearToDateEndMonth(year)));
+  });
+
   /** rekap_tahunan dari /spatial/history: satu baris per tahun (semua tahun dalam filter wilayah), tahun naik. */
   const productionRecap = computed<ProductionYear[]>(() => {
     const raw = (production.value?.rekap_tahunan ?? []) as Array<Record<string, any>>;
@@ -1886,6 +1899,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     scopeParams,
     productionYears,
     productionRecap,
+    gapMonths,
     estateShortNames,
     productionGapBudget,
     productionGapSensus,
