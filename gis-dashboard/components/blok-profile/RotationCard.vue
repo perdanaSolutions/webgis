@@ -102,7 +102,7 @@ function num(value: number, digits = 1) {
 }
 
 function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok: number }) {
-  return `Rotasi terakhir ${num(row.rotasi)} · Luas Panen ${num(row.luas)} ha`;
+  return `Rotasi ${num(row.rotasi)} · Luas Panen ${num(row.luas)} ha`;
 }
 </script>
 
