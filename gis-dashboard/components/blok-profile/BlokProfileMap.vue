@@ -27,7 +27,8 @@ import { viewportPopupMaxWidth } from "~/utils/viewportLayout";
 import { areaBubblesVisible, bubbleSize, groupBlocksByArea } from "~/utils/areaBubbles";
 import { installSmoothWheelZoom } from "~/utils/smoothWheelZoom";
 import {
-  AFDELING_HIT_PX, AFDELING_LAYER_CODE, afdelingLabelsVisible, afdelingPopupHtml, afdelingStyle, ringsDistance,
+  AFDELING_HIT_PX, AFDELING_LAYER_CODE, afdelingDeclutter, afdelingLabelText, afdelingLabelsVisible, afdelingPopupHtml,
+  afdelingStyle, declutterLabels, largestPart, polylabel, ringsDistance,
 } from "~/utils/afdelingBoundary";
 import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
@@ -750,6 +751,7 @@ function scheduleViewWork() {
     updateLabelVisibility();
     if (labelLayer && map.hasLayer(labelLayer)) cullLabels();
     updateSlopeLabelVisibility();
+    updateAfdelingLabelVisibility();
     syncAreaBubbles();
   });
 }
@@ -918,22 +920,27 @@ function renderOverlays() {
 function clearAfdelingLabels() {
   if (map) afdLabelLayer?.removeFrom(map);
   afdLabelLayer = null;
+  afdLabels = [];
 }
 
-/** Titik label = pusat bagian poligon terbesar (afdeling bisa multi-bagian). */
-function afdelingLabelPoint(layer: any): import("leaflet").LatLng | null {
-  const parts: any[] = layer.getLatLngs?.() ?? [];
-  const polys = parts.length && Array.isArray(parts[0]?.[0]) ? parts : [parts];
-  let best: any = null;
-  let bestArea = -1;
-  for (const poly of polys) {
-    const ring: import("leaflet").LatLng[] = Array.isArray(poly[0]) ? poly[0] : poly;
-    if (!ring?.length) continue;
-    const b = Lf!.latLngBounds(ring);
-    const area = (b.getNorth() - b.getSouth()) * (b.getEast() - b.getWest());
-    if (area > bestArea) { bestArea = area; best = Lf!.polygon(poly).getBounds().getCenter(); }
-  }
-  return best;
+/**
+ * Titik label = pole of inaccessibility bagian poligon terbesar (multi-bagian: bagian terluas), selalu di dalam
+ * poligon. Dihitung sekali per render layer di bidang lng·cos(lat) × lat supaya jarak kira-kira isotropik.
+ * Return juga luas bagian (dipakai sebagai prioritas declutter).
+ */
+function afdelingLabelPoint(layer: any): { at: import("leaflet").LatLng; area: number } | null {
+  const geom = layer.feature?.geometry;
+  if (!geom) return null;
+  const raw: number[][][][] = geom.type === "MultiPolygon" ? geom.coordinates : geom.type === "Polygon" ? [geom.coordinates] : [];
+  if (!raw.length) return null;
+  const lat0 = raw[0]?.[0]?.[0]?.[1] ?? 0;
+  const k = Math.cos((lat0 * Math.PI) / 180) || 1;
+  const polys = raw.map((poly) => poly.map((ring) => ring.map(([x, y]) => [x! * k, y!] as [number, number])));
+  const part = largestPart(polys);
+  if (!part) return null;
+  const [x, y] = polylabel(part);
+  const b = Lf!.latLngBounds(part[0]!.map(([px, py]) => [py, px / k] as [number, number]));
+  return { at: Lf!.latLng(y, x / k), area: (b.getNorth() - b.getSouth()) * (b.getEast() - b.getWest()) };
 }
 
 function renderAfdeling(layer: OverlayLayer) {
@@ -953,23 +960,58 @@ function renderAfdeling(layer: OverlayLayer) {
   geo.addTo(map);
   overlayLayers.set(layer.code, geo);
   afdLabelLayer = Lf.layerGroup();
+  afdLabels = [];
   geo.eachLayer((l: any) => {
-    const at = afdelingLabelPoint(l);
-    const code = l.feature?.properties?.kode_afd;
-    if (!at || !code) return;
-    Lf!.marker(at, {
-      pane: "bp-labels", interactive: false, keyboard: false,
-      icon: Lf!.divIcon({ className: "bp-afd-label", html: `<span>${escapeHtml(code)}</span>`, iconSize: [0, 0] }),
-    }).addTo(afdLabelLayer!);
+    const point = afdelingLabelPoint(l);
+    const text = afdelingLabelText(l.feature?.properties, props.estateShortNames ?? {});
+    if (!point || !text) return;
+    const html = `<span><b>${escapeHtml(text.afd)}</b>${text.est ? `<small>${escapeHtml(text.est)}</small>` : ""}</span>`;
+    const marker = Lf!.marker(point.at, {
+      pane: "bp-afd-labels", interactive: false, keyboard: false,
+      icon: Lf!.divIcon({ className: "bp-afd-label", html, iconSize: [0, 0] }),
+    });
+    // Kotak label perkiraan (px) untuk declutter; tanpa membaca DOM supaya tidak memicu layout.
+    const w = Math.max(text.afd.length * 8.4, text.est.length * 6.2) + 10;
+    afdLabels.push({ marker, at: point.at, area: point.area, w, h: text.est ? 30 : 18, shown: false });
   });
+  afdLabelLayer.addTo(map);
   updateAfdelingLabelVisibility();
 }
 
+let afdLabels: Array<{ marker: import("leaflet").Marker; at: import("leaflet").LatLng; area: number; w: number; h: number; shown: boolean }> = [];
+
+/**
+ * Label afdeling tampil selama layer aktif di semua skala. Dipanggil sekali per frame setelah zoom/pan
+ * (scheduleViewWork, sama dengan culling label blok): hanya label di layar yang dipasang; di atas 5 km
+ * label yang bertabrakan dirapikan (yang luasnya lebih kecil disembunyikan), di skala kerja semua tampil.
+ */
 function updateAfdelingLabelVisibility() {
   if (!map || !afdLabelLayer) return;
-  const visible = afdelingLabelsVisible(currentScaleMeters());
-  if (visible && !map.hasLayer(afdLabelLayer)) afdLabelLayer.addTo(map);
-  if (!visible && map.hasLayer(afdLabelLayer)) afdLabelLayer.removeFrom(map);
+  const on = afdelingLabelsVisible(overlayLayers.has(AFDELING_LAYER_CODE));
+  if (!on) {
+    if (map.hasLayer(afdLabelLayer)) afdLabelLayer.removeFrom(map);
+    return;
+  }
+  if (!map.hasLayer(afdLabelLayer)) afdLabelLayer.addTo(map);
+  const view = map.getBounds().pad(0.05);
+  const inView = afdLabels.filter((item) => view.contains(item.at));
+  let show: Set<number>;
+  if (afdelingDeclutter(currentScaleMeters())) {
+    const boxes = inView.map((item) => {
+      const p = map!.latLngToContainerPoint(item.at);
+      return { id: String(afdLabels.indexOf(item)), x: p.x, y: p.y, w: item.w, h: item.h, priority: item.area };
+    });
+    show = new Set([...declutterLabels(boxes)].map(Number));
+  } else {
+    show = new Set(inView.map((item) => afdLabels.indexOf(item)));
+  }
+  afdLabels.forEach((item, index) => {
+    const want = show.has(index);
+    if (want === item.shown) return;
+    item.shown = want;
+    if (want) item.marker.addTo(afdLabelLayer!);
+    else afdLabelLayer!.removeLayer(item.marker);
+  });
 }
 
 function restyleAfdeling() {
@@ -1080,7 +1122,7 @@ onMounted(async () => {
     wheelDebounceTime: 16,
     wheelPxPerZoomLevel: 48,
   }).setView([1.2, 117.5], 7);
-  for (const [name, z] of [["bp-afd", 405], ["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450], ["bp-bubbles", 460]] as const) {
+  for (const [name, z] of [["bp-afd", 405], ["bp-blocks", 410], ["bp-polygons", 420], ["bp-lines", 430], ["bp-points", 440], ["bp-labels", 450], ["bp-afd-labels", 455], ["bp-bubbles", 460]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
@@ -1208,18 +1250,24 @@ watch(() => props.insets, applyInsets, { deep: true });
 .bp-map .leaflet-bp-blocks-pane path { pointer-events: all !important; }
 
 .bp-map.is-interacting .leaflet-bp-labels-pane,
-.bp-map .leaflet-bp-labels-pane.is-zooming { display: none; }
+.bp-map .leaflet-bp-labels-pane.is-zooming,
+.bp-map.is-interacting .leaflet-bp-afd-labels-pane { display: none; }
 .bp-map.is-interacting .bp-slope-label { visibility: hidden; }
 .bp-afd-label span {
   position: absolute;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   white-space: nowrap;
-  font: 700 12px/1 system-ui, sans-serif;
-  letter-spacing: 0.04em;
-  color: #fde68a;
+  text-transform: uppercase;
+  color: #fbbf24;
   text-shadow: 0 0 3px #000, 0 0 2px #000, 0 1px 2px #000;
   pointer-events: none;
 }
+.bp-afd-label b { font: 800 14px/1 system-ui, sans-serif; letter-spacing: 0.06em; }
+.bp-afd-label small { font: 700 10px/1 system-ui, sans-serif; letter-spacing: 0.04em; color: #fde68a; }
 .bp-block-label {
   background: none;
   border: none;
