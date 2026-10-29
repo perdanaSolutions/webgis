@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
 import type { RotationActivity, RotationHistory } from "~/stores/blokProfileStore";
+import { rotationTotals } from "~/utils/rotationSummary";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
@@ -56,6 +57,7 @@ const rows = computed(() =>
         rotasi: Number(row.rotasi_terakhir ?? 0),
         putaran: Number(row.total_rotasi ?? 0),
         luas: Number(row.total_luas_rotasi ?? 0),
+        luasPanen: row.luas_panen == null ? null : Number(row.luas_panen),
         pokok: Number(row.total_pokok_rotasi ?? 0),
       };
     })
@@ -86,11 +88,14 @@ const totals = computed(() => {
   if (!first || !last) return null;
   const period = first.key === last.key ? first.label : `${first.label} – ${last.label}`;
   const n = list.length;
+  const ringkasan = rotationTotals(list, props.data?.ringkasan);
   return {
     period,
     hari: list.reduce((sum, row) => sum + row.hari, 0) / n,
-    rotasi: list.reduce((sum, row) => sum + row.rotasi, 0),
-    luas: list.reduce((sum, row) => sum + row.luas, 0),
+    /** Luas Panen ÷ Luas Tanam (bulan terakhir). */
+    rotasi: ringkasan?.rotasi ?? Number.NaN,
+    luas: ringkasan?.luas_panen ?? Number.NaN,
+    luasTanam: ringkasan?.luas_tanam ?? last.luas,
   };
 });
 
@@ -102,7 +107,8 @@ function num(value: number, digits = 1) {
 }
 
 function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok: number }) {
-  return `Rotasi ${num(row.rotasi)} · Luas Panen ${num(row.luas)} ha`;
+  // total_luas_rotasi = Σ area_ha = luas tanam blok yang dirotasi (bukan luas panen).
+  return `Rotasi ${num(row.rotasi)} · Luas Tanam ${num(row.luas)} ha`;
 }
 </script>
 
@@ -141,7 +147,8 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Rotasi</p>
-          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]">{{ num(totals.rotasi) }}</p>
+          <p class="text-14 font-semibold tabular-nums text-[#1f2a18]"
+            :title="`Luas Panen ${num(totals.luas)} ha ÷ Luas Tanam ${num(totals.luasTanam)} ha`">{{ num(totals.rotasi, 2) }}</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Luas Panen</p>

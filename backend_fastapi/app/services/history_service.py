@@ -459,6 +459,7 @@ def _rotation(
                MAX(h.rotation_no) AS rotasi_terakhir,
                ROUND(AVG(h.interval_days), 2) AS avg_pusingan_hari,
                SUM(h.area_ha) AS total_luas_rotasi,
+               SUM(h.area_ha * h.rotation_no) AS luas_panen,
                SUM(h.tree_count) AS total_pokok_rotasi
         FROM trx.harvest_rotations h
         WHERE h.block_id IN ({blocks_sql}) {period_sql} {planting_sql}
@@ -471,16 +472,38 @@ def _rotation(
         "mode_akumulasi": "BULANAN" if monthly else "TAHUNAN",
         "filter_applied": {**filter_info, "tahun": tahun},
         "total_periode": len(rows),
+        "ringkasan": rotation_summary(rows),
         "data": [
             {
                 "tahun": r["tahun"], "bulan": r["bulan"], "total_rotasi": r["total_rotasi"],
                 "rotasi_terakhir": num(r["rotasi_terakhir"]) if r["rotasi_terakhir"] is not None else None,
                 "avg_pusingan_hari": num(r["avg_pusingan_hari"]),
                 "total_luas_rotasi": num(r["total_luas_rotasi"]),
+                "luas_panen": num(r["luas_panen"]),
                 "total_pokok_rotasi": whole(r["total_pokok_rotasi"]),
             }
             for r in rows
         ],
+    }
+
+
+def rotation_summary(rows) -> dict | None:
+    """Total rotasi periode = Σ luas panen ÷ luas tanam (bukan SUM rotasi bulanan).
+
+    Per baris trx.harvest_rotations: area_ha = luas tanam blok (sama dengan planted_area_ha area statement),
+    rotation_no = berapa kali blok dipanen di bulan itu, jadi luas panen = area_ha × rotation_no.
+    Luas tanam = Σ area_ha bulan terakhir pada rentang (aturan luas = bulan terakhir, sama dengan rekap produksi).
+    """
+    rows = [r for r in rows if r["total_luas_rotasi"] is not None]
+    if not rows:
+        return None
+    luas_panen = sum(float(r["luas_panen"] or 0) for r in rows)
+    luas_tanam = float(rows[-1]["total_luas_rotasi"] or 0)
+    return {
+        "luas_panen": round(luas_panen, 2),
+        "luas_tanam": round(luas_tanam, 2),
+        "rotasi": round(luas_panen / luas_tanam, 2) if luas_tanam > 0 else None,
+        "periode_luas_tanam": {"tahun": rows[-1]["tahun"], "bulan": rows[-1]["bulan"]},
     }
 
 
