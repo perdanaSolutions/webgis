@@ -160,7 +160,7 @@ watch(divisionPageCount, (count) => {
     <section v-if="summary" class="bp-card flex flex-col gap-3 p-4" data-areal-report>
       <div class="flex items-baseline justify-between gap-3">
         <h2 class="text-16 font-bold text-[#1f2a18]">Informasi Areal Statement</h2>
-        <span v-if="reportPeriod" class="shrink-0 text-12 text-[#6e7866]">{{ reportPeriod }}</span>
+        <!-- <span v-if="reportPeriod" class="shrink-0 text-12 text-[#6e7866]">{{ reportPeriod }}</span> -->
       </div>
 
       <div class="overflow-x-auto rounded-xl border border-[#d5dcc8]">
