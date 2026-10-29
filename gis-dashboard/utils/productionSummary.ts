@@ -9,7 +9,17 @@
  * - BJR    : rata-rata tertimbang = ΣKg/Pkk ÷ ΣJjg/Pkk (= total kg ÷ total janjang per pokok).
  *            Bila ΣJjg/Pkk = 0 -> rata-rata BJR bulanan.
  * - Satu ringkasan per tahun; tahun terbaru di atas.
+ *
+ * SATU SUMBER: bila backend mengirim `rekap_tahunan`, baris tahun itu dipakai apa adanya (luas, ton, ton/ha,
+ * BJR = Σkg ÷ Σjanjang, Jjg/Pkk, Kg/Pkk, jumlah periode) supaya kartu "Total {tahun}" sama persis dengan tab
+ * Tahunan. Hitungan lokal di bawah hanya cadangan (respons lama tanpa rekap_tahunan); hasilnya bisa sedikit
+ * berbeda karena data_histori sudah dibulatkan per bulan (Kg/Pkk bulat, Jjg/Pkk 2 desimal).
  */
+export type RecapRow = {
+  tahun: number; luas: number; ton: number; ton_ha: number; bjr: number; jjg_ppk: number; kg_ppk: number;
+  jumlah_periode?: number;
+};
+
 export type HistoriRow = {
   tahun: number; bulan: number | null; ton: number; luas: number;
   bjr?: number; jjg_ppk?: number; kg_ppk?: number;
@@ -30,7 +40,22 @@ export type YearSummary = {
 
 const fin = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
-export function yearlySummaries(rows: HistoriRow[]): YearSummary[] {
+export function yearlySummaries(rows: HistoriRow[], recap: RecapRow[] = []): YearSummary[] {
+  const local = localSummaries(rows);
+  const byYear = new Map(recap.filter((r) => Number.isFinite(r.tahun)).map((r) => [r.tahun, r]));
+  return local.map((s) => {
+    const r = byYear.get(s.tahun);
+    if (!r) return s;
+    return {
+      ...s,
+      periods: r.jumlah_periode || s.periods,
+      ton: fin(r.ton), luas: fin(r.luas), ton_ha: Number.isFinite(r.ton_ha) ? r.ton_ha : s.ton_ha,
+      bjr: fin(r.bjr) > 0 ? r.bjr : s.bjr, jjg_ppk: fin(r.jjg_ppk), kg_ppk: fin(r.kg_ppk),
+    };
+  });
+}
+
+function localSummaries(rows: HistoriRow[]): YearSummary[] {
   const byYear = new Map<number, HistoriRow[]>();
   for (const row of rows) {
     if (!Number.isFinite(row.tahun)) continue;
@@ -56,4 +81,11 @@ export function yearlySummaries(rows: HistoriRow[]): YearSummary[] {
         bjr, jjg_ppk: jjg, kg_ppk: kg,
       };
     });
+}
+
+/** Baris gap per bulan untuk filter Year to Date: tahun filter, bulan 1 s/d `endMonth`, urut bulan. */
+export function ytdGapMonths<T extends { tahun: number; bulan: number | null }>(rows: T[], year: number, endMonth: number): T[] {
+  return rows
+    .filter((row) => row.tahun === year && row.bulan != null && row.bulan >= 1 && row.bulan <= endMonth)
+    .sort((a, b) => (a.bulan ?? 0) - (b.bulan ?? 0));
 }

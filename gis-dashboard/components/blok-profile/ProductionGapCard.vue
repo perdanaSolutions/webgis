@@ -10,6 +10,8 @@ const props = defineProps<{
   loading: boolean;
   /** Filter blok spesifik: daftar gap per bulan (dari data histori) menggantikan ringkasan periode terakhir. */
   months?: ProductionYear[] | null;
+  /** false = daftar bulanan untuk filter wilayah (Year to Date), bukan satu blok. */
+  perBlok?: boolean;
 }>();
 
 const monthRows = computed(() => (props.months ?? []).filter((row) => row.bulan));
@@ -75,7 +77,9 @@ function tone(name: string) {
       <h2 class="text-16 font-bold text-[#1f2a18]">Gap Produksi</h2>
       <p class="mt-0.5 text-12 leading-snug text-[#6e7866]">
         {{ monthRows.length
-          ? "Varians produksi aktual blok ini dibanding budget dan sensus per bulan."
+          ? (perBlok === false
+            ? "Varians produksi aktual wilayah filter dibanding budget dan sensus per bulan (Year to Date)."
+            : "Varians produksi aktual blok ini dibanding budget dan sensus per bulan.")
           : "Varians produksi aktual dibanding budget dan sensus pada periode terakhir." }}
       </p>
     </div>
