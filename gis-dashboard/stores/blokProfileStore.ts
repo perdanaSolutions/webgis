@@ -179,6 +179,8 @@ export type RotationYear = {
   rotasi_terakhir: number;
   avg_pusingan_hari: number;
   total_luas_rotasi: number;
+  /** Σ(area_ha × rotation_no) bulan itu. */
+  luas_panen?: number | null;
   total_pokok_rotasi: number;
 };
 export type RotationActivity = {
@@ -194,6 +196,8 @@ export type RotationHistory = {
   mode_akumulasi?: string;
   total_periode?: number;
   data?: RotationYear[];
+  /** Total periode dari backend: rotasi = luas_panen ÷ luas_tanam. */
+  ringkasan?: { luas_panen: number; luas_tanam: number; rotasi: number | null } | null;
   /** Isi dari GET /spatial/blok/detail. Kalau ada, kartu tidak memakai agregat /history. */
   kegiatan?: RotationActivity[];
 };
