@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId, truncateDecimal } from "~/utils/numberFormat";
 import { computed } from "vue";
 
 import type { ProductionGapCategory, ProductionGapSummary, ProductionYear } from "~/stores/blokProfileStore";
@@ -14,6 +15,10 @@ const props = defineProps<{
   perBlok?: boolean;
 }>();
 
+/** Ringkasan Year to Date: agregat Januari s/d bulan filter (backend `year_to_date`). */
+const ytd = computed(() => Boolean(props.budget?.year_to_date || props.sensus?.year_to_date));
+const ytdRange = computed(() => periodLabel(props.budget) || periodLabel(props.sensus));
+
 const monthRows = computed(() => (props.months ?? []).filter((row) => row.bulan));
 
 function monthLabel(row: ProductionYear) {
@@ -22,7 +27,7 @@ function monthLabel(row: ProductionYear) {
 
 function signedPct(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "";
-  const text = Math.abs(value).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const text = formatDecimalId(Math.abs(value));
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${text}%`;
 }
 
@@ -45,13 +50,18 @@ function periodLabel(data: ProductionGapSummary | null) {
   const periode = data?.periode;
   if (!periode?.tahun) return "";
   const month = periode.bulan ? MONTHS[periode.bulan - 1] : "";
+  const start = data?.periode_mulai;
+  // Year to Date: "Jan–Agu 2026" (rentang Januari s/d bulan filter).
+  if (data?.year_to_date && start?.bulan && month && start.bulan !== periode.bulan) {
+    return `${MONTHS[start.bulan - 1]}–${month} ${periode.tahun}`;
+  }
   return [month, periode.tahun].filter(Boolean).join(" ");
 }
 
-/** Nilai yang tampil sebagai 0,0% tidak ditampilkan. */
+/** Nilai yang tampil sebagai 0% (setelah dipotong 2 desimal) tidak ditampilkan. */
 function isVisiblePct(value: number) {
   if (!Number.isFinite(value) || value <= 0) return false;
-  return Math.round(value * 10) / 10 > 0;
+  return truncateDecimal(value) > 0;
 }
 
 function rowsOf(data: ProductionGapSummary | null): ProductionGapCategory[] {
@@ -59,11 +69,11 @@ function rowsOf(data: ProductionGapSummary | null): ProductionGapCategory[] {
 }
 
 function ha(value: number) {
-  return `${value.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ha`;
+  return `${formatDecimalId(value, "0")} Ha`;
 }
 
 function pct(value: number) {
-  return `${value.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  return `${formatDecimalId(value, "0")}%`;
 }
 
 function tone(name: string) {
@@ -80,7 +90,9 @@ function tone(name: string) {
           ? (perBlok === false
             ? "Varians produksi aktual wilayah filter dibanding budget dan sensus per bulan (Year to Date)."
             : "Varians produksi aktual blok ini dibanding budget dan sensus per bulan.")
-          : "Varians produksi aktual dibanding budget dan sensus pada periode terakhir." }}
+          : ytd
+            ? `Varians produksi aktual dibanding budget dan sensus Year to Date (${ytdRange}).`
+            : "Varians produksi aktual dibanding budget dan sensus pada periode terakhir." }}
       </p>
     </div>
 

@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed, onBeforeUnmount, onMounted } from "vue";
 
 const props = defineProps<{ open: boolean; detail: Record<string, any> | null }>();
 const emit = defineEmits<{ (e: "close"): void }>();
 
-function num(value: unknown, digits = 2) {
+function num(value: unknown, _digits = 2) {
   const n = Number(value);
-  return Number.isFinite(n) ? n.toLocaleString("id-ID", { maximumFractionDigits: digits }) : "-";
+  return Number.isFinite(n) ? formatDecimalId(n) : "-";
 }
 
 const info = computed(() => props.detail?.informasi_blok ?? {});

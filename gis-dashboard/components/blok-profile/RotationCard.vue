@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed, ref } from "vue";
 
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
@@ -101,9 +102,9 @@ const totals = computed(() => {
 
 const listRows = computed(() => [...bars.value].reverse());
 
-function num(value: number, digits = 1) {
+function num(value: number, _digits = 2) {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("id-ID", { maximumFractionDigits: digits });
+  return formatDecimalId(value);
 }
 
 function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok: number }) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed, ref, watch } from "vue";
 
 import type { ProductionYear } from "~/stores/blokProfileStore";
@@ -72,9 +73,9 @@ function sparkline(values: number[]) {
     .join(" ");
 }
 
-function format(value: number, digits: number) {
+function format(value: number, _digits: number) {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("id-ID", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return formatDecimalId(value);
 }
 
 function periodOf(row: ProductionYear, yearly = false) {

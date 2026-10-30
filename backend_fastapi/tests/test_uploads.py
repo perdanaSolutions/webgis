@@ -278,7 +278,9 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
     assert detail["mode"] == "PERIODE_BULAN_TAHUN"
     assert detail["periode"] == {"bulan": BULAN, "tahun": TAHUN, "label_periode": f"Tahun {TAHUN}",
                                  "year_to_date": False, "produksi_awal": f"{BULAN}-{TAHUN}",
-                                 "produksi_akhir": f"{BULAN}-{TAHUN}"}
+                                 "produksi_akhir": f"{BULAN}-{TAHUN}",
+                                 "periode_mulai": {"bulan": BULAN, "tahun": TAHUN},
+                                 "periode_akhir": {"bulan": BULAN, "tahun": TAHUN}}
     assert info["luas_tanam"] == 25.5
     assert info["luas_tanah"] == 26.0
     assert info["pokok"] == 3500
@@ -286,8 +288,8 @@ def test_excel_imports(client, auth, sample_block, clean_trx_period):
     assert info["tbs"]["aktual"] == 12000
     assert info["tbs"]["budget"] == 10000
     # yield = tbs / 1000 / luas_tanam; gap > 0 -> OPTIMUM
-    assert info["yield"]["aktual"] == round(12000 / 1000 / 25.5, 2)
-    assert info["yield"]["budget"] == round(10000 / 1000 / 25.5, 2)
+    assert info["yield"]["aktual"] == round(12000 / 1000 / 25.5, 4)
+    assert info["yield"]["budget"] == round(10000 / 1000 / 25.5, 4)
     assert info["gap_act_bgt"]["kategori"] == "OPTIMUM"
     assert "produksi_tbs" not in detail
     assert "rotasi_pusingan" not in detail

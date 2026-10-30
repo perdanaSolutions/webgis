@@ -173,7 +173,7 @@ export const SLOPE_RAMP: Record<string, string> = {
 
 /** Warna blok dari properties.produksi_tbs.kategori_budget. */
 export const BUDGET_GAP_LAYERS = [
-  { key: "OPTIMUM", label: "Optimum", color: "#3aa0ff", hint: "Varians > 0%" },
+  { key: "OPTIMUM", label: "Optimum", color: "#3aa0ff", hint: "Varians ≥ 0%" },
   {
     key: "GAP I",
     label: "Gap I",

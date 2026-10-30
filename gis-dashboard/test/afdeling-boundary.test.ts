@@ -15,7 +15,7 @@ describe("batas afdeling", () => {
 
   it("popup: Estate short name (cadangan kode), Afdeling, Jumlah blok, Luas", () => {
     expect(afdelingPopupRows({ kode_est: "E1", estate_short_name: "KSE", kode_afd: "AFD1", n_blok: 24, luas_ha: 512.345 }))
-      .toEqual([["Estate", "KSE"], ["Afdeling", "AFD1"], ["Jumlah blok", "24"], ["Luas (ha)", "512,35"]]);
+      .toEqual([["Estate", "KSE"], ["Afdeling", "AFD1"], ["Jumlah blok", "24"], ["Luas (ha)", "512,34"]]);
     expect(afdelingPopupRows({ kode_est: "E1", kode_afd: "A" }, { E1: "SHORT" })[0]).toEqual(["Estate", "SHORT"]);
     expect(afdelingPopupRows({ kode_est: "E2", kode_afd: "A" })[0]).toEqual(["Estate", "E2"]);
   });

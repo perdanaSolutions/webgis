@@ -22,7 +22,7 @@ def test_rumus_rekap_tahunan():
     assert y["jumlah_periode"] == 2 and y["luas"] == 100.0
     assert y["ton"] == 30.0 and y["ton_ha"] == 0.3
     assert y["ton_ha_budget"] == 0.35 and y["ton_ha_sensus"] == 0.2
-    assert y["gap_budget_pct"] == round((0.3 - 0.35) / 0.35 * 100, 2) and y["kategori_budget"] == "GAP I"
+    assert y["gap_budget_pct"] == round((0.3 - 0.35) / 0.35 * 100, 4) and y["kategori_budget"] == "GAP I"
     assert y["gap_sensus_pct"] == 50.0 and y["kategori_sensus"] == "OPTIMUM"
     assert y["bjr"] == 10.0  # 30.000 kg / 3.000 janjang
     assert y["jjg_ppk"] == 3.0 and y["kg_ppk"] == 30

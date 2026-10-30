@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed } from "vue";
 
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
@@ -30,9 +31,9 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
-function num(value: unknown, digits = 1) {
+function num(value: unknown, _digits = 2) {
   const n = Number(value);
-  return Number.isFinite(n) && n !== 0 ? n.toLocaleString("id-ID", { maximumFractionDigits: digits }) : "-";
+  return Number.isFinite(n) && n !== 0 ? formatDecimalId(n) : "-";
 }
 
 const status = computed(() => STATUS[props.summary.status?.toUpperCase()] ?? null);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { onBeforeUnmount, onMounted, shallowRef, toRaw, watch } from "vue";
 import "leaflet/dist/leaflet.css";
 
@@ -181,9 +182,9 @@ function escapeHtml(value: unknown) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-function fmt(value: unknown, digits = 1) {
+function fmt(value: unknown, _digits = 2) {
   const n = Number(value);
-  return Number.isFinite(n) ? n.toLocaleString("id-ID", { maximumFractionDigits: digits }) : "-";
+  return Number.isFinite(n) ? formatDecimalId(n) : "-";
 }
 
 function popupPanPadding() {

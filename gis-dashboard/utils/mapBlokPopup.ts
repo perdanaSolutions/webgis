@@ -1,3 +1,4 @@
+import { formatDecimalId } from "./numberFormat";
 import { BUDGET_GAP_COLOR, readBudgetCategory } from "./mapLayers";
 
 export type BlokPopupMetric = {
@@ -113,18 +114,12 @@ function pickNumber(
 
 export function formatNumberId(value: number): string {
   if (!Number.isFinite(value)) return "-";
-  return value.toLocaleString("id-ID", {
-    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
+  return formatDecimalId(value);
 }
 
 export function formatPercentId(value: number): string {
   if (!Number.isFinite(value)) return "-";
-  return `${value.toLocaleString("id-ID", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} %`;
+  return `${formatDecimalId(value)} %`;
 }
 
 /** Kategori yang mewarnai poligon: kolom V, aktual vs budget. */

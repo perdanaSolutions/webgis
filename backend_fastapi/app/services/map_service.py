@@ -40,7 +40,7 @@ def resolve_period(db: Session, table_sql: str, bulan: int | None, tahun: int | 
 
 
 def _money(value) -> float:
-    return round(num(value), 2)
+    return round(num(value), 4)
 
 
 def _optional_money(value) -> float:

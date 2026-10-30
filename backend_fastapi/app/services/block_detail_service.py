@@ -40,35 +40,36 @@ def resolve_block_id(db: Session, blok_ref: str) -> int:
     return rows[0]["id"]
 
 
-def gap_kategori(value: float) -> str:
+def gap_kategori(value: float | None) -> str:
     """
     Kategori dari nilai gap (persen), sama dengan rumus Excel:
     < -40 GAP III; -40 s/d -20 GAP II; di atas -20 dan di bawah 0 GAP I;
-    di atas 0 OPTIMUM. Nilai 0 (termasuk hasil IFERROR) tidak berkategori.
+    0 ke atas OPTIMUM (gap tepat 0 = sesuai target = OPTIMUM, permintaan 30 Okt 2026).
+    None (tidak ada target / tidak ada data) tidak berkategori.
     """
+    if value is None:
+        return ""
     if value < -40:
         return "GAP III"
     if -40 <= value <= -20:
         return "GAP II"
     if -20 < value < 0:
         return "GAP I"
-    if value > 0:
-        return "OPTIMUM"
-    return ""
+    return "OPTIMUM"
 
 
-def gap_value(actual: float, target: float) -> float:
-    """IFERROR((aktual - target) / target%; 0) = selisih persen, atau 0."""
+def gap_value(actual: float, target: float) -> float | None:
+    """(aktual - target) / target % ; None bila target kosong/0 (tidak ada data, bukan gap 0). -0.0 -> 0.0."""
     if not target:
-        return 0.0
-    value = round((actual - target) / target * 100, 2)
+        return None
+    value = round((actual - target) / target * 100, 4)
     return 0.0 if value == 0 else value
 
 
 def _yield_ton_ha(kg: float, luas: float) -> float:
     if not luas:
         return 0.0
-    return round(kg / 1000 / luas, 2)
+    return round(kg / 1000 / luas, 4)
 
 
 def _gap_pair(actual_yield: float, target_yield: float) -> dict:
@@ -106,7 +107,7 @@ def bjr_sql(tbs: str, jjg: str, bjr: str) -> str:
 
 
 def _triplet(actual, budget, census, *, whole_number: bool = False) -> dict:
-    cast = whole if whole_number else lambda value: round(num(value), 2)
+    cast = whole if whole_number else lambda value: round(num(value), 4)
     return {"aktual": cast(actual), "budget": cast(budget), "sensus": cast(census)}
 
 
@@ -158,7 +159,7 @@ def get_block_detail(
         WHERE block_id = :bid AND period BETWEEN :start AND :as_of
     """), {"bid": block_id, "as_of": period, "start": production_start}).mappings().one() if period is not None else {}
 
-    luas = round(num(master["planted_area_ha"]), 2) if master["planted_area_ha"] is not None else 0.0
+    luas = round(num(master["planted_area_ha"]), 4) if master["planted_area_ha"] is not None else 0.0
     tbs = _triplet(prod.get("tbs_aktual"), prod.get("tbs_budget"), prod.get("tbs_sensus"))
     jjg = _triplet(prod.get("jjg_aktual"), prod.get("jjg_budget"), prod.get("jjg_sensus"), whole_number=True)
     bjr = _triplet(prod.get("bjr_aktual"), prod.get("bjr_budget"), prod.get("bjr_sensus"))
@@ -182,6 +183,9 @@ def get_block_detail(
             "year_to_date": year_to_date,
             "produksi_awal": period_label(production_start),
             "produksi_akhir": period_label(period),
+            # Alias eksplisit rentang data produksi (sama dengan produksi_awal/akhir).
+            "periode_mulai": {"bulan": production_start.month, "tahun": production_start.year} if production_start else None,
+            "periode_akhir": {"bulan": period.month, "tahun": period.year} if period else None,
         },
         "informasi_blok": {
             "blok_id": master["id"],
@@ -195,9 +199,9 @@ def get_block_detail(
             "jenis_topografi": master["topography"],
             "jenis_tanah": master["soil_type"],
             "luas_tanam": luas,
-            "luas_tanah": round(num(master["land_area_ha"]), 2) if master["land_area_ha"] is not None else 0.0,
+            "luas_tanah": round(num(master["land_area_ha"]), 4) if master["land_area_ha"] is not None else 0.0,
             "pokok": whole(master["tree_count"]) if master["tree_count"] is not None else 0,
-            "sph": round(num(master["sph"]), 2) if master["sph"] is not None else 0.0,
+            "sph": round(num(master["sph"]), 4) if master["sph"] is not None else 0.0,
             "tbs": tbs,
             "jjg": jjg,
             "bjr": bjr,

@@ -122,6 +122,7 @@ def get_history(
     period_year: int | None = None,
     gap_as_of: date | None = None,
     bulan: int | None = None,
+    year_to_date: bool = False,
 ) -> dict:
     """Histori satu tabel trx.
 
@@ -137,7 +138,7 @@ def get_history(
     """
     key, physical = resolve_history_table(table)
     blocks_sql, params = flt.block_ids_subquery()
-    params = {**params, "gap_as_of": gap_as_of}
+    params = {**params, "gap_as_of": gap_as_of, "gap_ytd": year_to_date}
     if key == "trx_areal_statement":
         return _area_statement(db, blocks_sql, params, tahun=tahun, tahun_tanam=period_year, bulan=bulan)
 
@@ -177,7 +178,7 @@ def _period_filter(tahun: int | None, period_year: int | None) -> tuple[int | No
 
 
 GAP_CATEGORIES = (
-    ("OPTIMUM", "Varians > 0%"),
+    ("OPTIMUM", "Varians >= 0%"),
     ("GAP I", "Varians minus 1 - 20%"),
     ("GAP II", "Varians minus 20 - 40%"),
     ("GAP III", "Varians minus > 40%"),
@@ -215,7 +216,12 @@ def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_fil
     """Rekap kategori GAP per blok (luas, jumlah blok, % blok).
 
     Periode yang dipakai: produksi terbaru, dibatasi `gap_as_of` (periode yang dipilih user) bila ada.
+
+    `gap_ytd` (Year to Date): kategori per blok dari agregat Januari s/d periode itu pada tahun yang sama:
+    gap% = (Σ aktual kg - Σ target kg) / Σ target kg * 100 (rumus sama dengan bulanan), luas = luas tanam
+    blok pada bulan terakhir rentang (bulan terakhir yang punya areal statement <= periode akhir).
     """
+    ytd = bool(params.get("gap_ytd"))
     as_of_filter = "AND p.period <= :gap_as_of" if params.get("gap_as_of") else ""
     latest = db.execute(text(f"""
         SELECT max(p.period) FROM trx.block_productions p
@@ -224,7 +230,24 @@ def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_fil
     if latest is None:
         return None
     target_col = {"budget": "ffb_budget_kg", "sensus": "ffb_census_kg"}[target]
-    blocks = db.execute(text(f"""
+    start = date(latest.year, 1, 1) if ytd else latest
+    if ytd:
+        blocks = db.execute(text(f"""
+            WITH p AS (
+                SELECT p.block_id, SUM(p.ffb_actual_kg) AS act, SUM(p.{target_col}) AS tgt
+                FROM trx.block_productions p
+                WHERE p.block_id IN ({blocks_sql}) AND p.period BETWEEN :start AND :latest
+                GROUP BY p.block_id
+            )
+            SELECT p.act, p.tgt,
+                   (SELECT a.planted_area_ha FROM trx.area_statements a
+                    WHERE a.block_id = p.block_id AND a.period BETWEEN :start AND :latest
+                    ORDER BY a.period DESC LIMIT 1) AS luas
+            FROM p
+        """), {**params, "latest": latest, "start": start}).mappings().all()
+    else:
+        blocks = None
+    blocks = blocks if blocks is not None else db.execute(text(f"""
         SELECT SUM(p.ffb_actual_kg) AS act, SUM(p.{target_col}) AS tgt, SUM(a.planted_area_ha) AS luas
         FROM trx.block_productions p
         LEFT JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
@@ -241,17 +264,19 @@ def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_fil
     total_blok = sum(v["jumlah_blok"] for v in buckets.values())
     return {
         "periode": {"tahun": latest.year, "bulan": latest.month},
+        "periode_mulai": {"tahun": start.year, "bulan": start.month},
+        "year_to_date": ytd,
         "pembanding": target,
         "kategori": [
             {
-                "kategori": name, "keterangan": note, "luas": round(buckets[name]["luas"], 2),
+                "kategori": name, "keterangan": note, "luas": round(buckets[name]["luas"], 4),
                 "jumlah_blok": buckets[name]["jumlah_blok"],
-                "persen_blok": round(buckets[name]["jumlah_blok"] / total_blok * 100, 1) if total_blok else 0.0,
+                "persen_blok": round(buckets[name]["jumlah_blok"] / total_blok * 100, 4) if total_blok else 0.0,
             }
             for name, note in GAP_CATEGORIES
         ],
         "grand_total": {
-            "luas": round(sum(v["luas"] for v in buckets.values()), 2), "jumlah_blok": total_blok,
+            "luas": round(sum(v["luas"] for v in buckets.values()), 4), "jumlah_blok": total_blok,
             "persen_blok": 100.0 if total_blok else 0.0,
         },
     }
@@ -290,7 +315,7 @@ def yearly_recap_rows(months: list[dict]) -> list[dict]:
             y["jjg_ppk"] = (y["jjg_ppk"] or 0.0) + num(m["bunches"]) / trees
             y["kg_ppk"] = (y["kg_ppk"] or 0.0) + num(m["ffb"]) / trees
 
-    rnd = lambda v: round(v, 2) if v is not None else None  # noqa: E731
+    rnd = lambda v: round(v, 4) if v is not None else None  # noqa: E731
     out = []
     for tahun, y in sorted(years.items()):
         luas = y["luas"] or 0.0
@@ -302,15 +327,15 @@ def yearly_recap_rows(months: list[dict]) -> list[dict]:
         out.append({
             "tahun": tahun,
             "jumlah_periode": y["n"],
-            "luas": round(luas, 2),
-            "ton": round(y["ffb"] / 1000.0, 2),
-            "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
+            "luas": round(luas, 4),
+            "ton": round(y["ffb"] / 1000.0, 4),
+            "ton_ha": round(y_act, 4) if y_act is not None else 0.0,
             "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
             "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
             "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
-            "bjr": round(y["ffb"] / y["bunches"], 2) if y["bunches"] else 0.0,
+            "bjr": round(y["ffb"] / y["bunches"], 4) if y["bunches"] else 0.0,
             "jjg_ppk": rnd(y["jjg_ppk"]),
-            "kg_ppk": round(y["kg_ppk"]) if y["kg_ppk"] is not None else None,
+            "kg_ppk": round(y["kg_ppk"], 4) if y["kg_ppk"] is not None else None,
         })
     return out
 
@@ -396,19 +421,19 @@ def _production(
         yield_of = lambda ton: num(ton) / luas if luas and ton is not None else None  # noqa: E731
         y_act, y_bgt, y_sns = yield_of(r["ton"]), yield_of(r["ton_bgt"]), yield_of(r["ton_sns"])
         gap_bgt, gap_sns = gap_pct(y_act, y_bgt), gap_pct(y_act, y_sns)
-        rnd = lambda v: round(v, 2) if v is not None else None  # noqa: E731
+        rnd = lambda v: round(v, 4) if v is not None else None  # noqa: E731
         return {
             "periode": r["bulan"] if monthly else r["tahun"],
             "tahun": r["tahun"], "bulan": r["bulan"],
-            "luas": round(luas, 2),
-            "ton": round(num(r["ton"]), 2),
-            "ton_ha": round(y_act, 2) if y_act is not None else 0.0,
+            "luas": round(luas, 4),
+            "ton": round(num(r["ton"]), 4),
+            "ton_ha": round(y_act, 4) if y_act is not None else 0.0,
             "ton_ha_budget": rnd(y_bgt), "ton_ha_sensus": rnd(y_sns),
             "gap_budget_pct": rnd(gap_bgt), "gap_sensus_pct": rnd(gap_sns),
             "kategori_budget": gap_category(gap_bgt), "kategori_sensus": gap_category(gap_sns),
-            "bjr": round(num(r["bjr"]), 2),
-            "jjg_ppk": round(num(r["jjg_ppk"]), 2) if r["jjg_ppk"] is not None else None,
-            "kg_ppk": round(num(r["kg_ppk"])) if r["kg_ppk"] is not None else None,
+            "bjr": round(num(r["bjr"]), 4),
+            "jjg_ppk": round(num(r["jjg_ppk"]), 4) if r["jjg_ppk"] is not None else None,
+            "kg_ppk": round(num(r["kg_ppk"]), 4) if r["kg_ppk"] is not None else None,
         }
 
     return {
@@ -422,8 +447,8 @@ def _production(
         },
         # Nilai numerik (ha) untuk grafik; key sama dengan versi teks di atas.
         "slope_kemiringan_lereng_ha": {
-            "0-3%": round(num(slope["s0"]), 2), "3-8%": round(num(slope["s1"]), 2),
-            "8-15%": round(num(slope["s2"]), 2), "15-25%": round(num(slope["s3"]), 2), ">25%": 0.0,
+            "0-3%": round(num(slope["s0"]), 4), "3-8%": round(num(slope["s1"]), 4),
+            "8-15%": round(num(slope["s2"]), 4), "15-25%": round(num(slope["s3"]), 4), ">25%": 0.0,
         },
         "rekap_tahunan": yearly_recap(db, blocks_sql, params, planting_year=planting_year),
         "total_periode": len(rows),
@@ -500,9 +525,9 @@ def rotation_summary(rows) -> dict | None:
     luas_panen = sum(float(r["luas_panen"] or 0) for r in rows)
     luas_tanam = float(rows[-1]["total_luas_rotasi"] or 0)
     return {
-        "luas_panen": round(luas_panen, 2),
-        "luas_tanam": round(luas_tanam, 2),
-        "rotasi": round(luas_panen / luas_tanam, 2) if luas_tanam > 0 else None,
+        "luas_panen": round(luas_panen, 4),
+        "luas_tanam": round(luas_tanam, 4),
+        "rotasi": round(luas_panen / luas_tanam, 4) if luas_tanam > 0 else None,
         "periode_luas_tanam": {"tahun": rows[-1]["tahun"], "bulan": rows[-1]["bulan"]},
     }
 
@@ -557,8 +582,8 @@ def _area_statement(
             sums[r[key]] = sums.get(r[key], 0.0) + num(r["luas_tanam"])
         return {
             "area_code": area_code,
-            "details": [{key: k, "luas_tanam": round(v, 2)} for k, v in sorted(sums.items())],
-            "total_luas_tanam": round(sum(sums.values()), 2),
+            "details": [{key: k, "luas_tanam": round(v, 4)} for k, v in sorted(sums.items())],
+            "total_luas_tanam": round(sum(sums.values()), 4),
         }
 
     return {

@@ -1,4 +1,3 @@
-import { ytdGapMonths } from "~/utils/productionSummary";
 import { computed, ref, shallowRef, markRaw, reactive } from "vue";
 import { defineStore } from "pinia";
 
@@ -107,6 +106,9 @@ export type ProductionGapCategory = {
 };
 export type ProductionGapSummary = {
   periode: { tahun: number | null; bulan: number | null };
+  /** Awal rentang; Year to Date = Januari tahun periode. */
+  periode_mulai?: { tahun: number | null; bulan: number | null } | null;
+  year_to_date?: boolean;
   pembanding: string;
   kategori: ProductionGapCategory[];
   grand_total: { luas: number; jumlah_blok: number; persen_blok: number };
@@ -1063,7 +1065,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
    * Klik peta dan penerapan filter berbagi request yang sama (bulan+tahun sama tidak diulang).
    */
   async function loadSelectedDetail(id: string, bulan: string, tahun: string) {
-    const key = [id, bulan, tahun, applied.value.ownership].join("|");
+    const ytd = Boolean(applied.value.yearToDate);
+    const key = [id, bulan, tahun, applied.value.ownership, ytd ? "ytd" : ""].join("|");
     if (detailFlight?.key === key) return detailFlight.promise;
     if (detailKey === key && detail.value && selectedBlokId.value === id)
       return detail.value;
@@ -1082,6 +1085,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
           bulan,
           tahun,
           ownership: applied.value.ownership || undefined,
+          // YTD aktif: backend mengagregasi Januari s/d bulan filter; nonaktif: bulan itu saja.
+          year_to_date: ytd ? "true" : undefined,
         });
         const next = redactDetail(res) ?? {};
         if (seq === detailSeq) {
@@ -1111,7 +1116,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     ).trim();
     // Sementara hanya `tahun` yang dikirim; `bulan` di-hide dulu.
     const tahun = String(overrides?.tahun ?? applied.value.tahun ?? "").trim();
+    // Year to Date: ringkasan Gap Produksi = agregat Januari s/d bulan akhir YTD tahun filter.
+    const ytdYear = applied.value.yearToDate ? String(applied.value.tahun || currentYear()) : "";
+    const ytd = ytdYear
+      ? { year_to_date: "true", gap_tahun: ytdYear, gap_bulan: String(Number(yearToDateEndMonth(ytdYear))) }
+      : {};
     return {
+      ...ytd,
       kode_grup: applied.value.grup || undefined,
       area_id: applied.value.area || undefined,
       kode_pt: applied.value.pt || undefined,
@@ -1671,6 +1682,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
         tahun: raw.periode?.tahun ?? null,
         bulan: raw.periode?.bulan ?? null,
       },
+      periode_mulai: raw.periode_mulai
+        ? { tahun: raw.periode_mulai.tahun ?? null, bulan: raw.periode_mulai.bulan ?? null }
+        : null,
+      year_to_date: Boolean(raw.year_to_date),
       pembanding: String(raw.pembanding ?? ""),
       kategori: raw.kategori.map((item: Record<string, any>) => row(item)),
       grand_total: {
@@ -1695,15 +1710,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     ),
   );
   /**
-   * Daftar gap per bulan untuk kartu Gap Produksi: blok spesifik (semua bulan) atau filter Year to Date
-   * di level wilayah mana pun (bulan Jan s/d akhir YTD tahun filter). Data = data_histori yang sudah
-   * diagregasi backend untuk filter + hak akses. null = tampilan ringkasan periode terakhir.
+   * Daftar gap per bulan untuk kartu Gap Produksi: hanya blok spesifik dengan Year to Date nonaktif.
+   * null = ringkasan Budget/Sensus (periode terakhir, atau agregat Jan s/d bulan filter bila Year to Date).
    */
   const gapMonths = computed<ProductionYear[] | null>(() => {
-    if (selectedBlokId.value) return productionYears.value;
-    if (!applied.value.yearToDate) return null;
-    const year = applied.value.tahun || currentYear();
-    return ytdGapMonths(productionYears.value, Number(year), Number(yearToDateEndMonth(year)));
+    // Year to Date (wilayah maupun blok spesifik): ringkasan agregat Jan s/d bulan filter, bukan daftar per bulan.
+    if (applied.value.yearToDate) return null;
+    return selectedBlokId.value ? productionYears.value : null;
   });
 
   /** rekap_tahunan dari /spatial/history: satu baris per tahun (semua tahun dalam filter wilayah), tahun naik. */

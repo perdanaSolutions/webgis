@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed } from "vue";
 
 import TruncatedText from "~/components/blok-profile/TruncatedText.vue";
@@ -33,8 +34,8 @@ const heading = computed(() => props.summary.kind === "blok"
   ? `${props.summary.title}${props.summary.subtitle ? ` · ${props.summary.subtitle.split(" · ")[0]}` : ""}`
   : props.summary.title);
 
-function fmt(value: number | null, digits = 1) {
-  return value ? value.toLocaleString("id-ID", { maximumFractionDigits: digits }) : "-";
+function fmt(value: number | null, _digits = 2) {
+  return value ? formatDecimalId(value) : "-";
 }
 </script>
 

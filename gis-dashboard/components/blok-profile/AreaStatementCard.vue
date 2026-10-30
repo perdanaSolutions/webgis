@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed, ref, watch } from "vue";
 
 import type { AreaStatementHistory } from "~/stores/blokProfileStore";
@@ -40,12 +41,12 @@ const landuseMissing = computed(() => Boolean(summary.value) && !summary.value?.
 
 function reportHa(value: number | null) {
   if (value === null || !Number.isFinite(value) || value === 0) return "-";
-  return value.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatDecimalId(value);
 }
 
 function reportPct(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "";
-  return `${Math.round(value).toLocaleString("id-ID")}%`;
+  return `${formatDecimalId(value)}%`;
 }
 
 const yearPageCount = computed(() => Math.max(1, Math.ceil(years.value.length / PAGE_SIZE)));
@@ -60,7 +61,7 @@ const divisionRows = computed(() => (
 function ha(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
-  return `${n.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha`;
+  return `${formatDecimalId(n)} ha`;
 }
 
 function rangeLabel(length: number, page: number, noun: string) {

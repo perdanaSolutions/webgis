@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimalId } from "~/utils/numberFormat";
 import { computed, ref, watch } from "vue";
 
 const PAGE_SIZE = 8;
@@ -40,8 +41,8 @@ function numberOf(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function ha(value: number, digits = 2) {
-  return `${value.toLocaleString("id-ID", { minimumFractionDigits: digits, maximumFractionDigits: digits })} ha`;
+function ha(value: number, _digits = 2) {
+  return `${formatDecimalId(value, "0")} ha`;
 }
 
 function slopeKey(value: string) {

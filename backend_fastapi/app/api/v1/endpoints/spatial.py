@@ -397,6 +397,7 @@ def get_history_data(
     ownership: Optional[str] = Query(None),
     gap_bulan: Optional[int] = Query(None, ge=1, le=12, description="Periode ringkasan GAP produksi (dengan gap_tahun); kosong = terbaru"),
     gap_tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to_date: bool = Query(False, description="true = ringkasan GAP produksi dari agregat Januari s/d periode GAP"),
     db=Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
@@ -411,7 +412,7 @@ def get_history_data(
     # `tahun` tetap drill bulanan tahun kalender untuk tabel tanpa planting_year.
     return history_service.get_history(
         db, table, tahun, flt, period_year=tahun_tanam, gap_as_of=as_of_period(gap_bulan, gap_tahun),
-        bulan=bulan,
+        bulan=bulan, year_to_date=year_to_date,
     )
 
 

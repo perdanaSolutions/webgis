@@ -273,17 +273,17 @@ def test_block_detail(client, auth, sample_block):
     assert exact["periode"]["label_periode"] == f"Tahun {row['period'].year}"
 
     def money(value):
-        return round(float(value or 0), 2)
+        return round(float(value or 0), 4)
 
     luas = money(row["luas_tanam"]) if row["luas_tanam"] is not None else 0.0
 
     def yield_ha(kg):
-        return round(float(kg or 0) / 1000 / luas, 2) if luas else 0.0
+        return round(float(kg or 0) / 1000 / luas, 4) if luas else 0.0
 
     def gap(actual, target):
         if not target:
-            return 0.0
-        value = round((actual - target) / target * 100, 2)
+            return None
+        value = round((actual - target) / target * 100, 4)
         return 0.0 if value == 0 else value
 
     y_act = yield_ha(row["tbs_aktual"])

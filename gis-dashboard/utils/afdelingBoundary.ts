@@ -1,3 +1,4 @@
+import { formatDecimalId } from "./numberFormat";
 /**
  * Layer "Batas Afdeling" (GET /spatial/afdeling/geojson): gaya garis, popup, dan aturan label.
  * Murni (tanpa Leaflet) supaya bisa dites di vitest.
@@ -153,10 +154,10 @@ function escapeHtml(value: unknown) {
   return String(value ?? "-").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-function num(value: unknown, digits: number) {
+function num(value: unknown, _digits: number) {
   const n = Number(value);
   if (value === null || value === undefined || value === "" || !Number.isFinite(n)) return "-";
-  return n.toLocaleString("id-ID", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return formatDecimalId(n);
 }
 
 /** Baris popup: Estate (short name, cadangan kode), Afdeling, Jumlah blok, Luas (ha). */
