@@ -27,6 +27,13 @@ export type BasemapTile = {
   transparent?: boolean;
   /** Query token akses. Nilainya tidak disimpan di sini; diambil dari env TOKEN_BASE_MAP. */
   tokenParam?: string;
+  /**
+   * `true` = ubin diminta ke proxy backend (`url` relatif ke apiBaseUrlPython, pakai JWT user);
+   * backend yang menempelkan token GeoServer, jadi token tidak pernah sampai ke browser.
+   */
+  proxy?: boolean;
+  /** Host server asli (untuk pesan dialog) bila `url` adalah proxy. */
+  upstreamHost?: string;
 };
 
 export type BasemapOption = {
@@ -97,18 +104,21 @@ export const BASEMAPS: BasemapOption[] = [
   },
   {
     key: "tpa-sga",
-    label: "Foto Udata",
+    label: "Foto Udara",
     preview: "linear-gradient(135deg,#1f3b24 0%,#6d8a45 55%,#c4b48a 100%)",
     tiles: [
       {
+        // GeoServer digilink lewat proxy backend (GET /v1/basemap/foto-udara/wms). tpgis:tpgis_fu = layer group
+        // gabungan seluruh foto udara (Berau, Kutim, Paser, ...); tpgis:TPA-SGA tidak ada di GeoServer.
         service: "wms",
-        url: "https://digilink.teladanprima.com/fu/wms",
-        layers: "tpgis:TPA-SGA",
+        proxy: true,
+        url: "/v1/basemap/foto-udara/wms",
+        upstreamHost: "digilink.teladanprima.com",
+        layers: "tpgis:tpgis_fu",
         format: "image/png",
-        version: "1.1.0",
+        version: "1.1.1",
         transparent: false,
-        tokenParam: "token",
-        attribution: "Foto Udata",
+        attribution: "Foto Udara &copy; Teladan Prima Agro",
         maxZoom: 22,
       },
     ],
