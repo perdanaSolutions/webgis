@@ -178,13 +178,13 @@ export const BUDGET_GAP_LAYERS = [
     key: "GAP I",
     label: "Gap I",
     color: "#3ee07a",
-    hint: "Varians −1% s.d. −20%",
+    hint: "Varians < 0% s.d. > −20%",
   },
   {
     key: "GAP II",
     label: "Gap II",
     color: "#ffe34d",
-    hint: "Varians −20% s.d. −40%",
+    hint: "Varians −20% s.d. −40% (batas termasuk)",
   },
   {
     key: "GAP III",

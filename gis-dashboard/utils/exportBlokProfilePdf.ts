@@ -12,6 +12,7 @@ import {
 } from "~/utils/mapLayers";
 import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch, infoPageFirstMove } from "~/utils/blokProfilePdf";
 import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
+import { formatDecimalId } from "~/utils/numberFormat";
 
 export type PdfOverlay = {
   code: string;
@@ -359,7 +360,7 @@ function addSelectedTag(Lf: Leaflet, map: import("leaflet").Map, blocks: import(
     const center = labelLatLng(Lf, feature?.geometry, bounds);
     const luas = feature?.properties?.areal_statement?.luas_tanam;
     const luasText = Number.isFinite(Number(luas)) && Number(luas) !== 0
-      ? ` · ${Number(luas).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ha`
+      ? ` · ${formatDecimalId(Number(luas))} Ha`
       : "";
     Lf.marker(center, {
       pane: "bp-labels",

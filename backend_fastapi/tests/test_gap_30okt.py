@@ -65,3 +65,15 @@ def test_gap_summary_non_ytd_periode_tunggal():
     out = _production_gap_summary(db, "SELECT 1", {"gap_as_of": None}, "", "budget")
     assert out["year_to_date"] is False and out["periode_mulai"] == out["periode"]
     assert out["kategori"][0]["kategori"] == "OPTIMUM"
+
+
+def test_batas_excel_lama_satu_aturan():
+    from app.services.history_service import gap_category
+    from app.utils.gap import gap_kategori as rule
+    cases = {0.0: "OPTIMUM", 0.5: "OPTIMUM", -0.0001: "GAP I", -19.9999: "GAP I", -20.0: "GAP II",
+             -30: "GAP II", -40.0: "GAP II", -40.0001: "GAP III", -100: "GAP III"}
+    for value, expected in cases.items():
+        assert rule(value) == expected, value
+        assert gap_kategori(value) == expected, value
+        assert gap_category(value) == expected, value
+    assert gap_category(None) is None

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import bad_request
 from app.services.block_filter import BlockFilter
+from app.utils.gap import gap_kategori
 from app.utils.parsing import num, whole
 
 HISTORY_TABLES = OrderedDict([
@@ -200,16 +201,8 @@ def gap_pct(actual, target) -> float | None:
 
 
 def gap_category(gap_pct: float | None) -> str | None:
-    """Kategori varians produksi (sama dengan aplikasi lama); None bila tidak ada target."""
-    if gap_pct is None:
-        return None
-    if gap_pct >= 0:
-        return "OPTIMUM"
-    if gap_pct >= -20:
-        return "GAP I"
-    if gap_pct >= -40:
-        return "GAP II"
-    return "GAP III"
+    """Kategori varians produksi = aturan Excel lama (app.utils.gap); None bila tidak ada target."""
+    return gap_kategori(gap_pct) or None
 
 
 def _production_gap_summary(db: Session, blocks_sql: str, params: dict, year_filter: str, target: str) -> dict | None:

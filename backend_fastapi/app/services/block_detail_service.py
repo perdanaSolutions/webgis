@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import bad_request, not_found
 from app.services.area_statement_summary_service import non_tanam_summary
 from app.services.block_filter import BLOCK_JOINS, BLOCK_REF_MATCH, SEED_VARIETIES_OF_STATEMENT, statement_as_of_join
+from app.utils.gap import gap_kategori  # noqa: F401  (diekspor ulang untuk map_service)
 from app.utils.parsing import MONTH_ABBR, num, whole
 from app.utils.period import as_of_period, period_label, to_period
 
@@ -40,22 +41,6 @@ def resolve_block_id(db: Session, blok_ref: str) -> int:
     return rows[0]["id"]
 
 
-def gap_kategori(value: float | None) -> str:
-    """
-    Kategori dari nilai gap (persen), sama dengan rumus Excel:
-    < -40 GAP III; -40 s/d -20 GAP II; di atas -20 dan di bawah 0 GAP I;
-    0 ke atas OPTIMUM (gap tepat 0 = sesuai target = OPTIMUM, permintaan 30 Okt 2026).
-    None (tidak ada target / tidak ada data) tidak berkategori.
-    """
-    if value is None:
-        return ""
-    if value < -40:
-        return "GAP III"
-    if -40 <= value <= -20:
-        return "GAP II"
-    if -20 < value < 0:
-        return "GAP I"
-    return "OPTIMUM"
 
 
 def gap_value(actual: float, target: float) -> float | None:
