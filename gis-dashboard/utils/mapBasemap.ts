@@ -216,6 +216,16 @@ export function createBasemapTileLayer(
  * WMS lewat proxy backend: <img> tidak bisa membawa header Authorization, jadi ubin diambil dengan $api
  * (JWT user) sebagai blob lalu dipasang sebagai object URL. Alasan gagal (JSON {reason}) disimpan untuk dialog.
  */
+/**
+ * Kerapatan piksel ubin WMS: ubin 256 px CSS diminta 256 × rasio piksel. Retina (DPR 2) -> 512 px.
+ * Dengan zoomSnap 0 ubin juga bisa tampil diperbesar sampai ~1,41x di zoom pecahan, jadi layar biasa diberi
+ * 1,5x (384 px). Dibatasi 2x (backend menolak > 1024 px; 2x sudah setara resolusi sumber pada maxNativeZoom).
+ */
+export function wmsPixelRatio(devicePixelRatio: number) {
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return Math.min(2, Math.max(1.5, Math.ceil(dpr * 1.41 * 2) / 2));
+}
+
 function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: Record<string, unknown>) {
   const Wms = (leaflet.TileLayer as any).WMS;
   const Proxied = Wms.extend({
@@ -246,7 +256,7 @@ function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: 
       return img;
     },
   });
-  return new Proxied(tile.url, {
+  const layer = new Proxied(tile.url, {
     layers: tile.layers ?? "",
     styles: "",
     format: tile.format ?? "image/png",
@@ -254,9 +264,17 @@ function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: 
     version: tile.version ?? "1.1.1",
     attribution: tile.attribution,
     maxZoom: tile.maxZoom ?? 22,
+    ...(tile.maxNativeZoom ? { maxNativeZoom: tile.maxNativeZoom } : {}),
     uppercase: true,
     ...tilePerf,
-  }) as import("leaflet").TileLayer;
+  });
+  if (tile.hiDpi && typeof window !== "undefined") {
+    // Ukuran ubin CSS tetap 256; hanya WIDTH/HEIGHT gambar yang dirapatkan (bbox sama -> lebih tajam).
+    const px = Math.round(256 * wmsPixelRatio(window.devicePixelRatio));
+    layer.wmsParams.width = px;
+    layer.wmsParams.height = px;
+  }
+  return layer as import("leaflet").TileLayer;
 }
 
 export function applyBasemapZoom(map: import("leaflet").Map, option: BasemapOption) {

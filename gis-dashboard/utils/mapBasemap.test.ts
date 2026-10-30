@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basemapAccessMessage, basemapCapabilitiesUrl, basemapHost, basemapServiceUrl, fotoUdaraProblem, setBasemapDiagnostics } from "./mapBasemap";
+import { wmsPixelRatio, basemapAccessMessage, basemapCapabilitiesUrl, basemapHost, basemapServiceUrl, fotoUdaraProblem, setBasemapDiagnostics } from "./mapBasemap";
 import { BASEMAPS } from "./mapLayers";
 
 const fotoUdara = BASEMAPS.find((item) => item.key === "tpa-sga")!;
@@ -41,5 +41,22 @@ describe("basemap Foto Udara", () => {
     expect(msg.body).not.toMatch(/Udata/);
     setBasemapDiagnostics({ ok: false, reason: "unauthorized" }, null);
     expect(basemapAccessMessage("unavailable", fotoUdara).body).toMatch(/401/);
+  });
+});
+
+describe("kualitas Foto Udara", () => {
+  it("JPEG, ubin rapat (hiDpi), maxNativeZoom 20 sesuai resolusi sumber ~7 cm", () => {
+    expect(tile.format).toBe("image/jpeg");
+    expect(tile.hiDpi).toBe(true);
+    expect(tile.maxNativeZoom).toBe(20);
+    expect(tile.maxZoom).toBe(22);
+  });
+  it("rasio piksel: layar biasa 1,5x (384 px), retina 2x (512 px), tidak lebih dari 2x", () => {
+    expect(wmsPixelRatio(1)).toBe(1.5);
+    expect(wmsPixelRatio(1.25)).toBe(2);
+    expect(wmsPixelRatio(2)).toBe(2);
+    expect(wmsPixelRatio(3)).toBe(2);
+    expect(wmsPixelRatio(Number.NaN)).toBe(1.5);
+    expect(Math.round(256 * wmsPixelRatio(2))).toBe(512);
   });
 });
