@@ -4,12 +4,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
 from app.core.mtls import MtlsGuardMiddleware
 from app.core.database import engine
 from app.core.map_cache import MapRedisCacheMiddleware, set_store_versions_reader
-from app.core.middleware import DropEmptyQueryParamsMiddleware
+from app.core.middleware import DropEmptyQueryParamsMiddleware, GZipExceptPathsMiddleware
 from app.core.redis_client import shutdown as close_redis
 from app.core.redis_client import startup as open_redis
 from app.core.client_ip import ClientIpMiddleware
@@ -131,7 +130,9 @@ class CatchAllErrorsMiddleware:
 app.add_middleware(CatchAllErrorsMiddleware)
 app.add_middleware(MapRedisCacheMiddleware)
 # Di luar cache: cache menyimpan JSON mentah, kompresi diterapkan juga pada respons HIT.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Ubin foto udara (gambar) tidak di-gzip.
+app.add_middleware(GZipExceptPathsMiddleware, minimum_size=1024,
+                   skip_prefixes=(f"{settings.API_V1_STR}/basemap/foto-udara/wms",))
 app.add_middleware(DropEmptyQueryParamsMiddleware)
 app.add_middleware(ClientIpMiddleware)
 # Mode maintenance (master.app_settings): di dalam CORS agar 503 tetap membawa header CORS.

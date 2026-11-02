@@ -27,6 +27,15 @@ _TIMEOUT = 20
 _MAX_CACHE_BYTES = 1_500_000
 _caps_cache: dict = {"at": 0.0, "value": None}
 _CAPS_TTL = 600
+_limit: dict = {"loop": None, "sem": None}
+
+
+def _upstream_slot() -> asyncio.Semaphore:
+    """Pembatas permintaan serentak ke GeoServer (dibuat ulang bila event loop berganti, mis. di test)."""
+    loop = asyncio.get_running_loop()
+    if _limit["loop"] is not loop:
+        _limit.update(loop=loop, sem=asyncio.Semaphore(max(1, settings.FOTO_UDARA_MAX_CONCURRENCY)))
+    return _limit["sem"]
 
 
 class FotoUdaraError(Exception):
@@ -133,18 +142,20 @@ async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
             hit = await client.get(key)
             if hit:
                 return hit, query["format"], True
-        except Exception:
-            await mark_down(client)
+        except Exception as exc:
+            await mark_down(client, exc)
             client = None
-    status, ctype, body = await asyncio.to_thread(_http_get, _upstream_url(query))
+    # Hanya permintaan ke GeoServer yang dibatasi; ubin dari cache Redis tidak ikut mengantre.
+    async with _upstream_slot():
+        status, ctype, body = await asyncio.to_thread(_http_get, _upstream_url(query))
     problem = classify(status, ctype, body)
     if problem:
         raise problem
     if client is not None and len(body) <= _MAX_CACHE_BYTES:
         try:
             await client.set(key, body, ex=settings.FOTO_UDARA_CACHE_SECONDS)
-        except Exception:
-            await mark_down(client)
+        except Exception as exc:
+            await mark_down(client, exc)
     return body, ctype.split(";")[0] or query["format"], False
 
 

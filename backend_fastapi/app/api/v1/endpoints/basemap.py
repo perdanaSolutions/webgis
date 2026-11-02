@@ -12,7 +12,7 @@ router = APIRouter()
     "/foto-udara/status",
     summary="Status basemap Foto Udara (konfigurasi, token, layer, cakupan)",
 )
-async def foto_udara_status(current_user=Depends(deps.get_current_user)):
+async def foto_udara_status(current_user=Depends(deps.get_current_user_released)):
     return await fu.status()
 
 
@@ -23,7 +23,7 @@ async def foto_udara_status(current_user=Depends(deps.get_current_user)):
                 "Token GeoServer ditambahkan backend; gambar di-cache di Redis. Gagal: JSON {reason, message} "
                 "dengan HTTP 404 (layer), 400 (parameter), atau 424 (token/server foto udara).",
 )
-async def foto_udara_wms(request: Request, current_user=Depends(deps.get_current_user)):
+async def foto_udara_wms(request: Request, current_user=Depends(deps.get_current_user_released)):
     try:
         body, ctype, hit = await fu.get_tile(dict(request.query_params))
     except fu.FotoUdaraError as exc:

@@ -87,3 +87,62 @@ async def _belum_dikonfigurasi(monkeypatch):
         await fu.get_tile({"bbox": "1,2,3,4"})
     assert exc.value.reason == "not_configured"
     assert (await fu.status())["reason"] == "not_configured"
+
+
+def test_permintaan_serentak_ke_geoserver_dibatasi(monkeypatch):
+    asyncio.run(_serentak_dibatasi(monkeypatch))
+
+
+async def _serentak_dibatasi(monkeypatch):
+    import threading
+    import time
+
+    monkeypatch.setattr(settings, "FOTO_UDARA_MAX_CONCURRENCY", 2)
+    monkeypatch.setattr(fu, "_limit", {"loop": None, "sem": None})
+
+    async def no_redis():
+        return None
+
+    lock, state = threading.Lock(), {"now": 0, "peak": 0}
+
+    def slow_get(url):
+        with lock:
+            state["now"] += 1
+            state["peak"] = max(state["peak"], state["now"])
+        time.sleep(0.05)
+        with lock:
+            state["now"] -= 1
+        return 200, "image/jpeg", b"\xff\xd8"
+
+    monkeypatch.setattr(fu, "get_client", no_redis)
+    monkeypatch.setattr(fu, "_http_get", slow_get)
+    await asyncio.gather(*[fu.get_tile({"bbox": f"{i},2,{i + 1},4"}) for i in range(6)])
+    assert state["peak"] == 2
+
+
+def test_ubin_tidak_menahan_koneksi_db_dan_tidak_digzip(client, auth, monkeypatch):
+    """Selama menunggu GeoServer tidak ada koneksi pool yang tertahan; gambar dikirim tanpa gzip."""
+    from app.core.database import engine as app_engine
+
+    async def no_redis():
+        return None
+
+    seen = []
+
+    def fake_get(url):
+        seen.append(app_engine.pool.checkedout())
+        return 200, "image/jpeg", b"\xff\xd8" + b"0" * 5000
+
+    monkeypatch.setattr(fu, "get_client", no_redis)
+    monkeypatch.setattr(fu, "_http_get", fake_get)
+    response = client.get("/api/v1/basemap/foto-udara/wms", headers={**auth, "Accept-Encoding": "gzip"},
+                          params={"bbox": "1,2,3,4", "width": 512, "height": 512, "format": "image/jpeg"})
+    assert response.status_code == 200, response.text
+    assert seen == [0]
+    assert "content-encoding" not in response.headers
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_ubin_tetap_butuh_login(client):
+    response = client.get("/api/v1/basemap/foto-udara/wms", params={"bbox": "1,2,3,4"})
+    assert response.status_code == 401

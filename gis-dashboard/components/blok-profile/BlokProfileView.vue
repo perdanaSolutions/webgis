@@ -9,6 +9,7 @@ import BlokProfilePrintSheet from "~/components/blok-profile/BlokProfilePrintShe
 import FilterPanel from "~/components/blok-profile/FilterPanel.vue";
 import ProductionChartCard from "~/components/blok-profile/ProductionChartCard.vue";
 import ProductionGapCard from "~/components/blok-profile/ProductionGapCard.vue";
+import ProductionGroupChartCard from "~/components/blok-profile/ProductionGroupChartCard.vue";
 import RotationCard from "~/components/blok-profile/RotationCard.vue";
 import SlopeInfoCard from "~/components/blok-profile/SlopeInfoCard.vue";
 import Header from "~/components/Header.vue";
@@ -715,6 +716,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
           <ProductionChartCard :years="store.productionYears" :recap="store.productionRecap" :loading="store.loadingProduction" />
+          <ProductionGroupChartCard :data="store.productionGroups" :loading="store.loadingProductionGroups" />
           <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
             :months="store.gapMonths" :per-blok="!!store.selectedBlokId" :loading="store.loadingProduction" />
         </div>

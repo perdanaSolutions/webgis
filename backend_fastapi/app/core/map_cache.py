@@ -145,8 +145,8 @@ def _with_cache_headers(headers: list[tuple[bytes, bytes]], status: bytes) -> li
 async def _read_version(client) -> int | None:
     try:
         raw = await client.get(_VERSION_KEY)
-    except Exception:
-        await mark_down(client)
+    except Exception as exc:
+        await mark_down(client, exc)
         return None
     if raw is None:
         return 0
@@ -167,8 +167,8 @@ async def lookup(user_id: str, path: str, query: bytes, store_versions: StoreVer
     key = f"gis:map:v{version}:{cache_digest(user_id, path, query, store_versions)}"
     try:
         payload = await client.get(key)
-    except Exception:
-        await mark_down(client)
+    except Exception as exc:
+        await mark_down(client, exc)
         return None, None
     if not payload:
         return version, None
@@ -189,8 +189,8 @@ async def store(version: int, user_id: str, path: str, query: bytes, body: bytes
     key = f"gis:map:v{version}:{cache_digest(user_id, path, query, store_versions)}"
     try:
         await client.set(key, pack_body(body), ex=ttl)
-    except Exception:
-        await mark_down(client)
+    except Exception as exc:
+        await mark_down(client, exc)
         return False
     return True
 
@@ -201,8 +201,8 @@ async def bump_version() -> None:
         return
     try:
         await client.incr(_VERSION_KEY)
-    except Exception:
-        await mark_down(client)
+    except Exception as exc:
+        await mark_down(client, exc)
         logger.warning("Gagal membatalkan cache peta")
 
 
