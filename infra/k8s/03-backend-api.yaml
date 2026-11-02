@@ -13,6 +13,25 @@ spec:
       labels:
         app: backend-fastapi
     spec:
+      # Sebar replica ke node berbeda bila ada (preferred: tetap jalan di cluster 1 node).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: backend-fastapi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: backend-fastapi
+      terminationGracePeriodSeconds: 60
+      # imagePullSecrets: [{name: regcred}]  # registry privat [PERLU KONFIRMASI]
       containers:
         - name: api
           image: webgis-backend:TAG  # [PERLU KONFIRMASI] registry
@@ -29,23 +48,45 @@ spec:
               value: "true"
             - name: REDIS_AUTH_TTL_SECONDS
               value: "0"
-            # REDIS_URL (dengan password), SECRET_KEY, CORS_ORIGINS, TRUSTED_PROXY_CIDRS, DB_* → Secret
-            # contoh REDIS_URL: redis://:$(password)@redis:6379/0
+            # Pool per pod (lihat 09-pgbouncer.yaml untuk hitungan koneksi)
+            - name: DB_POOL_SIZE
+              value: "5"
+            - name: DB_MAX_OVERFLOW
+              value: "10"
+            - name: DB_POOL_RECYCLE_SECONDS
+              value: "1800"
+            # REDIS_URL, REDIS_CACHE_URL (dengan password), SECRET_KEY, CORS_ORIGINS, TRUSTED_PROXY_CIDRS, DB_* → Secret
+            # contoh REDIS_URL:       redis://:<password>@redis:6379/0        (auth, noeviction + AOF)
+            # contoh REDIS_CACHE_URL: redis://:<password>@redis-cache:6379/0  (cache peta/ubin, allkeys-lru)
+            # contoh DB_HOST=pgbouncer DB_PORT=6432 (PgBouncer transaction mode)
           envFrom:
             - secretRef:
                 name: backend-fastapi-env  # [PERLU KONFIRMASI]
+          # /health ada di app/main.py: tidak menyentuh DB/Redis (hindari restart berantai saat DB lambat).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30   # s.d. 150 dtk untuk import geopandas + DDL startup
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # beri waktu Service/HAProxy mengeluarkan pod dari rotasi sebelum SIGTERM
+              exec:
+                command: ["sleep", "10"]
           resources:
             requests:
               cpu: 250m

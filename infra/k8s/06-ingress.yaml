@@ -7,7 +7,12 @@ metadata:
   namespace: webgis
   annotations:
     # kubernetes.io/ingress.class: nginx  # [PERLU KONFIRMASI]
+    # TLS otomatis (cert-manager):
+    #   1) kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+    #   2) buat ClusterIssuer `letsencrypt-prod` (ACME http01, email admin) [PERLU KONFIRMASI]
+    #   3) uncomment annotation di bawah + blok `tls:`; host diganti lewat patch di kustomization.yaml
     # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     # JANGAN: nginx.ingress.kubernetes.io/affinity: cookie

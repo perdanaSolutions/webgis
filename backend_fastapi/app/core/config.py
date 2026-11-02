@@ -15,8 +15,20 @@ class Settings(BaseSettings):
     DB_USER: str
     DB_PASSWORD: str
     DB_NAME: str
+    # Pool koneksi per PROSES (satu engine bersama untuk app.core.database & app.db.session).
+    # Hitungan horizontal scale: koneksi maks = (pod API + pod worker) x (DB_POOL_SIZE + DB_MAX_OVERFLOW).
+    # Contoh langsung ke Postgres: 10 pod x (5+10) + 2 worker x 15 = 180 > max_connections bawaan 100.
+    # Solusi: arahkan DB_HOST ke PgBouncer (transaction pooling) -> klien boleh banyak, koneksi server
+    # dibatasi DEFAULT_POOL_SIZE PgBouncer (mis. 40), atau turunkan nilai di bawah. Lihat infra/README.md.
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30            # detik menunggu koneksi bebas di pool sebelum error
+    DB_POOL_RECYCLE_SECONDS: int = 1800  # tutup koneksi lebih tua dari ini (hindari putus diam-diam oleh LB/PgBouncer)
+    # PgBouncer mode transaction: driver psycopg2 (sync) tidak memakai prepared statement di server dan
+    # set_config audit memakai is_local=true (per transaksi), jadi tidak perlu flag khusus.
+    # Jalankan DDL kecil saat start (trigger IP aktivitas, tabel versi data). Aman dijalankan banyak replica
+    # (dikunci pg_advisory_xact_lock), tetapi bisa dimatikan bila user DB API tidak punya hak DDL.
+    DB_STARTUP_DDL: bool = True
     APP_NAME_IN_DB: str = "webgis-api"
 
     # Konfigurasi Auth/JWT (wajib dari .env)
@@ -31,6 +43,9 @@ class Settings(BaseSettings):
     UPLOAD_JOB_HEARTBEAT_SECONDS: float = 10.0
     UPLOAD_JOB_STALE_SECONDS: int = 120        # job 'running' tanpa detak selama ini dianggap worker mati
     UPLOAD_JOB_KEEP_DAYS: int = 7              # job selesai lebih tua dari ini dihapus
+    # File yang di-touch worker tiap putaran antrian & tiap detak job (untuk livenessProbe K8s/healthcheck).
+    # Kosong = mati. Contoh: /tmp/upload-worker.alive
+    UPLOAD_WORKER_ALIVE_FILE: str = ""
 
     # Token akun layanan (sistem lain): masa berlaku bawaan & batas maksimum, dalam hari.
     SERVICE_TOKEN_DEFAULT_DAYS: int = 365
@@ -100,6 +115,10 @@ class Settings(BaseSettings):
     # Backend dengan network_mode: host menjangkau Redis publish :6379 via 127.0.0.1.
     # Semua replica API wajib memakai REDIS_URL + SECRET_KEY yang sama; sticky session tidak perlu.
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    # Opsional: Redis TERPISAH untuk cache (JSON peta + ubin Foto Udara, TTL hingga 90 hari) dengan
+    # maxmemory + allkeys-lru, supaya cache tidak pernah mendesak/menggusur kunci sesi auth (gis:auth:*)
+    # yang ada di REDIS_URL (noeviction + AOF). Kosong = cache memakai REDIS_URL (perilaku lama).
+    REDIS_CACHE_URL: str = ""
     REDIS_MAP_ENABLED: bool = True
     # Koneksi maksimum pool Redis per proses (pool menunggu bila penuh, tidak error).
     REDIS_MAX_CONNECTIONS: int = 50

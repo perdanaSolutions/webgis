@@ -46,6 +46,30 @@ Internet / VPS :8080 (atau :80 TLS [PERLU KONFIRMASI])
 | `k8s/07-hpa.yaml` | HPA target utilization **70%** |
 | `k8s/08-haproxy.yaml` | HAProxy di cluster |
 | `nginx/nginx.conf.example` | Referensi lama — **bukan** LB utama |
+| `k8s/09-pgbouncer.yaml` | PgBouncer transaction pooling (2 replica) + NetworkPolicy |
+| `k8s/10-pdb.yaml` | PodDisruptionBudget minAvailable 1 (API, FE, HAProxy, PgBouncer) |
+| `k8s/11-networkpolicy.yaml` | Ingress policy API/FE/worker (egress bebas) |
+| `k8s/kustomization.yaml` | Satu titik parameter: image registry/tag, host Ingress, TLS (`kubectl apply -k infra/k8s`) |
+
+## Hardening scaling (Nov 2026)
+
+**Redis dua instance**
+- `redis` (StatefulSet + PVC 2Gi): sesi auth `gis:auth:*` via `REDIS_URL`. AOF `everysec`, `noeviction` → restart tidak me-logout user, memori penuh tidak membuang sesi.
+- `redis-cache` (tanpa persistence): cache `gis:map:*` + ubin Foto Udara via `REDIS_CACHE_URL`, `maxmemory 768mb` + `allkeys-lru`.
+- `REDIS_CACHE_URL` kosong → semua di `REDIS_URL` (perilaku lama). Cache mati → API lanjut tanpa cache; auth tidak terpengaruh.
+- HA: belum (1 node). Opsi: Redis Sentinel (chart bitnami) atau Redis managed — cukup ganti URL di Secret.
+
+**Koneksi database**
+- Hitungan: tiap proses = `DB_POOL_SIZE + DB_MAX_OVERFLOW` (5+10). 10 pod API × 15 + 2 worker × 5 = 160 > `max_connections` 100.
+- Solusi: semua API/worker ke `pgbouncer:6432` (transaction mode). Koneksi ke Postgres = pod PgBouncer × (`DEFAULT_POOL_SIZE` 30 + reserve 5) = 70.
+- psycopg2 (sync) aman di transaction mode (tanpa prepared statement server). Audit `set_config(...,true)` dan DDL startup (`pg_advisory_xact_lock`) per transaksi. **Jangan** tambah `SET` level sesi / `LISTEN` / advisory lock sesi.
+- Dulu ada 2 engine SQLAlchemy per proses (`app/core/database.py` hardcode 5+10 + `app/db/session.py`) → kini satu engine.
+
+**Probe**: API `/health` (startup/readiness/liveness), FE `/favicon.ico` (statis, tanpa SSR), HAProxy `monitor-uri /healthz` di port 8404, worker exec cek mtime `UPLOAD_WORKER_ALIVE_FILE`, Redis `redis-cli ping`.
+
+**Multi-replica aman**: upload disimpan di DB (`audit.upload_jobs.content`), bukan disk pod; worker klaim job `FOR UPDATE SKIP LOCKED`; housekeeping worker idempoten; DDL startup dikunci advisory lock. Cache status maintenance per proses 10 dtk (replica lain menyusul ≤10 dtk).
+
+**Env baru**: `REDIS_CACHE_URL`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE_SECONDS`, `DB_STARTUP_DDL`, `UPLOAD_WORKER_ALIVE_FILE`, `PGB_DB_HOST/PORT/USER/PASSWORD/NAME`, `PGB_DEFAULT_POOL_SIZE`, `PGB_AUTH_TYPE` (Compose). Lihat `env.scale.example`.
 
 ## Quick start Compose
 
@@ -64,7 +88,8 @@ curl -sS http://127.0.0.1:8080/health
 - `REDIS_PASSWORD` + NetworkPolicy; jangan publish 6379
 - `TRUSTED_PROXY_CIDRS` + HAProxy strip XFF (sudah di `haproxy.cfg`)
 - `minReplicas` / `maxReplicas` HPA
-- Redis HA (SPOF sesi) via secret manager [PERLU KONFIRMASI]
+- Redis HA (SPOF sesi): Sentinel / managed [PERLU KONFIRMASI] — persistence + noeviction sudah aktif
+- PgBouncer: `AUTH_TYPE` sama dengan `password_encryption` Postgres; pin tag image [PERLU KONFIRMASI]
 - Postgres backup/restore RPO/RTO
 - Monitoring: `/health`, stats localhost/`haproxy-stats`, alert CPU ≥70%, 5xx
 - `MTLS_*` di belakang LB: biasanya off untuk HTTP internal [PERLU KONFIRMASI]

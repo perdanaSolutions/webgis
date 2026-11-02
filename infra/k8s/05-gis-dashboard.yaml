@@ -13,6 +13,24 @@ spec:
       labels:
         app: gis-dashboard
     spec:
+      # Sebar replica ke node berbeda bila ada (preferred: tetap jalan di cluster 1 node).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: gis-dashboard
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: gis-dashboard
+      # imagePullSecrets: [{name: regcred}]  # [PERLU KONFIRMASI]
       containers:
         - name: nuxt
           image: webgis-dashboard:TAG  # [PERLU KONFIRMASI]
@@ -31,12 +49,24 @@ spec:
             - secretRef:
                 name: gis-dashboard-env
                 optional: true
+          # /favicon.ico = file statis Nitro (public/): tidak SSR & tidak memanggil API,
+          # jadi FE tidak ikut "unready" saat backend lambat.
+          startupProbe:
+            httpGet:
+              path: /favicon.ico
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
           readinessProbe:
+            httpGet:
+              path: /favicon.ico
+              port: http
+            periodSeconds: 10
+          livenessProbe:
             tcpSocket:
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          # httpGet path FE resmi: [PERLU KONFIRMASI]
+            periodSeconds: 20
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m

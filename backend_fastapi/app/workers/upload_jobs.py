@@ -97,6 +97,7 @@ def main() -> None:
     logger.info("Worker upload GeoJSON berjalan")
     last_housekeeping = 0.0
     while not _stopping:
+        jobs.touch_alive()
         try:
             if time.monotonic() - last_housekeeping > 60:
                 if failed := jobs.fail_stale(engine, settings.UPLOAD_JOB_STALE_SECONDS):

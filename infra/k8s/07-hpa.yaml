@@ -1,5 +1,11 @@
-# Kebijakan: scale out saat CPU atau memory ≥ 70%; scale in saat sepi (HPA default).
+# Kebijakan: scale out saat CPU ATAU memory ≥ 70% (permintaan Bayu); scale in saat sepi.
 # min/max = placeholder [PERLU KONFIRMASI]
+#
+# Catatan memory: proses Python (geopandas/numpy) jarang mengembalikan RAM ke OS, jadi metrik memory bisa
+# tetap ≥70% setelah beban turun -> HPA menahan replica (HPA ambil nilai TERBESAR dari semua metrik).
+# Mitigasi: requests.memory realistis (512Mi; utilisasi dihitung terhadap REQUEST), scaleDown bertahap,
+# dan pantau `kubectl top pod`. Bila replica tidak pernah turun, naikkan requests.memory (mis. 768Mi)
+# daripada menghapus metrik memory.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -65,5 +71,15 @@ spec:
           type: Utilization
           averageUtilization: 70
   behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

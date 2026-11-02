@@ -17,6 +17,10 @@ networks:
 volumes:
   redis_data:
 
+# Pool DB: tiap proses Python = DB_POOL_SIZE + DB_MAX_OVERFLOW koneksi (default 5+10).
+# --scale backend_fastapi=N  ->  N x 15 + worker. Semua lewat pgbouncer (transaction pooling) sehingga
+# koneksi ke Postgres dibatasi PGB_DEFAULT_POOL_SIZE (+reserve), bukan jumlah replica.
+
 services:
   redis:
     image: redis:7-alpine
@@ -26,7 +30,8 @@ services:
     # Tanpa password, lateral movement di bridge = hijack/revoke jti.
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD before up}
-    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    # Redis AUTH (sesi gis:auth:*): AOF + noeviction -> sesi tidak hilang saat restart/penuh.
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --appendfsync everysec --maxmemory 400mb --maxmemory-policy noeviction"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,6 +41,49 @@ services:
       retries: 5
     # Jangan publish 6379 ke internet di production
     # ports: ["127.0.0.1:6379:6379"]
+
+  # Redis CACHE (JSON peta + ubin Foto Udara TTL 90 hari): allkeys-lru, tanpa persistence.
+  # Penuh = kunci lama dibuang; tidak pernah mendesak sesi login di service `redis`.
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [webgis]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD before up}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly no --save '' --maxmemory 768mb --maxmemory-policy allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # PgBouncer transaction pooling di depan Postgres (upstream dari PGB_DB_* / DB_* di shell env).
+  # psycopg2 (sync) aman di mode transaction: tanpa prepared statement server-side.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest   # [PERLU KONFIRMASI] pin versi
+    restart: unless-stopped
+    networks: [webgis]
+    environment:
+      DB_HOST: ${PGB_DB_HOST:?set PGB_DB_HOST (host Postgres asli)}
+      DB_PORT: ${PGB_DB_PORT:-5432}
+      DB_USER: ${PGB_DB_USER:?set PGB_DB_USER}
+      DB_PASSWORD: ${PGB_DB_PASSWORD:?set PGB_DB_PASSWORD}
+      DB_NAME: ${PGB_DB_NAME:?set PGB_DB_NAME}
+      LISTEN_PORT: "6432"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "500"
+      DEFAULT_POOL_SIZE: ${PGB_DEFAULT_POOL_SIZE:-30}
+      RESERVE_POOL_SIZE: "5"
+      SERVER_RESET_QUERY: ""
+      AUTH_TYPE: ${PGB_AUTH_TYPE:-scram-sha-256}
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
+    expose:
+      - "6432"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 6432"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   backend_fastapi:
     build:
@@ -51,8 +99,14 @@ services:
       HTTP_PORT: "8000"
       # Override URL internal Compose — password dari REDIS_PASSWORD (sama dengan service redis)
       REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD}@redis-cache:6379/0"
       REDIS_AUTH_ENABLED: "true"
       REDIS_AUTH_TTL_SECONDS: "0"
+      # DB lewat pgbouncer (user/password/nama DB tetap dari .env)
+      DB_HOST: pgbouncer
+      DB_PORT: "6432"
+      DB_POOL_SIZE: "5"
+      DB_MAX_OVERFLOW: "10"
       # Di belakang HAProxy: percaya XFF hanya dari peer jaringan Docker [PERLU KONFIRMASI CIDR]
       TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       # mTLS di belakang HAProxy biasanya OFF untuk HTTP internal [PERLU KONFIRMASI]
@@ -61,6 +115,10 @@ services:
       - "8000"
     depends_on:
       redis:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
     healthcheck:
       test:
@@ -86,9 +144,22 @@ services:
         required: false
     environment:
       REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD}@redis-cache:6379/0"
       REDIS_AUTH_ENABLED: "true"
       MTLS_ENABLED: "false"
+      DB_HOST: pgbouncer
+      DB_PORT: "6432"
+      DB_POOL_SIZE: "3"
+      DB_MAX_OVERFLOW: "2"
+      UPLOAD_WORKER_ALIVE_FILE: /tmp/upload-worker.alive
     command: ["python", "-m", "app.workers.upload_jobs"]
+    # Aman --scale upload_worker=N: klaim job pakai FOR UPDATE SKIP LOCKED
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/upload-worker.alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 180 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 10m
     depends_on:
       redis:
@@ -130,5 +201,10 @@ services:
     depends_on:
       - backend_fastapi
       - gis-dashboard
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8404/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
     # Setelah --scale, HAProxy rediscover via Docker DNS (server-template)
     # Reload bila perlu: docker compose -f infra/docker-compose.scale.yaml kill -s HUP haproxy

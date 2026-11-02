@@ -1,0 +1,54 @@
+# Satu titik parameter deploy:  kubectl apply -k infra/k8s   (cek dulu: kubectl kustomize infra/k8s)
+#
+# Isi placeholder [PERLU KONFIRMASI] di SINI, bukan di tiap manifest:
+#   - images: registry + tag image backend/dashboard (+ pin pgbouncer)
+#   - host publik Ingress (patch di bawah) — default gis.example.invalid
+#   - imagePullSecrets registry privat: kubectl -n webgis create secret docker-registry regcred ...
+#     lalu uncomment `imagePullSecrets` di 03/04/05.
+#
+# Secret TIDAK dibuat di sini (jangan commit rahasia). Buat manual / via secret manager:
+#   kubectl -n webgis create secret generic redis-auth --from-literal=password='<ISI>'
+#   kubectl -n webgis create secret generic backend-fastapi-env --from-env-file=<file-di-luar-git>
+#   kubectl -n webgis create secret generic pgbouncer-env --from-env-file=<file-di-luar-git>
+#   kubectl -n webgis create secret generic gis-dashboard-env --from-env-file=<file-di-luar-git>  # opsional
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: webgis
+
+resources:
+  - 01-namespace.yaml
+  - 02-redis.yaml
+  - 03-backend-api.yaml
+  - 04-upload-worker.yaml
+  - 05-gis-dashboard.yaml
+  # Pilih SATU LB: 08-haproxy.yaml (on-prem/VPS, default) atau 06-ingress.yaml (Ingress controller/cloud)
+  # - 06-ingress.yaml
+  - 07-hpa.yaml
+  - 08-haproxy.yaml
+  - 09-pgbouncer.yaml
+  - 10-pdb.yaml
+  - 11-networkpolicy.yaml
+
+images:
+  - name: webgis-backend
+    newName: webgis-backend          # [PERLU KONFIRMASI] mis. registry.example.invalid/webgis/backend
+    newTag: TAG                      # [PERLU KONFIRMASI] mis. git SHA
+  - name: webgis-dashboard
+    newName: webgis-dashboard        # [PERLU KONFIRMASI]
+    newTag: TAG                      # [PERLU KONFIRMASI]
+  # - name: edoburu/pgbouncer
+  #   newTag: <versi-teruji>         # [PERLU KONFIRMASI] pin, jangan latest di produksi
+
+# Aktifkan bersama 06-ingress.yaml:
+# patches:
+#   - target: {kind: Ingress, name: webgis}
+#     patch: |-
+#       - op: replace
+#         path: /spec/rules/0/host
+#         value: gis.<DOMAIN>
+#       - op: add
+#         path: /spec/tls
+#         value: [{hosts: [gis.<DOMAIN>], secretName: webgis-tls}]
+#       - op: add
+#         path: /metadata/annotations/cert-manager.io~1cluster-issuer
+#         value: letsencrypt-prod

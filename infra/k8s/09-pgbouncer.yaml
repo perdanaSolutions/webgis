@@ -1,0 +1,123 @@
+# PgBouncer (transaction pooling) di depan Postgres.
+#
+# Kenapa: tiap proses Python memegang pool SQLAlchemy DB_POOL_SIZE + DB_MAX_OVERFLOW (default 5+10 = 15).
+#   Langsung ke Postgres: API max 10 pod x 15 + worker 2 x 15 = 180 koneksi > max_connections bawaan 100.
+#   Lewat PgBouncer: klien boleh s.d. MAX_CLIENT_CONN (500), koneksi ke Postgres dibatasi
+#   DEFAULT_POOL_SIZE (+ RESERVE_POOL_SIZE) per pasangan db/user per pod PgBouncer:
+#   2 pod x (30 + 5) = 70 koneksi server  < 100 (sisakan slot untuk admin/backup/migrasi).
+#
+# Kompatibilitas: backend memakai psycopg2 (sync) -> tidak ada prepared statement di server; audit memakai
+# set_config(..., true) per-transaksi; DDL startup memakai pg_advisory_xact_lock. Semua aman di mode transaction.
+# JANGAN pakai session-level SET / LISTEN / pg_advisory_lock (sesi) di kode baru.
+#
+# Backend: Secret backend-fastapi-env -> DB_HOST=pgbouncer, DB_PORT=6432 (user/password/db tetap sama).
+# Kredensial upstream dari Secret `pgbouncer-env` (DB_HOST postgres asli, DB_USER, DB_PASSWORD, DB_NAME).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: webgis
+  labels:
+    app: pgbouncer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: pgbouncer
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest  # [PERLU KONFIRMASI] pin tag/digest (lihat kustomization.yaml)
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: LISTEN_PORT
+              value: "5432"
+            - name: POOL_MODE
+              value: transaction
+            - name: MAX_CLIENT_CONN
+              value: "500"
+            - name: DEFAULT_POOL_SIZE
+              value: "30"
+            - name: RESERVE_POOL_SIZE
+              value: "5"
+            - name: SERVER_RESET_QUERY
+              value: ""
+            - name: AUTH_TYPE
+              value: scram-sha-256   # samakan dengan password_encryption Postgres [PERLU KONFIRMASI]
+            # application_name dari klien diteruskan; parameter startup lain diabaikan
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: extra_float_digits,options
+          envFrom:
+            - secretRef:
+                name: pgbouncer-env   # DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (upstream)
+          readinessProbe:
+            tcpSocket:
+              port: pg
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: pg
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: webgis
+spec:
+  type: ClusterIP
+  selector:
+    app: pgbouncer
+  ports:
+    - name: pg
+      port: 6432
+      targetPort: pg
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgbouncer-allow-api
+  namespace: webgis
+spec:
+  podSelector:
+    matchLabels:
+      app: pgbouncer
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-fastapi
+        - podSelector:
+            matchLabels:
+              app: upload-worker
+        # Job migrasi/ops sekali jalan boleh lewat PgBouncer bila diberi label ini
+        - podSelector:
+            matchLabels:
+              webgis/db-client: "true"
+      ports:
+        - protocol: TCP
+          port: 5432

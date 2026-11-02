@@ -1,0 +1,70 @@
+# NetworkPolicy ingress (konservatif). Egress TIDAK dibatasi (DNS, Postgres eksternal, GeoServer Foto Udara
+# tetap jalan). Kubelet probe dari node umumnya tidak terkena NetworkPolicy (k3s/kube-router, Calico, Cilium).
+#
+# Bila cluster memakai Ingress controller (06-ingress.yaml) dan bukan HAProxy, sesuaikan namespace
+# controller di bawah (default: ingress-nginx; k3s Traefik ada di kube-system). [PERLU KONFIRMASI]
+# Bila ragu / ada yang terblokir: hapus sementara file ini dari kustomization.yaml (= default allow).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-lb
+  namespace: webgis
+spec:
+  podSelector:
+    matchLabels:
+      app: backend-fastapi
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: haproxy
+        # SSR Nuxt bila NUXT_API_BASE_URL_PYTHON_SERVER diarahkan langsung ke service backend
+        - podSelector:
+            matchLabels:
+              app: gis-dashboard
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [ingress-nginx, kube-system]
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dashboard-allow-lb
+  namespace: webgis
+spec:
+  podSelector:
+    matchLabels:
+      app: gis-dashboard
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: haproxy
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [ingress-nginx, kube-system]
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# Worker tidak menerima koneksi masuk sama sekali.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: upload-worker-deny-ingress
+  namespace: webgis
+spec:
+  podSelector:
+    matchLabels:
+      app: upload-worker
+  policyTypes: ["Ingress"]
+  ingress: []

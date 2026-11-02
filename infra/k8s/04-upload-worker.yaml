@@ -15,6 +15,8 @@ spec:
         app: upload-worker
     spec:
       terminationGracePeriodSeconds: 600
+      # Aman di-scale >1: job diklaim dengan SELECT ... FOR UPDATE SKIP LOCKED (app/services/upload/jobs.py)
+      # imagePullSecrets: [{name: regcred}]  # [PERLU KONFIRMASI]
       containers:
         - name: worker
           image: webgis-backend:TAG  # image sama dengan API
@@ -22,7 +24,26 @@ spec:
           envFrom:
             - secretRef:
                 name: backend-fastapi-env
+          env:
+            # Worker men-touch file ini tiap putaran antrian & tiap detak job -> livenessProbe
+            - name: UPLOAD_WORKER_ALIVE_FILE
+              value: /tmp/upload-worker.alive
+            - name: DB_POOL_SIZE
+              value: "3"
+            - name: DB_MAX_OVERFLOW
+              value: "2"
           # REDIS_URL berpassword wajib dari Secret (sama dengan API) — jangan hardcode tanpa auth
+          livenessProbe:
+            exec:
+              # gagal bila file tidak di-update > 180 dtk (detak job tiap UPLOAD_JOB_HEARTBEAT_SECONDS=10)
+              command:
+                - python
+                - -c
+                - "import os,sys,time; p='/tmp/upload-worker.alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 180 else 1)"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: 250m

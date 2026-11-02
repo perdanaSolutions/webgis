@@ -24,8 +24,10 @@ logger = logging.getLogger("app.errors")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    ensure_activity_ip_required(engine)
-    ensure_data_store_versions(engine)
+    if settings.DB_STARTUP_DDL:
+        # Aman untuk banyak replica: tiap DDL dikunci pg_advisory_xact_lock.
+        ensure_activity_ip_required(engine)
+        ensure_data_store_versions(engine)
     set_store_versions_reader(read_store_versions)
     await open_redis()
     yield

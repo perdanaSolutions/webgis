@@ -1,0 +1,46 @@
+# PodDisruptionBudget: drain node / upgrade cluster tidak boleh mematikan semua replica sekaligus.
+# minAvailable 1 cocok dengan minReplicas HPA 2. Redis/redis-cache sengaja TANPA PDB (1 replica:
+# PDB minAvailable 1 akan memblokir drain selamanya).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-fastapi
+  namespace: webgis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend-fastapi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gis-dashboard
+  namespace: webgis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gis-dashboard
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: haproxy
+  namespace: webgis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: haproxy
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer
+  namespace: webgis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pgbouncer

@@ -17,7 +17,10 @@ GEOJSON = "geojson"
 HISTORY = "history"
 DOMAINS = (GEOJSON, HISTORY)
 
+# Advisory lock per transaksi: replica yang start bersamaan tidak bentrok di CREATE TABLE IF NOT EXISTS
+# (bisa gagal unique violation pg_type bila paralel). Aman lewat PgBouncer mode transaction.
 _ENSURE_SQL = """
+SELECT pg_advisory_xact_lock(7420002);
 CREATE TABLE IF NOT EXISTS audit.data_store_versions (
     domain text PRIMARY KEY,
     version bigint NOT NULL DEFAULT 0,

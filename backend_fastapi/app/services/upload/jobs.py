@@ -7,6 +7,7 @@ Tulisan worker memakai koneksi sendiri (engine), terpisah dari sesi yang memegan
 simpan, supaya progres langsung terlihat oleh FE walau data belum di-commit.
 """
 import json
+import os
 import threading
 import time
 from typing import Any
@@ -17,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import bad_request, conflict, not_found
 from app.services.upload.progress import Progress, UploadCancelled, stage_message
 
@@ -250,6 +252,18 @@ class JobProgress(Progress):
         self._write({"batch_id": str(batch_id)})
 
 
+def touch_alive() -> None:
+    """Tandai worker masih hidup (mtime file UPLOAD_WORKER_ALIVE_FILE) untuk livenessProbe."""
+    path = settings.UPLOAD_WORKER_ALIVE_FILE
+    if not path:
+        return
+    try:
+        with open(path, "a"):
+            os.utime(path, None)
+    except OSError:
+        pass
+
+
 class Heartbeat:
     """
     Detak jantung berkala di thread terpisah. Tahap tanpa `step` (mis. query pencocokan geometri)
@@ -263,6 +277,7 @@ class Heartbeat:
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval):
+            touch_alive()  # job panjang tetap terlihat hidup oleh livenessProbe
             try:
                 with self.engine.begin() as conn:
                     conn.execute(text("UPDATE audit.upload_jobs SET heartbeat_at = now() WHERE id = :id"),

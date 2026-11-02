@@ -3,7 +3,11 @@ from sqlalchemy.engine import Engine
 
 # Sama dengan sql/audit_require_activity_ip.sql. Disimpan di sini karena
 # image Docker hanya menyalin folder backend_fastapi.
+# Advisory lock per transaksi: banyak replica start bersamaan tidak saling DROP/CREATE trigger (deadlock).
+# Level transaksi (bukan sesi) supaya aman lewat PgBouncer mode transaction.
 REQUIRE_ACTIVITY_IP_SQL = """
+SELECT pg_advisory_xact_lock(7420001);
+
 CREATE OR REPLACE FUNCTION audit.require_activity_ip()
 RETURNS trigger
 LANGUAGE plpgsql

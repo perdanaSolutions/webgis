@@ -33,6 +33,8 @@ data:
         stats uri /stats
         stats refresh 10s
         stats admin if FALSE
+        # Probe K8s (liveness/readiness) tanpa menyentuh backend
+        monitor-uri /healthz
 
     frontend http_front
         bind *:80
@@ -73,6 +75,23 @@ spec:
       labels:
         app: haproxy
     spec:
+      # Sebar replica ke node berbeda bila ada (preferred: tetap jalan di cluster 1 node).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: haproxy
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: haproxy
       containers:
         - name: haproxy
           image: haproxy:2.9-alpine
@@ -86,10 +105,17 @@ spec:
               mountPath: /usr/local/etc/haproxy
               readOnly: true
           readinessProbe:
-            tcpSocket:
-              port: http
+            httpGet:
+              path: /healthz
+              port: stats
             initialDelaySeconds: 3
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: stats
+            periodSeconds: 20
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m
