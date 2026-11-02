@@ -1,84 +1,101 @@
-# WEBGIS — horizontal scale + HAProxy (sticky OFF)
-# Secret: isi via env_file lokal / secret manager — JANGAN commit .env
+# WEBGIS PROD — horizontal scale + HAProxy (sticky OFF) di VPS tunggal (4 CPU / 7,8 GB, tanpa swap, UAT ikut jalan)
 #
-# Jalankan dari root repo ATAU folder infra (context build relatif ke file ini):
-#   docker compose -f infra/docker-compose.scale.yaml up -d --build \
-#     --scale backend_fastapi=3 --scale gis-dashboard=2
+# Jalankan dari ROOT repo (context build relatif ke file ini):
+#   docker compose -p webgis-scale -f infra/docker-compose.scale.yaml --env-file /etc/webgis/scale.env up -d --build
 #
-# Wajib sama di setiap replica API: SECRET_KEY, REDIS_URL, REDIS_AUTH_ENABLED
-# Lihat: env.scale.example + backend_fastapi/.env.example
+# File env:
+#   ./backend_fastapi/.env      → env aplikasi (SECRET_KEY, DB_USER/PASSWORD/NAME, CORS, token foto udara, dll.)
+#                                 DB_HOST/DB_PORT/REDIS_* di file itu DITIMPA di bawah (jaringan bridge, bukan loopback)
+#   ./gis-dashboard/.env        → env Nuxt; NUXT_API_BASE_URL_PYTHON_SERVER ditimpa ke HAProxy internal
+#   /etc/webgis/scale.env       → rahasia khusus scale, DI LUAR git, chmod 600 (lihat infra/env.scale.example):
+#                                 REDIS_PASSWORD, PGB_DB_HOST, PGB_DB_PORT, PGB_DB_USER, PGB_DB_PASSWORD, PGB_DB_NAME,
+#                                 opsional PGB_DEFAULT_POOL_SIZE, BACKEND_REPLICAS, DASHBOARD_REPLICAS
+#
+# Topologi: Caddy (host, TLS :443) → 127.0.0.1:8080 HAProxy → backend_fastapi×2 :8000 / gis-dashboard×2 :3000
+#           Klien mTLS → 0.0.0.0:8443 HAProxy (TCP passthrough) → backend_fastapi×2 :8443 (TLS + verifikasi CN di backend)
+#
+# Memori (limit = batas atas, bukan pemakaian): API 2×1g, worker 1,5g, FE 2×384m, redis 192m, cache 448m, pgb 64m, haproxy 128m.
+# Tipikal idle ≈ 1,2 GB. Tanpa swap: limit memastikan OOM mengenai container yang boros, bukan postgres/UAT.
 
 name: webgis-scale
 
 networks:
   webgis:
     driver: bridge
+  # Jaringan milik gis-postgres (dan global-redis). Dipakai pgbouncer saja untuk mencapai gis-postgres:5432.
+  global-network:
+    external: true
 
 volumes:
   redis_data:
 
-# Pool DB: tiap proses Python = DB_POOL_SIZE + DB_MAX_OVERFLOW koneksi (default 5+10).
-# --scale backend_fastapi=N  ->  N x 15 + worker. Semua lewat pgbouncer (transaction pooling) sehingga
-# koneksi ke Postgres dibatasi PGB_DEFAULT_POOL_SIZE (+reserve), bukan jumlah replica.
+x-backend-env: &backend-env
+  REDIS_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0"
+  REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis-cache:6379/0"
+  REDIS_AUTH_ENABLED: "true"
+  REDIS_AUTH_TTL_SECONDS: "0"
+  DB_HOST: pgbouncer
+  DB_PORT: "6432"
+  # DDL ringan saat start; dikunci pg_advisory_xact_lock → aman untuk replica yang start bersamaan.
+  DB_STARTUP_DDL: "true"
 
 services:
+  # Redis AUTH (sesi gis:auth:*): AOF + noeviction → sesi tidak hilang saat restart/penuh.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     networks: [webgis]
-    # Wajib: set REDIS_PASSWORD di shell/env file Compose (bukan di git).
-    # Tanpa password, lateral movement di bridge = hijack/revoke jti.
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD before up}
-    # Redis AUTH (sesi gis:auth:*): AOF + noeviction -> sesi tidak hilang saat restart/penuh.
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --appendfsync everysec --maxmemory 400mb --maxmemory-policy noeviction"]
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --appendfsync everysec --maxmemory 128mb --maxmemory-policy noeviction"]
     volumes:
       - redis_data:/data
+    mem_limit: 192m
     healthcheck:
-      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
-    # Jangan publish 6379 ke internet di production
-    # ports: ["127.0.0.1:6379:6379"]
+    # Tidak di-publish ke host.
 
-  # Redis CACHE (JSON peta + ubin Foto Udara TTL 90 hari): allkeys-lru, tanpa persistence.
-  # Penuh = kunci lama dibuang; tidak pernah mendesak sesi login di service `redis`.
+  # Redis CACHE (JSON peta + ubin Foto Udara): allkeys-lru, tanpa persistence.
   redis-cache:
     image: redis:7-alpine
     restart: unless-stopped
     networks: [webgis]
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD before up}
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly no --save '' --maxmemory 768mb --maxmemory-policy allkeys-lru"]
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly no --save '' --maxmemory 384mb --maxmemory-policy allkeys-lru"]
+    mem_limit: 448m
     healthcheck:
       test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
 
-  # PgBouncer transaction pooling di depan Postgres (upstream dari PGB_DB_* / DB_* di shell env).
-  # psycopg2 (sync) aman di mode transaction: tanpa prepared statement server-side.
+  # PgBouncer transaction pooling → gis-postgres (container di global-network, auth scram-sha-256).
   pgbouncer:
-    image: edoburu/pgbouncer:latest   # [PERLU KONFIRMASI] pin versi
+    image: edoburu/pgbouncer:v1.25.2-p0
     restart: unless-stopped
-    networks: [webgis]
+    networks: [webgis, global-network]
     environment:
-      DB_HOST: ${PGB_DB_HOST:?set PGB_DB_HOST (host Postgres asli)}
+      DB_HOST: ${PGB_DB_HOST:-gis-postgres}
       DB_PORT: ${PGB_DB_PORT:-5432}
       DB_USER: ${PGB_DB_USER:?set PGB_DB_USER}
       DB_PASSWORD: ${PGB_DB_PASSWORD:?set PGB_DB_PASSWORD}
       DB_NAME: ${PGB_DB_NAME:?set PGB_DB_NAME}
       LISTEN_PORT: "6432"
       POOL_MODE: transaction
-      MAX_CLIENT_CONN: "500"
-      DEFAULT_POOL_SIZE: ${PGB_DEFAULT_POOL_SIZE:-30}
+      MAX_CLIENT_CONN: "300"
+      # Koneksi server ke Postgres untuk prod. max_connections=100 dipakai bersama UAT → jaga ≤ 25.
+      DEFAULT_POOL_SIZE: ${PGB_DEFAULT_POOL_SIZE:-20}
       RESERVE_POOL_SIZE: "5"
       SERVER_RESET_QUERY: ""
-      AUTH_TYPE: ${PGB_AUTH_TYPE:-scram-sha-256}
+      AUTH_TYPE: scram-sha-256
       IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
     expose:
       - "6432"
+    mem_limit: 64m
     healthcheck:
       test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 6432"]
       interval: 10s
@@ -89,30 +106,35 @@ services:
     build:
       context: ../backend_fastapi
       dockerfile: Dockerfile
+    image: webgis-scale-backend:latest
     restart: unless-stopped
     networks: [webgis]
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-2}
     env_file:
       - path: ../backend_fastapi/.env
-        required: false
+        required: true
+    # app.serve: proses HTTP :8000 (dashboard) + proses HTTPS mTLS :8443 bila 3 file sertifikat ada.
+    command: ["python", "-m", "app.serve"]
     environment:
+      <<: *backend-env
       HTTP_HOST: "0.0.0.0"
       HTTP_PORT: "8000"
-      # Override URL internal Compose — password dari REDIS_PASSWORD (sama dengan service redis)
-      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
-      REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD}@redis-cache:6379/0"
-      REDIS_AUTH_ENABLED: "true"
-      REDIS_AUTH_TTL_SECONDS: "0"
-      # DB lewat pgbouncer (user/password/nama DB tetap dari .env)
-      DB_HOST: pgbouncer
-      DB_PORT: "6432"
       DB_POOL_SIZE: "5"
       DB_MAX_OVERFLOW: "10"
-      # Di belakang HAProxy: percaya XFF hanya dari peer jaringan Docker [PERLU KONFIRMASI CIDR]
-      TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-      # mTLS di belakang HAProxy biasanya OFF untuk HTTP internal [PERLU KONFIRMASI]
-      MTLS_ENABLED: "false"
+      # XFF dipercaya hanya dari HAProxy (bridge Docker).
+      TRUSTED_PROXY_CIDRS: "172.16.0.0/12"
+      MTLS_ENABLED: "true"
+      MTLS_HOST: "0.0.0.0"
+      MTLS_PORT: "8443"
+    volumes:
+      # server.crt, server.key, ca.crt (dibuat di luar git). Kosong → listener mTLS tidak naik, HTTP tetap jalan.
+      - ../backend_fastapi/certs/runtime:/app/certs/runtime:ro
     expose:
       - "8000"
+      - "8443"
+    mem_limit: 1g
+    stop_grace_period: 30s
     depends_on:
       redis:
         condition: service_healthy
@@ -121,39 +143,29 @@ services:
       pgbouncer:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 25s
+      start_period: 40s
 
   upload_worker:
-    build:
-      context: ../backend_fastapi
-      dockerfile: Dockerfile
+    image: webgis-scale-backend:latest   # image sama dengan API (dibangun oleh service backend_fastapi)
     restart: unless-stopped
     networks: [webgis]
+    deploy:
+      replicas: 1
     env_file:
       - path: ../backend_fastapi/.env
-        required: false
+        required: true
     environment:
-      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
-      REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD}@redis-cache:6379/0"
-      REDIS_AUTH_ENABLED: "true"
+      <<: *backend-env
       MTLS_ENABLED: "false"
-      DB_HOST: pgbouncer
-      DB_PORT: "6432"
       DB_POOL_SIZE: "3"
       DB_MAX_OVERFLOW: "2"
       UPLOAD_WORKER_ALIVE_FILE: /tmp/upload-worker.alive
     command: ["python", "-m", "app.workers.upload_jobs"]
-    # Aman --scale upload_worker=N: klaim job pakai FOR UPDATE SKIP LOCKED
+    mem_limit: 1536m
     healthcheck:
       test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/upload-worker.alive'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 180 else 1)"]
       interval: 30s
@@ -164,40 +176,55 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
       backend_fastapi:
         condition: service_started
-    # Bukan di pool HAProxy — skala terpisah (--scale upload_worker=N)
 
   gis-dashboard:
     build:
       context: ../gis-dashboard
       dockerfile: Dockerfile
+    image: webgis-scale-dashboard:latest
     restart: unless-stopped
     networks: [webgis]
+    deploy:
+      replicas: ${DASHBOARD_REPLICAS:-2}
     env_file:
       - path: ../gis-dashboard/.env
-        required: false
+        required: true
     environment:
       HOST: "0.0.0.0"
       PORT: "3000"
       NODE_ENV: production
-      # Browser → HAProxy publik; SSR server-side ke API internal via LB
-      # NUXT_PUBLIC_API_BASE_URL_PYTHON=/api  (atau URL absolut publik) [PERLU KONFIRMASI]
-      # NUXT_API_BASE_URL_PYTHON_SERVER=http://haproxy/api
+      # SSR server-side → API lewat HAProxy internal (bukan lewat domain publik/Caddy). Browser tetap pakai
+      # NUXT_PUBLIC_API_BASE_URL_PYTHON dari gis-dashboard/.env (domain api publik).
+      NUXT_API_BASE_URL_PYTHON_SERVER: http://haproxy/api
     expose:
       - "3000"
+    mem_limit: 384m
     depends_on:
       - backend_fastapi
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/favicon.ico"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   haproxy:
-    image: haproxy:2.9-alpine
+    image: haproxy:2.9.15-alpine
     restart: unless-stopped
     networks: [webgis]
     ports:
-      - "8080:80"           # HTTP masuk (TLS di depan/di HAProxy: [PERLU KONFIRMASI])
-      - "127.0.0.1:8404:8404"  # stats hanya localhost
+      - "127.0.0.1:8080:80"      # HTTP dari Caddy (host) saja; TLS publik di Caddy
+      - "127.0.0.1:8404:8404"    # stats + /healthz, localhost saja
+      - "0.0.0.0:8443:8443"      # mTLS TCP passthrough → backend :8443 (publik; Docker melewati UFW)
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    mem_limit: 128m
     depends_on:
       - backend_fastapi
       - gis-dashboard
@@ -206,5 +233,4 @@ services:
       interval: 15s
       timeout: 3s
       retries: 3
-    # Setelah --scale, HAProxy rediscover via Docker DNS (server-template)
-    # Reload bila perlu: docker compose -f infra/docker-compose.scale.yaml kill -s HUP haproxy
+    # server-template + Docker DNS menemukan replica baru otomatis (hold valid 10s).

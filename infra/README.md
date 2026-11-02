@@ -110,3 +110,30 @@ LB_BASE=http://127.0.0.1:8080 ./infra/scripts/smoke-auth-scale.sh
 | Login → `/me`×N | 200 lewat LB (tanpa sticky) |
 | Logout → `/me`×N | **401** di semua hit |
 | Matriks QA | [`QA-SCALE-CHECKLIST.md`](./QA-SCALE-CHECKLIST.md) |
+
+## Production VPS 144.91.90.112 (compose scale, Nov 2026)
+
+Keputusan: Docker Compose scale (bukan k3s) di satu VPS; replica API 2, dashboard 2, worker 1; tanpa swap;
+`REDIS_AUTH_ENABLED=true` dengan Redis baru (semua user logout sekali saat cutover); `DB_STARTUP_DDL=true`;
+deploy = blip 5–15 dtk (tanpa rolling); mTLS 8443 aktif lewat HAProxy TCP passthrough.
+
+```text
+Internet ─443─▶ Caddy (host, TLS) ─▶ 127.0.0.1:8080 HAProxy ─┬─ api-webgis-prod.* (semua path), /api, /health ─▶ backend_fastapi×2 :8000
+                                                              └─ lainnya ─▶ gis-dashboard×2 :3000
+Klien mTLS ─▶ 0.0.0.0:8443 HAProxy (mode tcp) ─▶ backend_fastapi×2 :8443 (TLS + cek CN di backend)
+backend/worker ─▶ redis (auth, AOF, noeviction 128mb) · redis-cache (LRU 384mb) · pgbouncer:6432 ─▶ gis-postgres (global-network, scram)
+```
+
+- File: `infra/docker-compose.scale.yaml`, `infra/haproxy/haproxy.cfg`, deploy `infra/scripts/deploy-main-scale.sh`.
+- Rahasia scale: `/etc/webgis/scale.env` (600) — daftar key di `env.scale.example`. Env aplikasi tetap `backend_fastapi/.env` + `gis-dashboard/.env`.
+- Port host: 127.0.0.1:8080 (HTTP dari Caddy), 127.0.0.1:8404 (stats), 0.0.0.0:8443 (mTLS). Docker publish melewati UFW → hanya 8443 yang publik.
+- Client IP: Caddy mengisi X-Forwarded-For; HAProxy mempertahankannya bila sumber 127.0.0.1/172.16.0.0/12 (`forwardfor if-none`); backend `TRUSTED_PROXY_CIDRS=172.16.0.0/12`.
+- mTLS: sertifikat di `backend_fastapi/certs/runtime/{server.crt,server.key,ca.crt}` (di luar git, di-mount ro). Belum ada → listener 8443 tidak naik, server mtls di HAProxy DOWN, HTTP tidak terpengaruh. SAN server.crt harus memuat nama/IP yang dipakai klien (mis. `IP:144.91.90.112`, `DNS:api-webgis-prod.perdanasolusiteknologi.com`).
+- Memori (limit): API 1g×2, worker 1,5g, FE 384m×2, redis 192m, redis-cache 448m, pgbouncer 64m, haproxy 128m.
+
+```bash
+cd /var/aplikasi/project-webgis/webgis
+C="docker compose -p webgis-scale -f infra/docker-compose.scale.yaml --env-file /etc/webgis/scale.env"
+$C config -q && $C up -d --build
+curl -fsS http://127.0.0.1:8080/health; curl -s 'http://127.0.0.1:8404/stats;csv' | cut -d, -f1,2,18
+```
