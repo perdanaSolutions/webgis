@@ -50,12 +50,20 @@ class Settings(BaseSettings):
     FOTO_UDARA_WMS_LAYERS: str = "tpgis:tpgis_fu"
     FOTO_UDARA_CACHE_SECONDS: int = 7 * 24 * 3600
 
-    # Origin yang boleh memanggil API, dipisah koma. "*" = semua (hanya untuk development)
+    # Origin yang boleh memanggil API, dipisah koma. "*" = semua (HANYA development — blocker prod)
     CORS_ORIGINS: str = "*"
 
     @property
     def CORS_ORIGIN_LIST(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()] or ["*"]
+
+    # CIDR peer yang boleh memasok X-Forwarded-For / X-Real-IP (HAProxy). Kosong = ignore header.
+    # Contoh Docker bridge: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+    TRUSTED_PROXY_CIDRS: str = ""
+
+    @property
+    def TRUSTED_PROXY_CIDR_LIST(self) -> list[str]:
+        return [c.strip() for c in self.TRUSTED_PROXY_CIDRS.split(",") if c.strip()]
 
     # HTTP untuk dashboard. Tidak diubah saat mTLS dinyalakan.
     HTTP_HOST: str = "127.0.0.1"
@@ -83,13 +91,18 @@ class Settings(BaseSettings):
     def MTLS_REQUIRED_PATH_LIST(self) -> list[str]:
         return [path.strip() for path in self.MTLS_REQUIRED_PATHS.split(",") if path.strip()]
 
-    # Cache Redis untuk API baca halaman peta / blok profile.
-    # Backend jalan dengan network_mode: host, jadi Redis di container
-    # yang mem-publish port 6379 dijangkau lewat 127.0.0.1.
+    # Redis bersama: cache peta + registry sesi JWT (jti) untuk horizontal scaling.
+    # Backend dengan network_mode: host menjangkau Redis publish :6379 via 127.0.0.1.
+    # Semua replica API wajib memakai REDIS_URL + SECRET_KEY yang sama; sticky session tidak perlu.
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_MAP_ENABLED: bool = True
     REDIS_MAP_TTL_SECONDS: int = 900
     REDIS_MAP_MAX_BYTES: int = 64 * 1024 * 1024
+    # Auth sesi (ADR-001): true = fail-closed; logout/password mencabut jti di semua instance.
+    # Dev lokal tanpa Redis: false → JWT-only (revoke server-side tidak aktif).
+    REDIS_AUTH_ENABLED: bool = False
+    # 0 = pakai ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    REDIS_AUTH_TTL_SECONDS: int = 0
 
     @property
     def DATABASE_URL(self) -> str:

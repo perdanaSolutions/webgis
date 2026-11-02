@@ -1,8 +1,8 @@
 """
-Koneksi Redis async untuk cache API peta.
+Koneksi Redis async bersama (cache peta + sesi auth jti).
 
-Kalau Redis mati atau belum di-set, pemanggil mendapat None dan API
-tetap menjawab dari database.
+- Cache peta: fail-open — jika Redis mati, API tetap baca DB.
+- Auth sesi: fail-closed di lapisan `auth_session` bila REDIS_AUTH_ENABLED=true.
 """
 import logging
 import time
@@ -36,16 +36,28 @@ def _redact(url: str) -> str:
     return urlunparse(parts._replace(netloc=f"{auth}{hostname}{port}"))
 
 
-def _enabled() -> bool:
-    return bool(settings.REDIS_MAP_ENABLED and (settings.REDIS_URL or "").strip())
+def redis_url_configured() -> bool:
+    return bool((settings.REDIS_URL or "").strip())
 
 
-async def get_client():
-    """Klien Redis yang sudah terhubung, atau None bila cache tidak dipakai."""
+def map_enabled() -> bool:
+    return bool(settings.REDIS_MAP_ENABLED and redis_url_configured())
+
+
+def auth_enabled() -> bool:
+    return bool(getattr(settings, "REDIS_AUTH_ENABLED", False) and redis_url_configured())
+
+
+def _want_connection() -> bool:
+    return map_enabled() or auth_enabled()
+
+
+async def _ensure_client():
+    """Buka koneksi bersama bila map atau auth membutuhkan Redis."""
     global _client, _down_until
     if _override is not None:
         return _override
-    if not _enabled():
+    if not _want_connection():
         return None
     if _client is not None:
         return _client
@@ -66,12 +78,30 @@ async def get_client():
         await client.ping()
     except Exception as exc:
         _down_until = time.monotonic() + _RETRY_SECONDS
-        logger.warning("Redis cache peta tidak tersedia (%s): %s", _redact(settings.REDIS_URL), exc)
+        logger.warning("Redis tidak tersedia (%s): %s", _redact(settings.REDIS_URL), exc)
         return None
 
     _client = client
-    logger.info("Redis cache peta terhubung ke %s", _redact(settings.REDIS_URL))
+    logger.info("Redis terhubung ke %s", _redact(settings.REDIS_URL))
     return _client
+
+
+async def get_client():
+    """Klien untuk cache peta. None bila REDIS_MAP_ENABLED=false (kecuali override tes)."""
+    if _override is not None:
+        return _override
+    if not map_enabled():
+        return None
+    return await _ensure_client()
+
+
+async def get_auth_redis():
+    """Klien untuk sesi auth. None bila REDIS_AUTH_ENABLED=false (kecuali override tes)."""
+    if _override is not None:
+        return _override
+    if not auth_enabled():
+        return None
+    return await _ensure_client()
 
 
 async def mark_down(client) -> None:
@@ -86,14 +116,20 @@ async def mark_down(client) -> None:
         await client.aclose()
     except Exception:
         pass
-    logger.warning("Redis cache peta terputus, API peta lanjut tanpa cache")
+    logger.warning("Redis terputus; cache peta fail-open, auth fail-closed bila diaktifkan")
 
 
 async def startup() -> None:
-    if not _enabled():
-        logger.info("Redis cache peta dimatikan")
+    if not _want_connection():
+        logger.info("Redis dimatikan (map & auth)")
         return
-    await get_client()
+    roles = []
+    if map_enabled():
+        roles.append("map-cache")
+    if auth_enabled():
+        roles.append("auth-session")
+    logger.info("Redis diaktifkan untuk: %s", ", ".join(roles) or "none")
+    await _ensure_client()
 
 
 async def shutdown() -> None:
@@ -106,3 +142,8 @@ async def shutdown() -> None:
         await client.aclose()
     except Exception:
         pass
+
+
+# Kompatibilitas nama lama
+def _enabled() -> bool:
+    return map_enabled()

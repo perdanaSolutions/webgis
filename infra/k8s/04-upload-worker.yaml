@@ -1,0 +1,32 @@
+# Worker antrian GeoJSON — di luar pool HTTP LB; replica fixed / skala terpisah
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upload-worker
+  namespace: webgis
+spec:
+  replicas: 1  # [PERLU KONFIRMASI]
+  selector:
+    matchLabels:
+      app: upload-worker
+  template:
+    metadata:
+      labels:
+        app: upload-worker
+    spec:
+      terminationGracePeriodSeconds: 600
+      containers:
+        - name: worker
+          image: webgis-backend:TAG  # image sama dengan API
+          command: ["python", "-m", "app.workers.upload_jobs"]
+          envFrom:
+            - secretRef:
+                name: backend-fastapi-env
+          # REDIS_URL berpassword wajib dari Secret (sama dengan API) — jangan hardcode tanpa auth
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

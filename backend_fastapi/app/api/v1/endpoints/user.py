@@ -10,6 +10,7 @@ from typing import Optional
 
 from app.api import deps
 from app.core import security
+from app.core.auth_session import AuthSessionUnavailable, revoke_user
 from app.models.auth import User, Role, UserActivityLog
 from app.core.config import settings
 from app.schemas.user import ServiceTokenRequest, UserCreate, UserUpdate, UserResponse
@@ -213,7 +214,7 @@ def reissue_service_token(
 
 # 3. UPDATE USER DETAILS & PASSWORD
 @router.put("/{user_id}", response_model=UserResponse)
-def update_user(
+async def update_user(
     user_id: UUID,
     payload: UserUpdate,
     db: Session = Depends(deps.get_db),
@@ -229,6 +230,7 @@ def update_user(
     if user.username == "superadmin" and payload.is_active is False:
         raise HTTPException(status_code=400, detail="Akun 'superadmin' utama tidak boleh dinonaktifkan.")
 
+    kick_sessions = False
     if payload.username:
         user.username = payload.username.lower()
     if payload.email:
@@ -238,6 +240,8 @@ def update_user(
         user.nama_lengkap = payload.nama_lengkap
     if payload.is_active is not None:
         user.is_active = payload.is_active
+        if payload.is_active is False:
+            kick_sessions = True
     if payload.is_locked is False:
         user.locked_at = None
         user.failed_login_attempts = 0
@@ -249,8 +253,18 @@ def update_user(
     # Jika frontend mengirimkan string password baru, lakukan hashing ulang
     if payload.password:
         user.hashed_password = security.get_password_hash(payload.password)
+        kick_sessions = True
 
     _commit_user(db, payload.email)
+    if kick_sessions and not user.is_service_account:
+        try:
+            await revoke_user(str(user.id))
+        except AuthSessionUnavailable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"errors": [{"type": "auth_unavailable", "field": "auth",
+                                    "msg": "Layanan autentikasi sementara tidak tersedia", "input": None}]},
+            )
     db.refresh(user)
     return _to_user_response(user, _user_has_activity(db, user.id))
 

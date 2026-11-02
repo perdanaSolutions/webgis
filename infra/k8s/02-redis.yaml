@@ -1,0 +1,73 @@
+# Redis shared (map cache + auth jti). ClusterIP saja — jangan NodePort/LB.
+# Password dari Secret `redis-auth` key `password`. NetworkPolicy: hanya API/worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: webgis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c"]
+          args: ['redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes']
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: webgis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# Izinkan hanya pod berlabel app=backend-fastapi | upload-worker ke Redis.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-allow-api
+  namespace: webgis
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-fastapi
+        - podSelector:
+            matchLabels:
+              app: upload-worker
+      ports:
+        - protocol: TCP
+          port: 6379
