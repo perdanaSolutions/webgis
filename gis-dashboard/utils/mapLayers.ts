@@ -36,7 +36,7 @@ export type BasemapTile = {
   upstreamHost?: string;
   /** Zoom tertinggi yang masih menambah detail; di atasnya Leaflet memperbesar ubin ini (hemat request). */
   maxNativeZoom?: number;
-  /** WMS: minta gambar lebih rapat dari ukuran ubin CSS (layar retina / zoom pecahan). Lihat wmsPixelRatio. */
+  /** WMS: minta gambar lebih rapat dari ukuran ubin CSS (layar retina / zoom pecahan). Lihat WMS_HIDPI_TILE_PX. */
   hiDpi?: boolean;
 };
 

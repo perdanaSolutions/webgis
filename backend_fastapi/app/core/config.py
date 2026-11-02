@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     FOTO_UDARA_WMS_TOKEN: str = ""
     # Layer WMS yang boleh diminta (dipisah koma). tpgis:tpgis_fu = layer group gabungan seluruh foto udara.
     FOTO_UDARA_WMS_LAYERS: str = "tpgis:tpgis_fu"
-    FOTO_UDARA_CACHE_SECONDS: int = 7 * 24 * 3600
+    # Foto udara jarang berubah dan GeoServer merender tiap ubin ~0,6–1,4 dtk tanpa cache, jadi ubin disimpan lama.
+    FOTO_UDARA_CACHE_SECONDS: int = 90 * 24 * 3600
+    # Permintaan serentak ke GeoServer per proses backend. Uji 2 Nov 2026: GeoServer hanya sanggup ~5–7 ubin/dtk;
+    # batas 4/6/8/12 memberi satu layar (30 ubin) rata-rata 6,6/6,0/5,0/5,7 dtk (beda tipis, beban server naik-turun),
+    # sedangkan 30 serentak sempat 20 dtk. Batas ini mencegah lonjakan semacam itu dan menjaga thread pool.
+    FOTO_UDARA_MAX_CONCURRENCY: int = 8
 
     # Origin yang boleh memanggil API, dipisah koma. "*" = semua (hanya untuk development)
     CORS_ORIGINS: str = "*"

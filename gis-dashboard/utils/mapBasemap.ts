@@ -217,14 +217,12 @@ export function createBasemapTileLayer(
  * (JWT user) sebagai blob lalu dipasang sebagai object URL. Alasan gagal (JSON {reason}) disimpan untuk dialog.
  */
 /**
- * Kerapatan piksel ubin WMS: ubin 256 px CSS diminta 256 × rasio piksel. Retina (DPR 2) -> 512 px.
- * Dengan zoomSnap 0 ubin juga bisa tampil diperbesar sampai ~1,41x di zoom pecahan, jadi layar biasa diberi
- * 1,5x (384 px). Dibatasi 2x (backend menolak > 1024 px; 2x sudah setara resolusi sumber pada maxNativeZoom).
+ * Ukuran gambar ubin WMS hiDpi: ubin 256 px CSS selalu diminta 512 px, di layar apa pun. Retina (DPR 2) butuh
+ * 512 px, dan dengan zoomSnap 0 layar biasa pun menampilkan ubin diperbesar sampai ~1,41x. Ukuran yang sama untuk
+ * semua layar membuat ubin di cache Redis backend dipakai bersama semua pengguna (dulu layar biasa minta 384 px,
+ * sehingga area yang sama dirender GeoServer dua kali). 512 px sudah setara resolusi sumber pada maxNativeZoom.
  */
-export function wmsPixelRatio(devicePixelRatio: number) {
-  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  return Math.min(2, Math.max(1.5, Math.ceil(dpr * 1.41 * 2) / 2));
-}
+export const WMS_HIDPI_TILE_PX = 512;
 
 function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: Record<string, unknown>) {
   const Wms = (leaflet.TileLayer as any).WMS;
@@ -268,11 +266,10 @@ function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: 
     uppercase: true,
     ...tilePerf,
   });
-  if (tile.hiDpi && typeof window !== "undefined") {
+  if (tile.hiDpi) {
     // Ukuran ubin CSS tetap 256; hanya WIDTH/HEIGHT gambar yang dirapatkan (bbox sama -> lebih tajam).
-    const px = Math.round(256 * wmsPixelRatio(window.devicePixelRatio));
-    layer.wmsParams.width = px;
-    layer.wmsParams.height = px;
+    layer.wmsParams.width = WMS_HIDPI_TILE_PX;
+    layer.wmsParams.height = WMS_HIDPI_TILE_PX;
   }
   return layer as import("leaflet").TileLayer;
 }

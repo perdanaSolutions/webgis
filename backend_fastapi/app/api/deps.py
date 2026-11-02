@@ -86,6 +86,20 @@ def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(
     return _authenticate(db, token)
 
 
+def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
+    """
+    Seperti get_current_user, tetapi sesi DB langsung ditutup setelah cek login. Untuk endpoint yang lama menunggu
+    layanan luar (mis. ubin foto udara): dengan get_current_user koneksi pool tertahan sampai respons selesai,
+    sehingga puluhan ubin serentak menghabiskan pool dan API lain ikut mengantre. User yang dikembalikan sudah
+    terlepas dari sesi (jangan memuat relasi lazy darinya).
+    """
+    db = SessionLocal()
+    try:
+        return _authenticate(db, token)
+    finally:
+        db.close()
+
+
 # CATATAN (Nov 2026): POST /pokok-produksi/import-json kini tanpa autentikasi, sehingga token akun layanan
 # (user_or_service / CanImportProduksiJson, scope produksi_tbs:import) tidak dipakai endpoint mana pun lagi.
 # Fitur sengaja dibiarkan (model, endpoint user, kolom migrasi 006) agar mudah diaktifkan kembali:

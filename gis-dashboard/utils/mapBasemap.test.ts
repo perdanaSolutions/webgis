@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wmsPixelRatio, basemapAccessMessage, basemapCapabilitiesUrl, basemapHost, basemapServiceUrl, fotoUdaraProblem, setBasemapDiagnostics } from "./mapBasemap";
+import { WMS_HIDPI_TILE_PX, basemapAccessMessage, basemapCapabilitiesUrl, basemapHost, basemapServiceUrl, fotoUdaraProblem, setBasemapDiagnostics } from "./mapBasemap";
 import { BASEMAPS } from "./mapLayers";
 
 const fotoUdara = BASEMAPS.find((item) => item.key === "tpa-sga")!;
@@ -51,12 +51,7 @@ describe("kualitas Foto Udara", () => {
     expect(tile.maxNativeZoom).toBe(20);
     expect(tile.maxZoom).toBe(22);
   });
-  it("rasio piksel: layar biasa 1,5x (384 px), retina 2x (512 px), tidak lebih dari 2x", () => {
-    expect(wmsPixelRatio(1)).toBe(1.5);
-    expect(wmsPixelRatio(1.25)).toBe(2);
-    expect(wmsPixelRatio(2)).toBe(2);
-    expect(wmsPixelRatio(3)).toBe(2);
-    expect(wmsPixelRatio(Number.NaN)).toBe(1.5);
-    expect(Math.round(256 * wmsPixelRatio(2))).toBe(512);
+  it("ubin hiDpi selalu 512 px (cache backend dipakai bersama semua layar, di bawah batas backend 1024 px)", () => {
+    expect(WMS_HIDPI_TILE_PX).toBe(512);
   });
 });
