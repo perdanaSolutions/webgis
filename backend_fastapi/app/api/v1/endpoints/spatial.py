@@ -15,7 +15,7 @@ from app.core.exceptions import AppError, bad_request
 from app.schemas.spatial import PaginatedResponse
 from app.services import (
     area_statement_summary_service, block_detail_service, division_boundary_service, block_upload_service, hierarchy_service, history_service, map_service, master_service,
-    user_access,
+    production_group_service, user_access,
 )
 from app.services.block_filter import BlockFilter
 from app.services.layers.catalog_service import generic_tables
@@ -301,6 +301,40 @@ def get_blok_detail(
         year_to_date=year_to_date,
     )
     return user_access.redact_block_detail(db, current_user, detail)
+
+
+@router.get(
+    "/produksi/grafik-grup",
+    summary="Grafik Produksi TBS (ton) per Grup, Area, dan Estate",
+    description="Untuk kartu Produksi TBS. `group_produksi_ton` berisi `total` (gabungan semua grup, mis. TPA + SGA), "
+                "`by_group`, `by_area`, `by_estate` dari blok dalam filter kebun (urut aktual terbesar). Tiap item: "
+                "aktual/budget/tahun lalu (ton), ton/ha aktual & budget, selisih ton dan % terhadap budget dan tahun lalu, "
+                "luas tanam, dan RUT (rata-rata umur tanaman, tahun, dibobot luas tanam). Rentang `bulan`/`tahun`/"
+                "`year_to_date` sama dengan `GET /spatial/geojson`; tahun lalu = bulan yang sama setahun sebelumnya. "
+                "Grup/area/estate memakai master saat ini. Estate tanpa aktual maupun budget di rentang itu tidak "
+                "ditampilkan.",
+)
+def get_production_group_chart(
+    kode_grup: Optional[str] = Query(None, description="Kode/ID grup (TPA, SGA). Kosong = semua"),
+    area_id: Optional[str] = Query(None),
+    kode_pt: Optional[str] = Query(None),
+    kode_est: Optional[str] = Query(None),
+    kode_afd: Optional[str] = Query(None),
+    kode_blok: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(None),
+    bulan: Optional[int] = Query(None, ge=1, le=12),
+    tahun: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to_date: bool = Query(False, description="true = akumulasi Januari s/d bulan"),
+    db=Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    user_access.require_transaction(db, current_user, "trx_produksi_tbs", "trx.block_productions")
+    flt = BlockFilter(
+        grup=kode_grup, area=area_id, kode_pt=kode_pt, kode_est=kode_est, kode_afd=kode_afd, blok=kode_blok,
+        ownership=ownership,
+    )
+    user_access.apply_data_scope(db, current_user, flt)
+    return production_group_service.production_groups(db, flt, bulan, tahun, year_to_date)
 
 
 @router.get("/history/tables", summary="Daftar tabel untuk GET /history")

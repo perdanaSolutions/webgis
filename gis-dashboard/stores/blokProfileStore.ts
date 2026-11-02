@@ -7,6 +7,7 @@ import { fetchMapCached } from "~/utils/mapCacheSchema";
 import { afdelingOptionsFrom, blockOptionsFrom, geometrySimplifyMeters } from "~/utils/filterKebun";
 import { popupPeriodFromProperties } from "~/utils/mapBlokPopup";
 import { readBudgetCategory } from "~/utils/mapLayers";
+import type { ProductionGroupChart } from "~/utils/productionGroups";
 
 /**
  * State halaman Blok Profile (peta layar penuh).
@@ -333,6 +334,10 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   const blocks = shallowRef<BlockCollection | null>(null);
   const detail = ref<Record<string, any> | null>(null);
   const production = ref<Record<string, any> | null>(null);
+  /** GET /spatial/produksi/grafik-grup: grafik Produksi TBS per Grup/Area/Estate, mengikuti Filter Kebun terapan. */
+  const productionGroups = ref<ProductionGroupChart | null>(null);
+  const loadingProductionGroups = ref(false);
+  let productionGroupsSeq = 0;
   const areaStatement = ref<AreaStatementHistory | null>(null);
   const rotation = ref<RotationHistory | null>(null);
 
@@ -946,6 +951,31 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     };
   });
 
+  /**
+   * Grafik Produksi TBS per Grup/Area/Estate. Hanya mengikuti Filter Kebun terapan (bukan klik blok di peta),
+   * jadi dimuat saat Apply dan tidak ikut dipulihkan/diubah oleh popup blok.
+   */
+  async function loadProductionGroups() {
+    const seq = ++productionGroupsSeq;
+    if (!canViewProduction.value) {
+      productionGroups.value = null;
+      loadingProductionGroups.value = false;
+      return;
+    }
+    loadingProductionGroups.value = true;
+    try {
+      const res = await get<ProductionGroupChart>("/spatial/produksi/grafik-grup", {
+        ...scopeParams.value,
+        year_to_date: applied.value.yearToDate ? "true" : undefined,
+      });
+      if (seq === productionGroupsSeq) productionGroups.value = res;
+    } catch {
+      if (seq === productionGroupsSeq) productionGroups.value = null;
+    } finally {
+      if (seq === productionGroupsSeq) loadingProductionGroups.value = false;
+    }
+  }
+
   /** Akhir rentang Year to Date: bulan berjalan pada tahun ini, Desember pada tahun lain. */
   function yearToDateEndMonth(year: string) {
     return year === currentYear() ? String(new Date().getMonth() + 1) : "12";
@@ -1288,10 +1318,11 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
             },
           ),
           loadHistories({ tahun: period.tahun, bulan: period.bulan }),
+          loadProductionGroups(),
         ]);
       } else {
         detail.value = null;
-        await loadHistories();
+        await Promise.all([loadHistories(), loadProductionGroups()]);
       }
       if (!current()) return;
       captureSearch();
@@ -1558,6 +1589,9 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     blocks.value = { type: "FeatureCollection", features: [] };
     detail.value = null;
     production.value = null;
+    productionGroups.value = null;
+    productionGroupsSeq += 1;
+    loadingProductionGroups.value = false;
     areaStatement.value = null;
     rotation.value = null;
     detailKey = "";
@@ -1906,6 +1940,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     loadingBlocks,
     loadingDetail,
     loadingProduction,
+    productionGroups,
+    loadingProductionGroups,
     loadingAreaStatement,
     loadingRotation,
     errorMessage,
