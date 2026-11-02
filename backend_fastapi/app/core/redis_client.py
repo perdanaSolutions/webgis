@@ -16,6 +16,10 @@ _client = None
 _override = None
 _down_until = 0.0
 _RETRY_SECONDS = 30.0
+# Lama menunggu koneksi bebas di pool sebelum satu permintaan dilewati tanpa cache.
+_POOL_WAIT_SECONDS = 2
+# Pesan redis-py saat pool penuh: pool biasa ("Too many connections") / BlockingConnectionPool (timeout).
+_POOL_BUSY_MESSAGES = ("Too many connections", "No connection available.")
 
 
 def set_client_override(client) -> None:
@@ -53,16 +57,21 @@ async def get_client():
         return None
 
     try:
-        from redis.asyncio import Redis
+        from redis.asyncio import BlockingConnectionPool, Redis
 
-        client = Redis.from_url(
+        # Pool yang MENUNGGU koneksi bebas (bukan langsung error "Too many connections"). Satu layar peta meminta
+        # ~30 ubin foto udara serentak; dengan pool biasa max 20, permintaan ke-21 gagal, Redis dianggap mati
+        # 30 dtk dan seluruh cache (ubin & JSON peta) terlewati (terlihat di produksi, 2 Nov 2026).
+        pool = BlockingConnectionPool.from_url(
             settings.REDIS_URL,
             decode_responses=False,
             socket_connect_timeout=1,
             socket_timeout=5,
             health_check_interval=30,
-            max_connections=20,
+            max_connections=settings.REDIS_MAX_CONNECTIONS,
+            timeout=_POOL_WAIT_SECONDS,
         )
+        client = Redis.from_pool(pool)
         await client.ping()
     except Exception as exc:
         _down_until = time.monotonic() + _RETRY_SECONDS
@@ -74,10 +83,24 @@ async def get_client():
     return _client
 
 
-async def mark_down(client) -> None:
-    """Tutup klien yang putus dan coba lagi setelah jeda."""
+def is_pool_busy(exc: BaseException | None) -> bool:
+    """Pool sedang penuh (menunggu koneksi kelamaan) -> Redis sendiri sehat, jangan dianggap mati."""
+    if exc is None:
+        return False
+    try:
+        from redis.exceptions import ConnectionError as RedisConnectionError
+    except ImportError:
+        return False
+    return isinstance(exc, RedisConnectionError) and str(exc) in _POOL_BUSY_MESSAGES
+
+
+async def mark_down(client, exc: BaseException | None = None) -> None:
+    """Tutup klien yang putus dan coba lagi setelah jeda. Pool yang hanya sedang penuh tidak mematikan cache."""
     global _client, _down_until
     if client is None or client is _override:
+        return
+    if is_pool_busy(exc):
+        logger.info("Pool Redis penuh, satu permintaan dilewati tanpa cache")
         return
     _down_until = time.monotonic() + _RETRY_SECONDS
     if _client is client:

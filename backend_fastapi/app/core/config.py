@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     # yang mem-publish port 6379 dijangkau lewat 127.0.0.1.
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_MAP_ENABLED: bool = True
+    # Koneksi maksimum pool Redis per proses (pool menunggu bila penuh, tidak error).
+    REDIS_MAX_CONNECTIONS: int = 50
     REDIS_MAP_TTL_SECONDS: int = 900
     REDIS_MAP_MAX_BYTES: int = 64 * 1024 * 1024
 

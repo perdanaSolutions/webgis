@@ -142,8 +142,8 @@ async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
             hit = await client.get(key)
             if hit:
                 return hit, query["format"], True
-        except Exception:
-            await mark_down(client)
+        except Exception as exc:
+            await mark_down(client, exc)
             client = None
     # Hanya permintaan ke GeoServer yang dibatasi; ubin dari cache Redis tidak ikut mengantre.
     async with _upstream_slot():
@@ -154,8 +154,8 @@ async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
     if client is not None and len(body) <= _MAX_CACHE_BYTES:
         try:
             await client.set(key, body, ex=settings.FOTO_UDARA_CACHE_SECONDS)
-        except Exception:
-            await mark_down(client)
+        except Exception as exc:
+            await mark_down(client, exc)
     return body, ctype.split(";")[0] or query["format"], False
 
 
