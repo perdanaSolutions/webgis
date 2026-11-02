@@ -1,4 +1,4 @@
-import { createBasemapTileLayer } from "~/utils/mapBasemap";
+import { createBasemapTileLayer, inlineBlobTiles } from "~/utils/mapBasemap";
 import type { BasemapKey } from "~/utils/mapLayers";
 import {
   BASEMAPS,
@@ -251,6 +251,17 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       host.appendChild(note);
     }
     await settleTiles(basemapLayers);
+    let basemapNote = "";
+    // Foto Udara: ubin berupa blob: hasil fetch ber-auth. Sematkan sebagai data URL dulu supaya html-to-image
+    // tidak perlu fetch ulang (dan satu ubin gagal tidak menggagalkan seluruh gambar peta + batas).
+    const inlined = await inlineBlobTiles(host);
+    if (inlined.total && !inlined.ok) {
+      basemapNote = `Foto udara tidak dapat dicetak: 0 dari ${inlined.total} ubin termuat (cek login/akses server foto udara).`;
+    } else if (inlined.failed) {
+      basemapNote = `Sebagian foto udara tidak tercetak: ${inlined.failed} dari ${inlined.total} ubin gagal dimuat.`;
+    } else if (option.tiles.some((tile) => tile.service === "wms") && !basemapLayers.some(layerHasTiles)) {
+      basemapNote = "Foto udara tidak dapat dicetak: tidak ada ubin yang termuat dalam 8 detik.";
+    }
     const shoot = () => toPng(host, {
       pixelRatio: 2,
       backgroundColor: background,
@@ -258,13 +269,15 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       height: cssH,
     });
     try {
-      return { dataUrl: await shoot(), basemapDrawn };
-    } catch {
+      return { dataUrl: await shoot(), basemapDrawn, basemapNote };
+    } catch (error) {
+      console.error("[Unduh Peta] basemap gagal disematkan, ulang tanpa basemap", error);
       basemapDrawn = false;
+      basemapNote = `Basemap tidak dapat dicetak (${error instanceof Error ? error.message : "gambar ubin gagal dibaca"}). Batas layer tetap digambar.`;
       basemapLayers.forEach((layer) => layer.remove());
       host.style.background = "#e7efe0";
       await sleep(40);
-      return { dataUrl: await shoot(), basemapDrawn };
+      return { dataUrl: await shoot(), basemapDrawn, basemapNote };
     }
   } finally {
     map.remove();
@@ -496,9 +509,7 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
 
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
   const credit = option.tiles.map((tile) => plainAttribution(tile.attribution)).filter(Boolean).join(" · ");
-  const footer = mapShot.basemapDrawn
-    ? credit
-    : "Basemap tidak dapat dicetak. Batas layer tetap digambar.";
+  const footer = mapShot.basemapNote || credit;
   pdf.setFontSize(7);
   pdf.setTextColor(110, 120, 102);
   const footerLine = pdf.splitTextToSize(footer, PAGE_W - MARGIN * 2 - 24)[0] ?? "";

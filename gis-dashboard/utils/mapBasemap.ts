@@ -224,6 +224,49 @@ export function createBasemapTileLayer(
  */
 export const WMS_HIDPI_TILE_PX = 512;
 
+function revokeTileBlob(tile: HTMLElement) {
+  const holder = tile as HTMLElement & { _blobUrl?: string };
+  if (holder._blobUrl) {
+    URL.revokeObjectURL(holder._blobUrl);
+    holder._blobUrl = undefined;
+  }
+}
+
+/**
+ * Ubah ubin blob: (foto udara via proxy ber-auth) menjadi data URL agar bisa disematkan html-to-image tanpa
+ * fetch ulang. Ubin same-origin (blob) tidak men-taint canvas. Mengembalikan jumlah ubin yang berhasil/gagal.
+ */
+export async function inlineBlobTiles(root: HTMLElement) {
+  const images = [...root.querySelectorAll<HTMLImageElement>("img")].filter((img) => img.src.startsWith("blob:"));
+  let ok = 0;
+  let failed = 0;
+  await Promise.all(images.map(async (img) => {
+    try {
+      if (!img.complete || !img.naturalWidth) throw new Error("ubin belum termuat");
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 2D tidak tersedia");
+      ctx.drawImage(img, 0, 0);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("data URL ubin rusak"));
+        img.src = dataUrl;
+      });
+      revokeTileBlob(img);
+      ok += 1;
+    } catch {
+      // Ubin gagal dikeluarkan dari DOM cetak (bukan file) agar html-to-image tidak mencoba fetch blob mati.
+      revokeTileBlob(img);
+      img.remove();
+      failed += 1;
+    }
+  }));
+  return { total: images.length, ok, failed };
+}
+
 function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: Record<string, unknown>) {
   const Wms = (leaflet.TileLayer as any).WMS;
   const Proxied = Wms.extend({
@@ -240,8 +283,12 @@ function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: 
       api(url, { responseType: "blob", skipServerErrorRedirect: true, headers: { accept: "image/*" } })
         .then((blob: Blob) => {
           const objectUrl = URL.createObjectURL(blob);
-          img.onload = () => { URL.revokeObjectURL(objectUrl); done(null, img); };
-          img.onerror = () => { URL.revokeObjectURL(objectUrl); done(new Error("gambar rusak"), img); };
+          // Object URL JANGAN dicabut saat onload: Unduh Peta (html-to-image) membaca ulang src setiap <img>
+          // untuk disematkan ke PNG. URL yang sudah dicabut membuat ekspor gagal -> foto udara & batas hilang
+          // dari PDF. URL dicabut saat ubin dibuang Leaflet (tileunload) atau bila gambar rusak.
+          (img as HTMLImageElement & { _blobUrl?: string })._blobUrl = objectUrl;
+          img.onload = () => done(null, img);
+          img.onerror = () => { revokeTileBlob(img); done(new Error("gambar rusak"), img); };
           img.src = objectUrl;
         })
         .catch((error: any) => {
@@ -266,6 +313,7 @@ function createProxiedWmsLayer(leaflet: LeafletNs, tile: BasemapTile, tilePerf: 
     uppercase: true,
     ...tilePerf,
   });
+  layer.on("tileunload", (event: { tile: HTMLElement }) => revokeTileBlob(event.tile));
   if (tile.hiDpi) {
     // Ukuran ubin CSS tetap 256; hanya WIDTH/HEIGHT gambar yang dirapatkan (bbox sama -> lebih tajam).
     layer.wmsParams.width = WMS_HIDPI_TILE_PX;

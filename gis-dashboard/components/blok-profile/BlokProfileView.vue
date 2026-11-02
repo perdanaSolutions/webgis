@@ -402,7 +402,7 @@ async function downloadPdf() {
     });
   } catch (error) {
     console.error(error);
-    exportError.value = "PDF gagal dibuat. Periksa koneksi, lalu coba lagi.";
+    exportError.value = `PDF gagal dibuat: ${error instanceof Error && error.message ? error.message : "kesalahan tidak dikenal"}. Periksa koneksi/login, lalu coba lagi.`;
   } finally {
     if (!exportError.value) {
       document.documentElement.style.overflow = exportOverflow;
