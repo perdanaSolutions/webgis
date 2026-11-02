@@ -3,12 +3,15 @@ Akun layanan (sistem lain): Bearer token berumur panjang yang hanya berlaku untu
 
 Endpoint import dipanggil dengan unit_code yang tidak ada, jadi ditolak 400 sebelum menulis data apa pun:
 400 = lolos autentikasi, 401/403 = ditolak di pintu.
+
+CATATAN: import-json produksi TBS kini tanpa autentikasi, jadi test pencabutan/kedaluwarsa/nonaktif token
+layanan dihapus (tidak ada endpoint lagi yang memakai token layanan). Lihat catatan di app/api/deps.py.
 """
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
-from jwt import decode, encode
+from jwt import decode
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -77,32 +80,6 @@ def test_service_account_cannot_login(client, auth):
             conn.execute(text("DELETE FROM auth.users WHERE id = :id"), {"id": created["id"]})
 
 
-def test_reissue_revokes_old_token(client, auth, service_user):
-    old = _bearer(service_user["access_token"])
-    response = client.post(f"/api/v1/users/{service_user['id']}/service-token", headers=auth,
-                           json={"masa_berlaku_token_hari": 10})
-    assert response.status_code == 200, response.text
-    new_token = response.json()["access_token"]
-    assert new_token != service_user["access_token"]
-
-    assert client.post(IMPORT_URL, params=PARAMS, json=BODY, headers=old).status_code == 401
-    assert client.post(IMPORT_URL, params=PARAMS, json=BODY, headers=_bearer(new_token)).status_code == 400
-
-
-def test_deactivated_account_token_is_rejected(client, auth, service_user):
-    client.put(f"/api/v1/users/{service_user['id']}", headers=auth, json={"is_active": False})
-    response = client.post(IMPORT_URL, params=PARAMS, json=BODY, headers=_bearer(service_user["access_token"]))
-    assert response.status_code == 400  # "Akun tidak aktif"
-    assert "tidak aktif" in response.text.lower()
-
-
-def test_expired_service_token_is_rejected(client, service_user):
-    expired = encode({"sub": service_user["id"], "typ": "service", "scope": ["produksi_tbs:import"], "tv": 2,
-                      "exp": datetime.now(timezone.utc) - timedelta(minutes=1)},
-                     settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    assert client.post(IMPORT_URL, params=PARAMS, json=BODY, headers=_bearer(expired)).status_code == 401
-
-
 def test_token_lifetime_is_limited_by_setting(client, auth):
     suffix = uuid.uuid4().hex[:8]
     response = client.post("/api/v1/users/", headers=auth, json={
@@ -113,5 +90,6 @@ def test_token_lifetime_is_limited_by_setting(client, auth):
 
 def test_regular_token_still_works_and_service_flag_is_superadmin_only(client, auth):
     assert client.post(IMPORT_URL, params=PARAMS, json=BODY, headers=auth).status_code == 400
+    # import-json produksi TBS kini tanpa autentikasi: tanpa token pun lolos sampai validasi.
     no_token = client.post(IMPORT_URL, params=PARAMS, json=BODY)
-    assert no_token.status_code == 401
+    assert no_token.status_code == 400

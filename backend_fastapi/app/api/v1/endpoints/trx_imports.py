@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Query
 
-from app.api.deps import CanImportProduksiJson, CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession
 from app.api.params import Bulan, Tahun, UploadedFile, read_upload
 from app.core.config import settings
 from app.core.exceptions import bad_request
@@ -199,7 +199,7 @@ def analyze_productions(db: DbSession, user: CurrentUser, file: UploadedFile):
 
 @production_router.post("/import-json", summary="Import Produksi TBS dari JSON (ganti per tahun, bulan & estate)",
                         description=_PROD_JSON_DOC)
-def import_productions_json(db: DbSession, user: CanImportProduksiJson, year: Tahun = None, month: Bulan = None,
+def import_productions_json(db: DbSession, year: Tahun = None, month: Bulan = None,
                             unit_code: UnitCodeParam = None, payload: TrxJsonImport = Body(openapi_examples={
     "lengkap": {"summary": "Seluruh 14 kolom", "value": {"sumber": "Engine", "data": [{
         "Year": 2026, "Month": 1, "UnitCode": "E005", "DivisionCode": "AFDI01", "KodeBlok": "C012",
@@ -213,7 +213,7 @@ def import_productions_json(db: DbSession, user: CanImportProduksiJson, year: Ta
                             "BjrAktual": 17.47}]}},
 })):
     scope = _production_scope(year, month, unit_code)
-    return trx_import_service.import_json(db, PRODUCTION, payload.data, payload.sumber, user.id, scope)
+    return trx_import_service.import_json(db, PRODUCTION, payload.data, payload.sumber, None, scope)
 
 
 @rotation_router.post("/import-rotasi-pusingan", summary="Import Rotasi & Pusingan dari Excel (upsert per blok & bulan)",

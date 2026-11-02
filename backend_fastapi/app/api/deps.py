@@ -86,6 +86,10 @@ def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(
     return _authenticate(db, token)
 
 
+# CATATAN (Nov 2026): POST /pokok-produksi/import-json kini tanpa autentikasi, sehingga token akun layanan
+# (user_or_service / CanImportProduksiJson, scope produksi_tbs:import) tidak dipakai endpoint mana pun lagi.
+# Fitur sengaja dibiarkan (model, endpoint user, kolom migrasi 006) agar mudah diaktifkan kembali:
+# cukup pasang lagi `user: CanImportProduksiJson` di endpoint tersebut.
 def user_or_service(scope: str):
     """Dependency: user login biasa, atau akun layanan yang tokennya memuat `scope`."""
     def dependency(db: Session = Depends(get_db),
