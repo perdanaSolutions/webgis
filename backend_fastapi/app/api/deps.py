@@ -103,7 +103,7 @@ async def get_current_user(db: Session = Depends(get_db), token: str | None = De
     return await _authenticate(db, token)
 
 
-def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
+async def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
     """
     Seperti get_current_user, tetapi sesi DB langsung ditutup setelah cek login. Untuk endpoint yang lama menunggu
     layanan luar (mis. ubin foto udara): dengan get_current_user koneksi pool tertahan sampai respons selesai,
@@ -112,7 +112,7 @@ def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> Use
     """
     db = SessionLocal()
     try:
-        return _authenticate(db, token)
+        return await _authenticate(db, token)
     finally:
         db.close()
 
