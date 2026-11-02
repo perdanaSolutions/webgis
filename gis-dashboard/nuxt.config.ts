@@ -21,6 +21,10 @@ export default defineNuxtConfig({
       apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL,
       apiBaseUrlPython: process.env.NUXT_PUBLIC_API_BASE_URL_PYTHON,
       tokenBaseMap: process.env.TOKEN_BASE_MAP || "",
+      // true di HTTPS publik — cookie auth tidak tersimpan lewat HTTP polos
+      authCookieSecure:
+        process.env.NUXT_PUBLIC_AUTH_COOKIE_SECURE === "true" ||
+        process.env.NUXT_PUBLIC_AUTH_COOKIE_SECURE === "1",
     },
   },
   // Dev proxy (opsional, via env): set NUXT_DEV_API_PROXY_TARGET=http://144.91.90.112:8083
