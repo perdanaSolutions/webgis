@@ -1,0 +1,134 @@
+# HAProxy sebagai LB path-based di cluster (on-prem / bare-metal).
+# Sticky OFF. Distribusi replica: Service ClusterIP (sessionAffinity: None) + HPA.
+# Cloud managed: boleh pakai 06-ingress.yaml sebagai alternatif — tetap tanpa affinity.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-cfg
+  namespace: webgis
+data:
+  haproxy.cfg: |
+    global
+        log stdout format raw local0
+        maxconn 4096
+
+    defaults
+        log     global
+        mode    http
+        option  httplog
+        option  dontlognull
+        option  forwardfor
+        option  redispatch
+        retries 3
+        timeout connect 5s
+        timeout client  300s
+        timeout server  300s
+        timeout http-request 15s
+        timeout check 5s
+
+    frontend stats
+        bind *:8404
+        mode http
+        stats enable
+        stats uri /stats
+        stats refresh 10s
+        stats admin if FALSE
+
+    frontend http_front
+        bind *:80
+        # Anti-spoof XFF (sama seperti infra/haproxy/haproxy.cfg)
+        http-request del-header X-Forwarded-For
+        http-request del-header X-Real-IP
+        http-request set-header X-Forwarded-Proto http
+        acl is_health path /health
+        acl is_api    path_beg /api
+        use_backend api_backends if is_health or is_api
+        default_backend fe_backends
+
+    backend api_backends
+        balance roundrobin
+        option httpchk GET /health
+        http-check expect status 200
+        # Ke Service — tanpa stick-table; pod di-scale oleh HPA
+        server api backend-fastapi.webgis.svc.cluster.local:8000 check inter 5s fall 3 rise 2
+
+    backend fe_backends
+        balance roundrobin
+        option httpchk GET /
+        http-check expect status 200-399
+        server fe gis-dashboard.webgis.svc.cluster.local:3000 check inter 5s fall 3 rise 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy
+  namespace: webgis
+spec:
+  replicas: 2  # [PERLU KONFIRMASI] HA LB sendiri
+  selector:
+    matchLabels:
+      app: haproxy
+  template:
+    metadata:
+      labels:
+        app: haproxy
+    spec:
+      containers:
+        - name: haproxy
+          image: haproxy:2.9-alpine
+          ports:
+            - name: http
+              containerPort: 80
+            - name: stats
+              containerPort: 8404
+          volumeMounts:
+            - name: cfg
+              mountPath: /usr/local/etc/haproxy
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+      volumes:
+        - name: cfg
+          configMap:
+            name: haproxy-cfg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy
+  namespace: webgis
+spec:
+  type: LoadBalancer  # atau NodePort di VPS tanpa cloud LB [PERLU KONFIRMASI]
+  sessionAffinity: None
+  selector:
+    app: haproxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    # stats TIDAK diekspos di LoadBalancer publik — pakai Service ClusterIP di bawah
+---
+# Stats hanya ClusterIP (port-forward / admin network). Jangan type LoadBalancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy-stats
+  namespace: webgis
+spec:
+  type: ClusterIP
+  selector:
+    app: haproxy
+  ports:
+    - name: stats
+      port: 8404
+      targetPort: stats

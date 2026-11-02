@@ -124,11 +124,8 @@ async function submitPassword() {
 
   try {
     await authStore.changePassword(passwordForm.password_lama, passwordForm.password_baru)
-    passwordSuccess.value = 'Password berhasil diperbarui.'
-    passwordForm.password_lama = ''
-    passwordForm.password_baru = ''
-    showOldPassword.value = false
-    showNewPassword.value = false
+    // Store sudah mengarahkan ke /login (semua sesi dicabut di Redis).
+    passwordSuccess.value = 'Password berhasil diperbarui. Silakan login ulang.'
   } catch {
     passwordError.value = authStore.errorMessage || 'Gagal memperbarui password.'
   }
@@ -304,9 +301,8 @@ const closeSidebar = () => {
 }
 
 const logout = async () => {
-  // contoh fungsi logout kamu
-  authStore.clearAuthData()
-  await navigateTo('/login')
+  // Cabut jti di Redis (POST /v1/auth/logout) lalu bersihkan cookie/storage lokal.
+  await authStore.logout()
 }
 
 // Opsional: Menutup dropdown jika user mengklik di luar area menu

@@ -11,6 +11,7 @@ os.environ["DB_NAME"] = os.environ.get("TEST_DB_NAME", "gis_db_v4_test")
 # Jangan menyentuh Redis sungguhan saat tes, kecuali TEST_REDIS=1.
 if os.environ.get("TEST_REDIS") != "1":
     os.environ["REDIS_MAP_ENABLED"] = "false"
+    os.environ["REDIS_AUTH_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

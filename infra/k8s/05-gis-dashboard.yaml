@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gis-dashboard
+  namespace: webgis
+spec:
+  replicas: 2  # [PERLU KONFIRMASI]
+  selector:
+    matchLabels:
+      app: gis-dashboard
+  template:
+    metadata:
+      labels:
+        app: gis-dashboard
+    spec:
+      containers:
+        - name: nuxt
+          image: webgis-dashboard:TAG  # [PERLU KONFIRMASI]
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: production
+            # NUXT_API_BASE_URL_PYTHON_SERVER → URL publik /api [PERLU KONFIRMASI]
+          envFrom:
+            - secretRef:
+                name: gis-dashboard-env
+                optional: true
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # httpGet path FE resmi: [PERLU KONFIRMASI]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gis-dashboard
+  namespace: webgis
+spec:
+  selector:
+    app: gis-dashboard
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

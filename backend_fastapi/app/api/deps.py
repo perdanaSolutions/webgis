@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import SCOPE_PRODUKSI_IMPORT, SERVICE_TOKEN_TYPE
 from app.core.database import SessionLocal
+from app.core.auth_session import AuthSessionRevoked, AuthSessionUnavailable, assert_session
 from app.db.session import set_audit_actor
 from app.models.auth import User, Permission, Role
 
@@ -32,6 +33,15 @@ def _unauthorized(msg: str) -> HTTPException:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+
+def _auth_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={"errors": [{"type": "auth_unavailable", "field": "auth",
+                            "msg": "Layanan autentikasi sementara tidak tersedia", "input": None}]},
+    )
+
+
 def get_db() -> Generator:
     try:
         db = SessionLocal()
@@ -39,16 +49,17 @@ def get_db() -> Generator:
     finally:
         db.close()
 
-def _authenticate(db: Session, token: str | None, scope: str | None = None) -> User:
+
+async def _authenticate(db: Session, token: str | None, scope: str | None = None) -> User:
     """
-    Token biasa -> user login. Token layanan (typ=service) hanya diterima endpoint yang meminta `scope`
+    Token biasa -> user login (+ cek sesi Redis jti bila REDIS_AUTH_ENABLED).
+    Token layanan (typ=service) hanya diterima endpoint yang meminta `scope`
     yang ada di token, dan hanya selama akunnya aktif serta versi tokennya masih yang terbaru.
     """
     if not token:
         raise _unauthorized("Tidak terautentikasi")
     credentials_exception = _unauthorized("Token tidak valid atau telah kedaluwarsa")
     try:
-        # Dekode token JWT menggunakan SECRET_KEY kita
         payload = decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -64,7 +75,6 @@ def _authenticate(db: Session, token: str | None, scope: str | None = None) -> U
                                 "msg": "Token layanan tidak berlaku untuk endpoint ini"}]},
         )
 
-    # Cari user di database
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
@@ -75,15 +85,22 @@ def _authenticate(db: Session, token: str | None, scope: str | None = None) -> U
             raise _unauthorized("Token layanan sudah dicabut atau diganti")
     elif user.is_service_account:
         raise credentials_exception  # akun layanan hanya boleh memakai token layanan
+    else:
+        # User JWT: registry Redis memastikan logout/revoke konsisten di semua instance.
+        try:
+            await assert_session(payload.get("jti"))
+        except AuthSessionRevoked:
+            raise credentials_exception
+        except AuthSessionUnavailable:
+            raise _auth_unavailable()
 
-    # Trigger audit membaca pelaku dari setting app.user_id (lihat app/db/session.py)
     set_audit_actor(db, user.id)
     return user
 
 
-def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
+async def get_current_user(db: Session = Depends(get_db), token: str | None = Depends(oauth2_scheme)) -> User:
     """Dependency untuk mengambil data user yang sedang login berdasarkan JWT Token"""
-    return _authenticate(db, token)
+    return await _authenticate(db, token)
 
 
 def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
@@ -106,9 +123,9 @@ def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> Use
 # cukup pasang lagi `user: CanImportProduksiJson` di endpoint tersebut.
 def user_or_service(scope: str):
     """Dependency: user login biasa, atau akun layanan yang tokennya memuat `scope`."""
-    def dependency(db: Session = Depends(get_db),
+    async def dependency(db: Session = Depends(get_db),
                    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> User:
-        return _authenticate(db, credentials.credentials if credentials else None, scope)
+        return await _authenticate(db, credentials.credentials if credentials else None, scope)
     return dependency
 
 
@@ -129,7 +146,7 @@ class PermissionChecker:
         # Contoh required_permission: "blok:read" atau "produksi:write"
         self.required_permission = required_permission
 
-    def __call__(self, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+    async def __call__(self, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
         if not user_has_permission(db, current_user, self.required_permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

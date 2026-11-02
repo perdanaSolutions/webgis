@@ -1,8 +1,14 @@
-"""Alamat IP klien untuk kolom audit.user_activities.ip_address (tipe inet)."""
+"""Alamat IP klien untuk kolom audit.user_activities.ip_address (tipe inet).
+
+Di belakang HAProxy: percaya X-Forwarded-For / X-Real-IP hanya jika peer TCP
+masuk TRUSTED_PROXY_CIDRS. Jika kosong → abaikan header (anti-spoof).
+"""
 import ipaddress
 from contextvars import ContextVar
 
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from app.core.config import settings
 
 _client_ip: ContextVar[str | None] = ContextVar("client_ip", default=None)
 _FALLBACK = "127.0.0.1"
@@ -42,25 +48,61 @@ def _header(scope: Scope, name: str) -> str | None:
     return None
 
 
-def resolve_client_ip(client_host: str | None, forwarded_for: str | None, real_ip: str | None) -> str:
+def _peer_is_trusted(peer: str | None) -> bool:
+    """True hanya jika peer ada dan masuk salah satu CIDR TRUSTED_PROXY_CIDRS."""
+    cidrs = settings.TRUSTED_PROXY_CIDR_LIST
+    if not cidrs or not peer:
+        return False
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for net in cidrs:
+        try:
+            if addr in ipaddress.ip_network(net, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def resolve_client_ip(
+    client_host: str | None,
+    forwarded_for: str | None,
+    real_ip: str | None,
+    *,
+    trust_forwarded: bool | None = None,
+) -> str:
+    """
+    peer TCP = sumber kebenaran bila tidak trust proxy.
+    Bila trust_forwarded: ambil hop kiri-paling-kanan yang routable dari XFF
+    (HAProxy sudah strip spoof + tulis ulang XFF = client asli).
+    """
     peer = _parse_ip(client_host)
-    if peer and _is_routable(peer):
-        return peer
+    if trust_forwarded is None:
+        use_fwd = _peer_is_trusted(peer)
+    else:
+        use_fwd = bool(trust_forwarded)
 
-    for part in (forwarded_for or "").split(","):
-        parsed = _parse_ip(part)
-        if parsed and _is_routable(parsed):
-            return parsed
+    if use_fwd:
+        # Setelah HAProxy del-header + forwardfor, XFF biasanya satu IP klien
+        for part in (forwarded_for or "").split(","):
+            parsed = _parse_ip(part)
+            if parsed and _is_routable(parsed):
+                return parsed
+        real = _parse_ip(real_ip)
+        if real and _is_routable(real):
+            return real
+        for part in (forwarded_for or "").split(","):
+            parsed = _parse_ip(part)
+            if parsed:
+                return parsed
+        if real:
+            return real
 
-    real = _parse_ip(real_ip)
-    if real and _is_routable(real):
-        return real
     if peer:
         return peer
-    if real:
-        return real
-    forwarded = _parse_ip((forwarded_for or "").split(",")[0])
-    return forwarded or _FALLBACK
+    return _FALLBACK
 
 
 class ClientIpMiddleware:

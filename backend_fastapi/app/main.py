@@ -158,7 +158,22 @@ async def maintenance_status():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Probe LB/HPA: proses hidup. Tidak memanggil Redis/DB (hindari flapping).
+
+    Field `instance` = hostname container/pod — dipakai QA membuktikan round-robin
+    tanpa sticky (banyak nilai unik lewat HAProxy).
+    """
+    import os
+    import socket
+
+    from app.core import redis_client
+
+    return {
+        "status": "ok",
+        "auth": "stateless",
+        "redis_auth": "enabled" if redis_client.auth_enabled() else "disabled",
+        "instance": os.environ.get("HOSTNAME") or socket.gethostname(),
+    }
 
 
 @app.get("/")

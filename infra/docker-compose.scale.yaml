@@ -1,0 +1,134 @@
+# WEBGIS — horizontal scale + HAProxy (sticky OFF)
+# Secret: isi via env_file lokal / secret manager — JANGAN commit .env
+#
+# Jalankan dari root repo ATAU folder infra (context build relatif ke file ini):
+#   docker compose -f infra/docker-compose.scale.yaml up -d --build \
+#     --scale backend_fastapi=3 --scale gis-dashboard=2
+#
+# Wajib sama di setiap replica API: SECRET_KEY, REDIS_URL, REDIS_AUTH_ENABLED
+# Lihat: env.scale.example + backend_fastapi/.env.example
+
+name: webgis-scale
+
+networks:
+  webgis:
+    driver: bridge
+
+volumes:
+  redis_data:
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [webgis]
+    # Wajib: set REDIS_PASSWORD di shell/env file Compose (bukan di git).
+    # Tanpa password, lateral movement di bridge = hijack/revoke jti.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD before up}
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # Jangan publish 6379 ke internet di production
+    # ports: ["127.0.0.1:6379:6379"]
+
+  backend_fastapi:
+    build:
+      context: ../backend_fastapi
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [webgis]
+    env_file:
+      - path: ../backend_fastapi/.env
+        required: false
+    environment:
+      HTTP_HOST: "0.0.0.0"
+      HTTP_PORT: "8000"
+      # Override URL internal Compose — password dari REDIS_PASSWORD (sama dengan service redis)
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      REDIS_AUTH_ENABLED: "true"
+      REDIS_AUTH_TTL_SECONDS: "0"
+      # Di belakang HAProxy: percaya XFF hanya dari peer jaringan Docker [PERLU KONFIRMASI CIDR]
+      TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      # mTLS di belakang HAProxy biasanya OFF untuk HTTP internal [PERLU KONFIRMASI]
+      MTLS_ENABLED: "false"
+    expose:
+      - "8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  upload_worker:
+    build:
+      context: ../backend_fastapi
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [webgis]
+    env_file:
+      - path: ../backend_fastapi/.env
+        required: false
+    environment:
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      REDIS_AUTH_ENABLED: "true"
+      MTLS_ENABLED: "false"
+    command: ["python", "-m", "app.workers.upload_jobs"]
+    stop_grace_period: 10m
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend_fastapi:
+        condition: service_started
+    # Bukan di pool HAProxy — skala terpisah (--scale upload_worker=N)
+
+  gis-dashboard:
+    build:
+      context: ../gis-dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [webgis]
+    env_file:
+      - path: ../gis-dashboard/.env
+        required: false
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      NODE_ENV: production
+      # Browser → HAProxy publik; SSR server-side ke API internal via LB
+      # NUXT_PUBLIC_API_BASE_URL_PYTHON=/api  (atau URL absolut publik) [PERLU KONFIRMASI]
+      # NUXT_API_BASE_URL_PYTHON_SERVER=http://haproxy/api
+    expose:
+      - "3000"
+    depends_on:
+      - backend_fastapi
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    restart: unless-stopped
+    networks: [webgis]
+    ports:
+      - "8080:80"           # HTTP masuk (TLS di depan/di HAProxy: [PERLU KONFIRMASI])
+      - "127.0.0.1:8404:8404"  # stats hanya localhost
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - backend_fastapi
+      - gis-dashboard
+    # Setelah --scale, HAProxy rediscover via Docker DNS (server-template)
+    # Reload bila perlu: docker compose -f infra/docker-compose.scale.yaml kill -s HUP haproxy

@@ -1,5 +1,6 @@
 import type { NuxtApp } from "#app";
 import { AUTH_COOKIE_NAMES, clearBrowserAuthStorage } from "./sessionReset";
+import { revokeAuthSession } from "./revokeAuthSession";
 
 /**
  * Hapus seluruh sesi login saat user benar-benar berada di /maintenance.
@@ -18,11 +19,12 @@ export async function clearLoginSession(nuxtApp?: NuxtApp) {
 
     if (token.value && base) {
       // Best-effort: saat maintenance backend biasanya 503; abaikan semua error.
-      void $fetch(`${base}/v1/auth/logout`, {
-        method: "POST",
-        timeout: 3000,
-        headers: { Authorization: `${tokenType.value ?? "bearer"} ${token.value}`, accept: "application/json" },
-      }).catch(() => {});
+      await revokeAuthSession({
+        baseUrl: base,
+        token: token.value,
+        tokenType: tokenType.value,
+        timeoutMs: 3000,
+      });
     }
 
     try {

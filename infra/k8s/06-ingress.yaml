@@ -1,0 +1,42 @@
+# Alternatif cloud Ingress. LB utama on-prem/VPS: 08-haproxy.yaml.
+# Sticky annotation TIDAK dipakai (JWT + Redis jti).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: webgis
+  namespace: webgis
+  annotations:
+    # kubernetes.io/ingress.class: nginx  # [PERLU KONFIRMASI]
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # JANGAN: nginx.ingress.kubernetes.io/affinity: cookie
+spec:
+  # tls:
+  #   - hosts: [gis.example.invalid]
+  #     secretName: webgis-tls
+  rules:
+    - host: gis.example.invalid  # [PERLU KONFIRMASI]
+      http:
+        paths:
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend-fastapi
+                port:
+                  number: 8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-fastapi
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gis-dashboard
+                port:
+                  number: 3000

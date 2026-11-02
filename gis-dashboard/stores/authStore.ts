@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { AUTH_USER_STORAGE_KEY, SESSION_MAX_AGE_SECONDS, isAccessTokenExpired } from "~/utils/authSession";
 import { getErrorMessage } from "~/utils/getErrorMessage";
+import { revokeAuthSession } from "~/utils/revokeAuthSession";
+import { clearBrowserAuthStorage } from "~/utils/sessionReset";
 
 type AksesData = {
   kode_area?: string | null;
@@ -92,12 +94,19 @@ function getApiBaseUrl() {
   return config.public.apiBaseUrlPython;
 }
 
-/** Tanpa Secure, cookie sesi tersimpan di HTTP maupun HTTPS. */
+/** Produksi HTTPS: set NUXT_PUBLIC_AUTH_COOKIE_SECURE=true (blocker go-live bila HTTP publik). */
 export function authCookieOptions() {
+  let secure = false;
+  try {
+    const config = useRuntimeConfig();
+    secure = Boolean(config.public.authCookieSecure);
+  } catch {
+    secure = false;
+  }
   return {
     path: "/",
     sameSite: "lax" as const,
-    secure: false,
+    secure,
     maxAge: SESSION_MAX_AGE_SECONDS,
   };
 }
@@ -284,6 +293,30 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  async function wipeLocalSession() {
+    clearAuthData();
+    if (!import.meta.client) return;
+    await clearBrowserAuthStorage({
+      localStorage: window.localStorage,
+      sessionStorage: window.sessionStorage,
+      caches: typeof caches === "undefined" ? null : caches,
+    });
+  }
+
+  /**
+   * Cabut jti di Redis lewat POST /v1/auth/logout (best-effort), lalu hapus token lokal.
+   * Tidak mengandalkan sticky session — revoke berlaku di semua replica di belakang HAProxy.
+   */
+  async function revokeCurrentSession() {
+    const currentToken = token.value;
+    if (!currentToken || isAccessTokenExpired(currentToken)) return false;
+    return revokeAuthSession({
+      baseUrl: getApiBaseUrl(),
+      token: currentToken,
+      tokenType: tokenType.value,
+    });
+  }
+
   async function changePassword(passwordLama: string, passwordBaru: string) {
     loading.value = true;
     errorMessage.value = "";
@@ -304,6 +337,9 @@ export const useAuthStore = defineStore("auth", () => {
           },
         },
       );
+      // Backend mencabut semua jti user — token lokal tidak lagi valid di node mana pun.
+      await wipeLocalSession();
+      await navigateTo("/login");
       return response;
     } catch (error: any) {
       errorMessage.value = getErrorMessage(
@@ -316,8 +352,13 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
-  async function logout() {
-    clearAuthData();
+  async function logout(options?: { revoke?: boolean; redirect?: boolean }) {
+    const shouldRevoke = options?.revoke !== false;
+    if (shouldRevoke) {
+      await revokeCurrentSession();
+    }
+    await wipeLocalSession();
+    if (options?.redirect === false) return;
     await navigateTo("/login");
   }
 
@@ -334,6 +375,8 @@ export const useAuthStore = defineStore("auth", () => {
     validateToken,
     logout,
     clearAuthData,
+    wipeLocalSession,
+    revokeCurrentSession,
     hydrateUser,
     hasStoredFullProfile,
     ensureSession,

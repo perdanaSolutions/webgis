@@ -1,0 +1,253 @@
+"""Sesi JWT Redis (ADR-001): login menulis jti, logout/password mencabut di semua 'instance'."""
+import asyncio
+import uuid
+
+import pytest
+from jwt import decode
+
+from app.core import redis_client
+from app.core.auth_session import (
+    AuthSessionRevoked,
+    assert_session,
+    create_session,
+    new_jti,
+    revoke_jti,
+    revoke_user,
+)
+from app.core.config import settings
+from app.core.redis_client import set_client_override
+from app.core.security import create_access_token
+
+
+def _bearer_with_session(user_id: str) -> dict:
+    """Token uji yang juga terdaftar di Redis (wajib saat REDIS_AUTH_ENABLED)."""
+    jti = new_jti()
+    token = create_access_token(user_id, jti=jti)
+    asyncio.run(create_session(jti, str(user_id)))
+    return {"Authorization": f"Bearer {token}"}
+
+
+class FakeAuthRedis:
+    """Subset perintah Redis yang dipakai auth_session (decode_responses=False)."""
+
+    def __init__(self):
+        self.hashes: dict[str, dict[bytes, bytes]] = {}
+        self.strings: dict[str, bytes] = {}
+        self.sets: dict[str, set[bytes]] = {}
+        self.ttls: dict[str, int] = {}
+
+    def _k(self, key) -> str:
+        return key.decode() if isinstance(key, bytes) else str(key)
+
+    async def hset(self, key, mapping=None, **_kwargs):
+        k = self._k(key)
+        bucket = self.hashes.setdefault(k, {})
+        for field, value in (mapping or {}).items():
+            f = field if isinstance(field, bytes) else str(field).encode()
+            v = value if isinstance(value, bytes) else str(value).encode()
+            bucket[f] = v
+        return len(mapping or {})
+
+    async def hget(self, key, field):
+        bucket = self.hashes.get(self._k(key), {})
+        f = field if isinstance(field, bytes) else str(field).encode()
+        return bucket.get(f)
+
+    async def exists(self, *keys):
+        n = 0
+        for key in keys:
+            k = self._k(key)
+            if k in self.hashes or k in self.strings or k in self.sets:
+                n += 1
+        return n
+
+    async def delete(self, *keys):
+        n = 0
+        for key in keys:
+            k = self._k(key)
+            existed = False
+            if k in self.hashes:
+                del self.hashes[k]
+                existed = True
+            if k in self.strings:
+                del self.strings[k]
+                existed = True
+            if k in self.sets:
+                del self.sets[k]
+                existed = True
+            self.ttls.pop(k, None)
+            if existed:
+                n += 1
+        return n
+
+    async def set(self, key, value, ex=None):
+        k = self._k(key)
+        self.strings[k] = value if isinstance(value, bytes) else str(value).encode()
+        if ex is not None:
+            self.ttls[k] = int(ex)
+        return True
+
+    async def get(self, key):
+        return self.strings.get(self._k(key))
+
+    async def sadd(self, key, *members):
+        k = self._k(key)
+        bucket = self.sets.setdefault(k, set())
+        before = len(bucket)
+        for m in members:
+            bucket.add(m if isinstance(m, bytes) else str(m).encode())
+        return len(bucket) - before
+
+    async def srem(self, key, *members):
+        k = self._k(key)
+        bucket = self.sets.get(k)
+        if not bucket:
+            return 0
+        n = 0
+        for m in members:
+            raw = m if isinstance(m, bytes) else str(m).encode()
+            if raw in bucket:
+                bucket.discard(raw)
+                n += 1
+        return n
+
+    async def smembers(self, key):
+        return set(self.sets.get(self._k(key), set()))
+
+    async def expire(self, key, ttl):
+        self.ttls[self._k(key)] = int(ttl)
+        return True
+
+    async def ttl(self, key):
+        return self.ttls.get(self._k(key), -2)
+
+    async def ping(self):
+        return True
+
+    async def aclose(self):
+        return None
+
+
+@pytest.fixture
+def auth_redis(monkeypatch):
+    fake = FakeAuthRedis()
+    monkeypatch.setattr(settings, "REDIS_AUTH_ENABLED", True)
+    monkeypatch.setattr(settings, "REDIS_URL", "redis://127.0.0.1:6379/0")
+    set_client_override(fake)
+    yield fake
+    set_client_override(None)
+
+
+def test_create_assert_revoke_jti(auth_redis):
+    async def _run():
+        jti = "jti-one"
+        uid = str(uuid.uuid4())
+        await create_session(jti, uid, ttl=120)
+        assert await auth_redis.exists(f"gis:auth:sess:{jti}") == 1
+        await assert_session(jti)
+        await revoke_jti(jti, user_id=uid)
+        with pytest.raises(AuthSessionRevoked):
+            await assert_session(jti)
+        assert await auth_redis.exists(f"gis:auth:deny:{jti}") == 1
+
+    asyncio.run(_run())
+
+
+def test_revoke_user_all_jti(auth_redis):
+    async def _run():
+        uid = str(uuid.uuid4())
+        await create_session("a", uid, ttl=60)
+        await create_session("b", uid, ttl=60)
+        await revoke_user(uid)
+        with pytest.raises(AuthSessionRevoked):
+            await assert_session("a")
+        with pytest.raises(AuthSessionRevoked):
+            await assert_session("b")
+
+    asyncio.run(_run())
+
+
+def test_access_token_contains_jti():
+    token = create_access_token("user-1", jti="fixed-jti")
+    payload = decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert payload["jti"] == "fixed-jti"
+    assert payload["sub"] == "user-1"
+    assert "iat" in payload
+
+
+def test_logout_revokes_token_across_requests(client, superadmin_id, auth_redis):
+    """Simulasi multi-instance: registry Redis bersama; setelah logout token ditolak."""
+    admin = _bearer_with_session(superadmin_id)
+    roles = client.get("/api/v1/roles/", headers=admin).json()
+    viewer = next(r for r in roles if r["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    payload = {
+        "username": f"sess_{suffix}",
+        "email": f"sess_{suffix}@example.com",
+        "nama_lengkap": "Sesi Redis",
+        "role_ids": [viewer["id"]],
+        "password": "rahasia123",
+    }
+    assert client.post("/api/v1/users/", headers=admin, json=payload).status_code == 201
+
+    login = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"})
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    claims = decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert claims.get("jti")
+    assert f"gis:auth:sess:{claims['jti']}" in auth_redis.hashes
+
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+    assert client.post("/api/v1/auth/logout", headers=headers).status_code == 200
+    # Request berikutnya (instance mana pun yang baca Redis yang sama) harus 401
+    denied = client.get("/api/v1/auth/me", headers=headers)
+    assert denied.status_code == 401
+    assert denied.json()["errors"][0]["field"] == "auth"
+
+
+def test_password_change_revokes_all_sessions(client, superadmin_id, auth_redis):
+    admin = _bearer_with_session(superadmin_id)
+    roles = client.get("/api/v1/roles/", headers=admin).json()
+    viewer = next(r for r in roles if r["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    payload = {
+        "username": f"pwd2_{suffix}",
+        "email": f"pwd2_{suffix}@example.com",
+        "nama_lengkap": "Revoke Password",
+        "role_ids": [viewer["id"]],
+        "password": "rahasia123",
+    }
+    assert client.post("/api/v1/users/", headers=admin, json=payload).status_code == 201
+
+    t1 = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"}).json()["access_token"]
+    t2 = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"}).json()["access_token"]
+    h1 = {"Authorization": f"Bearer {t1}"}
+    h2 = {"Authorization": f"Bearer {t2}"}
+
+    assert client.put(
+        "/api/v1/auth/me/password",
+        headers=h1,
+        json={"password_lama": "rahasia123", "password_baru": "baru12345"},
+    ).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=h1).status_code == 401
+    assert client.get("/api/v1/auth/me", headers=h2).status_code == 401
+
+
+def test_health_reports_redis_auth_flag(client, monkeypatch):
+    monkeypatch.setattr(settings, "REDIS_AUTH_ENABLED", False)
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["auth"] == "stateless"
+    assert body["redis_auth"] == "disabled"
+
+    monkeypatch.setattr(settings, "REDIS_AUTH_ENABLED", True)
+    monkeypatch.setattr(settings, "REDIS_URL", "redis://127.0.0.1:6379/0")
+    assert redis_client.auth_enabled() is True
+    assert client.get("/health").json()["redis_auth"] == "enabled"
+
+
+def test_token_without_session_rejected_when_auth_on(client, auth_redis, superadmin_id):
+    """Token dibuat tanpa create_session (mis. skrip) ditolak bila REDIS_AUTH_ENABLED."""
+    headers = {"Authorization": f"Bearer {create_access_token(superadmin_id)}"}
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
