@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
 import {
+  budgetReached,
   compactTon,
   pctOf,
   periodTitle,
@@ -43,6 +44,12 @@ const tipPos = ref({ left: 0, top: 0, width: 280 });
 
 function rowId(section: Section, item: ProductionGroupItem) {
   return `${section.key}:${item.kode ?? item.nama}`;
+}
+
+function rowLabel(item: ProductionGroupItem) {
+  const reached = budgetReached(item);
+  const status = reached === null ? "tanpa budget" : reached ? "budget tercapai" : "budget belum tercapai";
+  return `${item.nama}: aktual ${compactTon(item.aktual_ton)} ton, budget ${compactTon(item.budget_ton)} ton, ${status}`;
 }
 
 /**
@@ -110,8 +117,8 @@ onBeforeUnmount(() => {
       <p v-if="title" class="text-12 text-[#55604c]">{{ title }}</p>
       <ul class="pg-legend" aria-label="Keterangan grafik">
         <li><span class="pg-key pg-key--bar" aria-hidden="true" />Aktual</li>
-        <li><span class="pg-key pg-key--budget" aria-hidden="true" />Budget</li>
-        <li><span class="pg-key pg-key--lalu" aria-hidden="true" />Aktual tahun lalu</li>
+        <li><span class="pg-key pg-key--reached" aria-hidden="true" />Budget tercapai</li>
+        <li><span class="pg-key pg-key--missed" aria-hidden="true" />Budget belum tercapai</li>
       </ul>
     </div>
 
@@ -124,7 +131,7 @@ onBeforeUnmount(() => {
       <div :class="section.scroll && 'pg-scroll'">
         <button v-for="item in section.items" :key="rowId(section, item)" type="button" class="pg-row"
           :class="active?.id === rowId(section, item) && 'is-active'"
-          :aria-label="`${item.nama}: aktual ${compactTon(item.aktual_ton)} ton, budget ${compactTon(item.budget_ton)} ton`"
+          :aria-label="rowLabel(item)"
           :aria-expanded="active?.id === rowId(section, item)"
           @mouseenter="show(section, item, $event)" @mouseleave="hide(section, item)"
           @focus="show(section, item, $event)" @blur="hide(section, item)"
@@ -132,9 +139,8 @@ onBeforeUnmount(() => {
           <span class="pg-label" :title="item.nama_lengkap || item.nama">{{ item.nama }}</span>
           <span class="pg-track">
             <span class="pg-bar" :style="{ width: `${pctOf(item.aktual_ton, scaleMax(section.items))}%` }" />
-            <span v-if="item.aktual_tahun_lalu_ton > 0" class="pg-tick pg-tick--lalu"
-              :style="{ left: `${pctOf(item.aktual_tahun_lalu_ton, scaleMax(section.items))}%` }" />
-            <span v-if="item.budget_ton > 0" class="pg-tick pg-tick--budget"
+            <span v-if="budgetReached(item) !== null" class="pg-tick"
+              :class="budgetReached(item) ? 'pg-tick--reached' : 'pg-tick--missed'"
               :style="{ left: `${pctOf(item.budget_ton, scaleMax(section.items))}%` }" />
           </span>
           <span class="pg-value">{{ compactTon(item.aktual_ton) }}</span>
@@ -182,17 +188,17 @@ onBeforeUnmount(() => {
   border-radius: 2px;
   background: #3a9a45;
 }
-.pg-key--budget,
-.pg-key--lalu {
+.pg-key--reached,
+.pg-key--missed {
   width: 3px;
   height: 12px;
   border-radius: 1px;
 }
-.pg-key--budget {
-  background: #c62828;
-}
-.pg-key--lalu {
+.pg-key--reached {
   background: #e3b505;
+}
+.pg-key--missed {
+  background: #c62828;
 }
 .pg-scroll {
   max-height: 340px;
@@ -242,11 +248,11 @@ onBeforeUnmount(() => {
   border-radius: 1px;
   box-shadow: 0 0 0 1px #fff;
 }
-.pg-tick--budget {
-  background: #c62828;
-}
-.pg-tick--lalu {
+.pg-tick--reached {
   background: #e3b505;
+}
+.pg-tick--missed {
+  background: #c62828;
 }
 .pg-value {
   text-align: right;
