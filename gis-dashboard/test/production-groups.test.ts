@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  budgetReached,
   monthLabel,
   pctOf,
   periodTitle,
@@ -27,12 +28,21 @@ describe("productionGroups", () => {
     expect(periodTitle(null)).toBe("");
   });
 
-  it("skala memakai nilai terbesar dari aktual, budget, dan tahun lalu", () => {
+  it("skala hanya memakai aktual dan budget (tahun lalu tidak digambar)", () => {
     expect(scaleMax([item])).toBe(276647);
+    expect(scaleMax([{ ...item, aktual_tahun_lalu_ton: 900000 }])).toBe(276647);
     expect(scaleMax([])).toBe(1);
     expect(pctOf(138323.5, 276647)).toBeCloseTo(50);
     expect(pctOf(-5, 100)).toBe(0);
     expect(pctOf(500, 100)).toBe(100);
+  });
+
+  it("garis budget kuning bila tercapai, merah bila belum, tanpa garis bila budget kosong", () => {
+    expect(budgetReached(item)).toBe(false);
+    expect(budgetReached({ ...item, aktual_ton: 276647 })).toBe(true);
+    expect(budgetReached({ ...item, aktual_ton: 300000 })).toBe(true);
+    expect(budgetReached({ ...item, aktual_ton: 276646.6 })).toBe(false);
+    expect(budgetReached({ ...item, budget_ton: 0 })).toBeNull();
   });
 
   it("tooltip mengikuti urutan referensi dan memberi warna selisih", () => {

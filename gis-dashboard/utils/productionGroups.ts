@@ -1,6 +1,7 @@
 /**
  * Grafik Produksi TBS per Grup / Area / Estate (GET /spatial/produksi/grafik-grup).
- * Bar = aktual (ton); penanda merah = budget; penanda kuning = aktual tahun lalu (bulan yang sama).
+ * Bar hijau = aktual (ton); garis = budget: kuning bila aktual sudah mencapai/melewati budget, merah bila belum.
+ * Aktual tahun lalu hanya di tooltip.
  */
 import { formatDecimalId } from "./numberFormat";
 
@@ -57,9 +58,18 @@ export function periodTitle(periode: ProductionGroupPeriod | null | undefined): 
   return `Year to Date ${start} s/d ${end}`;
 }
 
-/** Nilai terbesar (aktual, budget, tahun lalu) sebagai batas skala; minimal 1 agar tidak membagi nol. */
+/** Nilai terbesar (aktual, budget) sebagai batas skala; minimal 1 agar tidak membagi nol. */
 export function scaleMax(items: ProductionGroupItem[]): number {
-  return Math.max(1, ...items.flatMap((i) => [i.aktual_ton, i.budget_ton, i.aktual_tahun_lalu_ton].map((v) => (Number.isFinite(v) ? v : 0))));
+  return Math.max(1, ...items.flatMap((i) => [i.aktual_ton, i.budget_ton].map((v) => (Number.isFinite(v) ? v : 0))));
+}
+
+/**
+ * Status garis budget: true = aktual sudah mencapai/melewati budget (garis kuning), false = belum (garis merah),
+ * null = tidak ada budget (tanpa garis). Dibandingkan dengan angka asli, bukan yang dibulatkan.
+ */
+export function budgetReached(item: ProductionGroupItem): boolean | null {
+  if (!Number.isFinite(item.budget_ton) || item.budget_ton <= 0) return null;
+  return (Number.isFinite(item.aktual_ton) ? item.aktual_ton : 0) >= item.budget_ton;
 }
 
 /** Posisi persen 0–100 pada skala. */
