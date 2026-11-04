@@ -1,5 +1,8 @@
+import threading
+import time
 from typing import Annotated, Generator
 from fastapi import Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from jwt import decode, PyJWTError
 from sqlalchemy.orm import Session
@@ -50,12 +53,8 @@ def get_db() -> Generator:
         db.close()
 
 
-async def _authenticate(db: Session, token: str | None, scope: str | None = None) -> User:
-    """
-    Token biasa -> user login (+ cek sesi Redis jti bila REDIS_AUTH_ENABLED).
-    Token layanan (typ=service) hanya diterima endpoint yang meminta `scope`
-    yang ada di token, dan hanya selama akunnya aktif serta versi tokennya masih yang terbaru.
-    """
+def _decode_token(token: str | None, scope: str | None) -> tuple[dict, bool]:
+    """Validasi JWT (tanpa I/O). Kembalikan (payload, is_service_token)."""
     if not token:
         raise _unauthorized("Tidak terautentikasi")
     credentials_exception = _unauthorized("Token tidak valid atau telah kedaluwarsa")
@@ -74,8 +73,16 @@ async def _authenticate(db: Session, token: str | None, scope: str | None = None
             detail={"errors": [{"type": "forbidden", "field": "auth", "input": None,
                                 "msg": "Token layanan tidak berlaku untuk endpoint ini"}]},
         )
+    return payload, is_service_token
 
-    user = db.query(User).filter(User.id == user_id).first()
+
+def _load_user(db: Session, payload: dict, is_service_token: bool, set_actor: bool = True) -> User:
+    """
+    Bagian cek login yang memakai DB. SINKRON: selalu panggil lewat run_in_threadpool dari kode async.
+    Query sinkron di event loop membekukan seluruh proses selama menunggu DB (insiden 4 Nov 2026: PgBouncer
+    penuh -> query menunggu sampai 120 dtk -> /health tidak terjawab -> HAProxy menandai semua replika DOWN).
+    """
+    user = db.query(User).filter(User.id == payload.get("sub")).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
     if not user.is_active:
@@ -84,17 +91,32 @@ async def _authenticate(db: Session, token: str | None, scope: str | None = None
         if not user.is_service_account or payload.get("tv") != user.token_version:
             raise _unauthorized("Token layanan sudah dicabut atau diganti")
     elif user.is_service_account:
-        raise credentials_exception  # akun layanan hanya boleh memakai token layanan
-    else:
-        # User JWT: registry Redis memastikan logout/revoke konsisten di semua instance.
-        try:
-            await assert_session(payload.get("jti"))
-        except AuthSessionRevoked:
-            raise credentials_exception
-        except AuthSessionUnavailable:
-            raise _auth_unavailable()
+        raise _unauthorized("Token tidak valid atau telah kedaluwarsa")  # akun layanan hanya boleh token layanan
+    if set_actor:
+        set_audit_actor(db, user.id)
+    return user
 
-    set_audit_actor(db, user.id)
+
+async def _check_session(payload: dict) -> None:
+    """User JWT: registry Redis memastikan logout/revoke konsisten di semua instance."""
+    try:
+        await assert_session(payload.get("jti"))
+    except AuthSessionRevoked:
+        raise _unauthorized("Token tidak valid atau telah kedaluwarsa")
+    except AuthSessionUnavailable:
+        raise _auth_unavailable()
+
+
+async def _authenticate(db: Session, token: str | None, scope: str | None = None) -> User:
+    """
+    Token biasa -> user login (+ cek sesi Redis jti bila REDIS_AUTH_ENABLED).
+    Token layanan (typ=service) hanya diterima endpoint yang meminta `scope`
+    yang ada di token, dan hanya selama akunnya aktif serta versi tokennya masih yang terbaru.
+    """
+    payload, is_service_token = _decode_token(token, scope)
+    user = await run_in_threadpool(_load_user, db, payload, is_service_token)
+    if not is_service_token:
+        await _check_session(payload)
     return user
 
 
@@ -103,18 +125,55 @@ async def get_current_user(db: Session = Depends(get_db), token: str | None = De
     return await _authenticate(db, token)
 
 
-async def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
-    """
-    Seperti get_current_user, tetapi sesi DB langsung ditutup setelah cek login. Untuk endpoint yang lama menunggu
-    layanan luar (mis. ubin foto udara): dengan get_current_user koneksi pool tertahan sampai respons selesai,
-    sehingga puluhan ubin serentak menghabiskan pool dan API lain ikut mengantre. User yang dikembalikan sudah
-    terlepas dari sesi (jangan memuat relasi lazy darinya).
-    """
+# Cache user per proses untuk get_current_user_released: {user_id: (kedaluwarsa_monotonic, User terlepas)}.
+_user_cache: dict[str, tuple[float, User]] = {}
+_user_cache_lock = threading.Lock()
+_USER_CACHE_MAX = 5000
+
+
+def _cached_user(payload: dict) -> User:
+    """Cari user di cache; bila tidak ada/kedaluwarsa, baca dari DB (sesi langsung ditutup). SINKRON."""
+    user_id = str(payload.get("sub"))
+    now = time.monotonic()
+    ttl = settings.AUTH_USER_CACHE_SECONDS
+    if ttl > 0:
+        with _user_cache_lock:
+            hit = _user_cache.get(user_id)
+        if hit and hit[0] > now:
+            return hit[1]
     db = SessionLocal()
     try:
-        return await _authenticate(db, token)
+        user = _load_user(db, payload, is_service_token=False, set_actor=False)
+        db.expunge(user)
     finally:
         db.close()
+    if ttl > 0:
+        with _user_cache_lock:
+            if len(_user_cache) >= _USER_CACHE_MAX:
+                for key in [k for k, (exp, _) in _user_cache.items() if exp <= now] or list(_user_cache)[:500]:
+                    _user_cache.pop(key, None)
+            _user_cache[user_id] = (now + ttl, user)
+    return user
+
+
+def clear_user_cache() -> None:
+    with _user_cache_lock:
+        _user_cache.clear()
+
+
+async def get_current_user_released(token: str | None = Depends(oauth2_scheme)) -> User:
+    """
+    Untuk endpoint bervolume tinggi yang lama menunggu layanan luar (ubin foto udara): tidak memegang koneksi DB
+    selama request, dan status user di-cache AUTH_USER_CACHE_SECONDS per proses, sehingga satu layar peta
+    (puluhan ubin) tidak menjadi puluhan query ke DB/PgBouncer. Sesi (logout/revoke) tetap dicek di Redis setiap
+    request; user yang dinonaktifkan admin tertolak paling lambat setelah TTL cache. Hanya token user biasa
+    (token layanan sudah ditolak oleh _decode_token karena endpoint ini tanpa scope). User yang dikembalikan
+    terlepas dari sesi DB (jangan memuat relasi lazy darinya).
+    """
+    payload, _ = _decode_token(token, None)
+    user = await run_in_threadpool(_cached_user, payload)
+    await _check_session(payload)
+    return user
 
 
 # CATATAN (Nov 2026): POST /pokok-produksi/import-json kini tanpa autentikasi, sehingga token akun layanan
@@ -147,7 +206,8 @@ class PermissionChecker:
         self.required_permission = required_permission
 
     async def __call__(self, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
-        if not user_has_permission(db, current_user, self.required_permission):
+        # Sinkron (query + relasi lazy) -> threadpool agar event loop tidak ikut menunggu DB.
+        if not await run_in_threadpool(user_has_permission, db, current_user, self.required_permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Anda tidak memiliki hak akses ({self.required_permission}) untuk fitur ini"
