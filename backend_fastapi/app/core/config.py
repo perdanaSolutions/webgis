@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # batas 4/6/8/12 memberi satu layar (30 ubin) rata-rata 6,6/6,0/5,0/5,7 dtk (beda tipis, beban server naik-turun),
     # sedangkan 30 serentak sempat 20 dtk. Batas ini mencegah lonjakan semacam itu dan menjaga thread pool.
     FOTO_UDARA_MAX_CONCURRENCY: int = 8
+    # Lama status user (aktif/ada) di-cache per proses untuk endpoint bervolume tinggi (ubin foto udara), agar
+    # puluhan ubin per layar tidak menjadi puluhan query DB. Logout tetap langsung lewat cek sesi Redis; user yang
+    # dinonaktifkan tertolak paling lambat setelah nilai ini. 0 = tanpa cache.
+    AUTH_USER_CACHE_SECONDS: int = 60
 
     # Origin yang boleh memanggil API, dipisah koma. "*" = semua (HANYA development — blocker prod)
     CORS_ORIGINS: str = "*"
