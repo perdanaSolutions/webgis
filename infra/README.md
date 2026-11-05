@@ -137,3 +137,17 @@ C="docker compose -p webgis-scale -f infra/docker-compose.scale.yaml --env-file 
 $C config -q && $C up -d --build
 curl -fsS http://127.0.0.1:8080/health; curl -s 'http://127.0.0.1:8404/stats;csv' | cut -d, -f1,2,18
 ```
+
+### Pre-seed cache Foto Udara
+
+Ubin foto udara baru dirender GeoServer 2–6 dtk; dari cache ~0,5 dtk. Isi cache untuk area kebun (batas blok) di jam sepi:
+
+```bash
+C="docker compose -p webgis-scale -f infra/docker-compose.scale.yaml --env-file /etc/webgis/scale.env"
+$C exec -T backend_fastapi python -m app.workers.seed_foto_udara --dry-run        # hitung ubin & yang sudah di cache
+$C exec -T backend_fastapi python -m app.workers.seed_foto_udara                  # z8..z15 (~1.900 ubin, ~110 MB)
+```
+
+- `redis-cache` tanpa persistensi: restart = cache kosong. Seeder melewati ubin yang sudah ada, jadi aman dijalankan ulang (mis. cron tiap malam).
+- Berhenti sendiri bila memori `redis-cache` >= 70% `maxmemory` (`--max-memory-ratio`), agar tidak menggusur cache JSON peta. z16 (~290 MB) butuh `maxmemory` lebih besar.
+- Opsi: `--max-zoom`, `--estate E005,E023`, `--concurrency` (default 2 permintaan serentak ke GeoServer).
