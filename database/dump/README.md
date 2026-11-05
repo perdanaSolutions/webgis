@@ -31,3 +31,14 @@ psql -U postgres -d db_uat_v1_restore -v ON_ERROR_STOP=1 -f database/dump/db_uat
 createdb -U postgres gis_db_v4
 psql -U postgres -d gis_db_v4 -v ON_ERROR_STOP=1 -1 -f database/dump/gis_db_v4_auth_master_ref_20261105.sql
 ```
+
+---
+
+# Struktur schema audit, quarantine, spatial, trx dari gis_db_v4 (prod)
+
+- File: `gis_db_v4_schema_audit_quarantine_spatial_trx_20261105.sql` (struktur saja, TANPA data)
+- `pg_dump -d gis_db_v4 -n audit -n quarantine -n spatial -n trx --schema-only --no-owner --no-privileges -Fp`
+- 22 tabel, 2 view, 6 fungsi. Butuh extension PostGIS di schema public, dan schema auth/master/ref sudah ter-import (FK ke master.*).
+- Import: `CREATE EXTENSION IF NOT EXISTS postgis;` lalu
+  `psql -d <db> -v ON_ERROR_STOP=1 -1 -f database/dump/gis_db_v4_schema_audit_quarantine_spatial_trx_20261105.sql`
+- Kalau schema-schema ini sudah ada di db tujuan: backup lalu `DROP SCHEMA audit, quarantine, spatial, trx CASCADE;` dulu (JANGAN drop auth/master/ref).
