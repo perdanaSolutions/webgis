@@ -221,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if not fu.configured():
-        logger.error("FOTO_UDARA_WMS_URL / FOTO_UDARA_WMS_TOKEN belum diisi.")
+        logger.error(fu._not_configured_message())
         return 2
     estates = [e.strip() for e in args.estate.split(",") if e.strip()] or None
     envelopes = load_block_envelopes(estates)

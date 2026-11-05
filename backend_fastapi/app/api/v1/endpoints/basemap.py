@@ -1,4 +1,4 @@
-"""Basemap Foto Udara: proxy WMS ke GeoServer digilink (token hanya di backend)."""
+"""Basemap Foto Udara: proxy WMS ke GeoServer (remote+token atau SERVER_LOCAL)."""
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.get(
     "/foto-udara/status",
-    summary="Status basemap Foto Udara (konfigurasi, token, layer, cakupan)",
+    summary="Status basemap Foto Udara (konfigurasi, mode lokal/remote, layer, cakupan)",
 )
 async def foto_udara_status(current_user=Depends(deps.get_current_user_released)):
     return await fu.status()
@@ -20,8 +20,8 @@ async def foto_udara_status(current_user=Depends(deps.get_current_user_released)
     "/foto-udara/wms",
     summary="Ubin WMS GetMap Foto Udara lewat backend",
     description="Parameter WMS GetMap biasa (bbox, width, height, srs/crs, format, layers, version). "
-                "Token GeoServer ditambahkan backend; gambar di-cache di Redis. Gagal: JSON {reason, message} "
-                "dengan HTTP 404 (layer), 400 (parameter), atau 424 (token/server foto udara).",
+                "SERVER_LOCAL=false: token digilink ditambahkan backend. SERVER_LOCAL=true: IP_LOCAL_FOTO_UDARA tanpa token. "
+                "Gambar di-cache di Redis. Gagal: JSON {reason, message} dengan HTTP 404/400/424.",
 )
 async def foto_udara_wms(request: Request, current_user=Depends(deps.get_current_user_released)):
     try:

@@ -1,9 +1,9 @@
-"""Proxy WMS Foto Udara (GeoServer digilink): token disimpan di backend, browser tidak pernah melihatnya.
+"""Proxy WMS Foto Udara: token (mode remote) disimpan di backend, browser tidak pernah melihatnya.
 
 Alur: browser (Leaflet) -> GET /api/v1/basemap/foto-udara/wms?bbox=..&width=..  (JWT user)
-      -> backend menambah token + layer yang diizinkan -> GeoServer -> gambar (cache Redis).
-GeoServer menolak tanpa token (401) dan menjawab XML ServiceException (HTTP 200) untuk layer yang tidak ada,
-jadi jawaban upstream diklasifikasikan supaya frontend bisa menampilkan penyebab yang benar.
+      -> backend memilih upstream (SERVER_LOCAL / digilink) + layer yang diizinkan -> GeoServer -> gambar (cache Redis).
+Mode remote: GeoServer menolak tanpa token (401). Kedua mode: XML ServiceException (HTTP 200) untuk layer
+yang tidak ada, diklasifikasikan supaya frontend menampilkan penyebab yang benar.
 """
 from __future__ import annotations
 
@@ -52,16 +52,43 @@ def allowed_layers() -> list[str]:
     return [x.strip() for x in (settings.FOTO_UDARA_WMS_LAYERS or "").split(",") if x.strip()]
 
 
+def uses_local_server() -> bool:
+    """SERVER_LOCAL=true → GeoServer lokal (IP_LOCAL_FOTO_UDARA) tanpa token."""
+    return bool(settings.SERVER_LOCAL)
+
+
+def wms_base_url() -> str:
+    """URL WMS upstream sesuai mode: lokal atau digilink."""
+    if uses_local_server():
+        return (settings.IP_LOCAL_FOTO_UDARA or "").strip().rstrip("?")
+    return (settings.FOTO_UDARA_WMS_URL or "").strip().rstrip("?")
+
+
 def configured() -> bool:
-    return bool((settings.FOTO_UDARA_WMS_URL or "").strip() and (settings.FOTO_UDARA_WMS_TOKEN or "").strip())
+    base = wms_base_url()
+    if not base:
+        return False
+    if uses_local_server():
+        return True
+    return bool((settings.FOTO_UDARA_WMS_TOKEN or "").strip())
+
+
+def _not_configured_message() -> str:
+    if uses_local_server():
+        return "SERVER_LOCAL=true tetapi IP_LOCAL_FOTO_UDARA belum diisi di backend."
+    return "FOTO_UDARA_WMS_URL / FOTO_UDARA_WMS_TOKEN belum diisi di backend."
 
 
 def _upstream_url(query: dict[str, str]) -> str:
-    base = settings.FOTO_UDARA_WMS_URL.strip()
+    base = wms_base_url()
     parts = urllib.parse.urlsplit(base)
     q = dict(urllib.parse.parse_qsl(parts.query))
     q.update(query)
-    q["token"] = settings.FOTO_UDARA_WMS_TOKEN.strip()
+    # Token hanya untuk mode remote (digilink); mode lokal tidak menempelkan token.
+    if not uses_local_server():
+        token = (settings.FOTO_UDARA_WMS_TOKEN or "").strip()
+        if token:
+            q["token"] = token
     return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(q)))
 
 
@@ -133,7 +160,7 @@ def _cache_key(query: dict[str, str]) -> str:
 async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
     """(gambar, content-type, dari_cache)."""
     if not configured():
-        raise FotoUdaraError("not_configured", "FOTO_UDARA_WMS_URL / FOTO_UDARA_WMS_TOKEN belum diisi di backend.", 424)
+        raise FotoUdaraError("not_configured", _not_configured_message(), 424)
     query = build_getmap_query(params)
     key = _cache_key(query)
     client = await get_client()
@@ -179,11 +206,19 @@ def parse_capabilities(xml: str, wanted: list[str]) -> dict:
 
 
 async def status() -> dict:
-    """Ringkasan untuk dialog frontend: terkonfigurasi? token diterima? layer ada? cakupan?"""
+    """Ringkasan untuk dialog frontend: terkonfigurasi? mode lokal/remote? layer ada? cakupan?"""
     layers = allowed_layers()
-    base = {"configured": configured(), "layers": layers, "ok": False, "reason": None, "message": None, "bbox": None}
+    base = {
+        "configured": configured(),
+        "server_local": uses_local_server(),
+        "layers": layers,
+        "ok": False,
+        "reason": None,
+        "message": None,
+        "bbox": None,
+    }
     if not configured():
-        return {**base, "reason": "not_configured", "message": "FOTO_UDARA_WMS_URL / FOTO_UDARA_WMS_TOKEN belum diisi di backend."}
+        return {**base, "reason": "not_configured", "message": _not_configured_message()}
     now = time.monotonic()
     cached = _caps_cache["value"]
     if cached is None or now - _caps_cache["at"] > _CAPS_TTL:

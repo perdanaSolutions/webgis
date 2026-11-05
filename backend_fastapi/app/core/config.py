@@ -58,7 +58,10 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = "superadmin@plantation.com"
     SEED_ADMIN_PASSWORD: str = ""  # tanpa default: seed menolak berjalan bila kosong
 
-    # Basemap Foto Udara (GeoServer digilink) lewat proxy backend: token TIDAK pernah dikirim ke browser.
+    # Basemap Foto Udara lewat proxy backend: token TIDAK pernah dikirim ke browser.
+    # SERVER_LOCAL=false → digilink + FOTO_UDARA_WMS_TOKEN; true → IP_LOCAL_FOTO_UDARA tanpa token.
+    SERVER_LOCAL: bool = False
+    IP_LOCAL_FOTO_UDARA: str = "http://192.168.1.17:8081/geoserver/tpgis/wms"
     FOTO_UDARA_WMS_URL: str = "https://digilink.teladanprima.com/fu/wms"
     FOTO_UDARA_WMS_TOKEN: str = ""
     # Layer WMS yang boleh diminta (dipisah koma). tpgis:tpgis_fu = layer group gabungan seluruh foto udara.

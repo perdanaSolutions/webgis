@@ -8,6 +8,8 @@ from app.services import foto_udara_service as fu
 
 @pytest.fixture(autouse=True)
 def _cfg(monkeypatch):
+    monkeypatch.setattr(settings, "SERVER_LOCAL", False)
+    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.17:8081/geoserver/tpgis/wms")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_URL", "https://digilink.example/fu/wms")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_TOKEN", "tok-rahasia")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_LAYERS", "tpgis:tpgis_fu")
@@ -19,6 +21,20 @@ def test_getmap_query_aman_dan_token_hanya_di_upstream():
     assert q["layers"] == "tpgis:tpgis_fu" and q["srs"] == "EPSG:3857" and "evil" not in q and "token" not in q
     url = fu._upstream_url(q)
     assert "token=tok-rahasia" in url and "dari-browser" not in url
+    assert url.startswith("https://digilink.example/fu/wms")
+
+
+def test_mode_server_local_pakai_ip_tanpa_token(monkeypatch):
+    monkeypatch.setattr(settings, "SERVER_LOCAL", True)
+    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.17:8081/geoserver/tpgis/wms?")
+    monkeypatch.setattr(settings, "FOTO_UDARA_WMS_TOKEN", "")  # mode lokal tidak butuh token
+    assert fu.configured() is True
+    assert fu.uses_local_server() is True
+    assert fu.wms_base_url() == "http://192.168.1.17:8081/geoserver/tpgis/wms"
+    q = fu.build_getmap_query({"bbox": "1,2,3,4", "width": "256", "height": "256", "layers": "tpgis:tpgis_fu"})
+    url = fu._upstream_url(q)
+    assert url.startswith("http://192.168.1.17:8081/geoserver/tpgis/wms?")
+    assert "token=" not in url
 
 
 def test_layer_lain_ditolak():
@@ -86,7 +102,16 @@ async def _belum_dikonfigurasi(monkeypatch):
     with pytest.raises(fu.FotoUdaraError) as exc:
         await fu.get_tile({"bbox": "1,2,3,4"})
     assert exc.value.reason == "not_configured"
-    assert (await fu.status())["reason"] == "not_configured"
+    status = await fu.status()
+    assert status["reason"] == "not_configured"
+    assert status["server_local"] is False
+
+    monkeypatch.setattr(settings, "SERVER_LOCAL", True)
+    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "")
+    with pytest.raises(fu.FotoUdaraError) as exc:
+        await fu.get_tile({"bbox": "1,2,3,4"})
+    assert exc.value.reason == "not_configured"
+    assert "IP_LOCAL_FOTO_UDARA" in exc.value.message
 
 
 def test_permintaan_serentak_ke_geoserver_dibatasi(monkeypatch):
