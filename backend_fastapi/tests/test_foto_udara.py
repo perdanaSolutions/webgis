@@ -146,3 +146,27 @@ def test_ubin_tidak_menahan_koneksi_db_dan_tidak_digzip(client, auth, monkeypatc
 def test_ubin_tetap_butuh_login(client):
     response = client.get("/api/v1/basemap/foto-udara/wms", params={"bbox": "1,2,3,4"})
     assert response.status_code == 401
+
+
+def test_penolakan_geoserver_dicatat_tanpa_token_dan_dibatasi(monkeypatch, caplog):
+    asyncio.run(_penolakan_dicatat(monkeypatch, caplog))
+
+
+async def _penolakan_dicatat(monkeypatch, caplog):
+    async def no_redis():
+        return None
+
+    xml = b'<ServiceExceptionReport><ServiceException code="LayerNotDefined">Could not find layer tpgis:tpgis_fu</ServiceException></ServiceExceptionReport>'
+    monkeypatch.setattr(fu, "get_client", no_redis)
+    monkeypatch.setattr(fu, "_http_get", lambda url: (200, "application/vnd.ogc.se_xml", xml))
+    monkeypatch.setattr(fu, "_log_state", {})
+    caplog.set_level("WARNING", logger=fu.logger.name)
+    for i in range(5):
+        with pytest.raises(fu.FotoUdaraError) as exc:
+            await fu.get_tile({"bbox": f"{i},2,{i + 1},4"})
+        assert exc.value.reason == "layer_not_found" and exc.value.status == 404
+    records = [r for r in caplog.records if r.name == fu.logger.name]
+    assert len(records) == 1  # satu layar gagal = satu baris log per menit
+    text = records[0].getMessage()
+    assert "LayerNotDefined" in text and "Could not find layer tpgis:tpgis_fu" in text
+    assert "https://digilink.example/fu/wms" in text and "tok-rahasia" not in text

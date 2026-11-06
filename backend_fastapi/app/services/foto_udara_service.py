@@ -125,6 +125,31 @@ def _http_get(url: str) -> tuple[int, str, bytes]:
         raise FotoUdaraError("unreachable", "Server foto udara tidak terjangkau dari backend.") from exc
 
 
+_LOG_INTERVAL = 60.0
+_log_state: dict[str, list[float]] = {}  # reason -> [terakhir_dicatat_monotonic, jumlah_yang_tidak_dicatat]
+
+
+def _log_upstream_problem(problem: FotoUdaraError, status: int, ctype: str, body: bytes, query: dict[str, str]) -> None:
+    """Catat jawaban GeoServer yang ditolak (tanpa token), maksimal sekali per alasan per menit agar satu layar peta
+    yang gagal (puluhan ubin) tidak membanjiri log. Tanpa ini log hanya berisi '404 Not Found' tanpa sebab."""
+    now = time.monotonic()
+    state = _log_state.setdefault(problem.reason, [float("-inf"), 0])
+    if now - state[0] < _LOG_INTERVAL:
+        state[1] += 1
+        return
+    suppressed = int(state[1])
+    state[0], state[1] = now, 0
+    snippet = re.sub(r"\s+", " ", body[:2000].decode("utf-8", "replace")).strip()[:500]
+    logger.warning(
+        "Foto udara ditolak GeoServer: reason=%s http=%s content-type=%s layers=%s bbox=%s srs=%s%s | upstream=%s | jawaban=%s",
+        problem.reason, status, ctype or "-", query.get("layers"), query.get("bbox"),
+        query.get("srs") or query.get("crs"),
+        f" (+{suppressed} serupa dalam {_LOG_INTERVAL:.0f} dtk terakhir)" if suppressed else "",
+        urllib.parse.urlsplit(settings.FOTO_UDARA_WMS_URL.strip())._replace(query="").geturl(),
+        snippet,
+    )
+
+
 def _cache_key(query: dict[str, str]) -> str:
     raw = "&".join(f"{k}={query[k]}" for k in sorted(query))
     return "fu:tile:" + hashlib.sha1(raw.encode()).hexdigest()
@@ -150,6 +175,7 @@ async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
         status, ctype, body = await asyncio.to_thread(_http_get, _upstream_url(query))
     problem = classify(status, ctype, body)
     if problem:
+        _log_upstream_problem(problem, status, ctype, body, query)
         raise problem
     if client is not None and len(body) <= _MAX_CACHE_BYTES:
         try:
