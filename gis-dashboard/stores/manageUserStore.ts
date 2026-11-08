@@ -108,7 +108,9 @@ export const useManageUserStore = defineStore("manageUser", () => {
     try {
       const baseUrl = getApiBaseUrl();
       const queryString = buildQueryParams(query);
-      const endpoint = `${baseUrl}/v1/users`;
+      // Trailing slash wajib: tanpa slash FastAPI 307 ke Location http://... di belakang
+      // Caddy/HAProxy → browser HTTPS memblokir mixed content.
+      const endpoint = `${baseUrl}/v1/users/`;
       const url = queryString ? `${endpoint}?${queryString}` : endpoint;
 
       const response = await $api<UserListResponse>(url, {
@@ -164,7 +166,7 @@ export const useManageUserStore = defineStore("manageUser", () => {
 
     try {
       const baseUrl = getApiBaseUrl();
-      const response = await $api<UserItem>(`${baseUrl}/v1/users`, {
+      const response = await $api<UserItem>(`${baseUrl}/v1/users/`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: payload,

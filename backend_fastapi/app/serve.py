@@ -23,11 +23,15 @@ def run_http() -> None:
 
     from app.core.config import settings
 
+    # forwarded_allow_ips="*": peer TCP adalah HAProxy (IP bridge Docker), bukan 127.0.0.1.
+    # Tanpa ini, X-Forwarded-Proto dari Caddy diabaikan → redirect slash memakai Location http://
+    # dan browser HTTPS memblokir mixed content (lihat menu User Management).
     uvicorn.run(
         "app.main:app",
         host=settings.HTTP_HOST,
         port=settings.HTTP_PORT,
         proxy_headers=True,
+        forwarded_allow_ips="*",
     )
 
 
