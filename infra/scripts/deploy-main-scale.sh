@@ -10,7 +10,7 @@
 #   - migrasi: container sementara image baru, DB_HOST=pgbouncer (stack infra harus sudah jalan).
 set -u
 set -o pipefail  # agar kegagalan git pull/build/up terdeteksi walau output di-pipe ke while/log
-REPO=/var/aplikasi/project-webgis/webgis
+REPO=/home/ginanjar/aplikasi/webgis
 LOG=/var/log/webgis-deploy-main.log
 LOCK=/tmp/webgis-deploy-main.lock
 SCALE_ENV=/etc/webgis/scale.env

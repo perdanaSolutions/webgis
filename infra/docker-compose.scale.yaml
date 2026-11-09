@@ -34,7 +34,7 @@ x-backend-env: &backend-env
   REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis-cache:6379/0"
   REDIS_AUTH_ENABLED: "true"
   REDIS_AUTH_TTL_SECONDS: "0"
-  DB_HOST: pgbouncer
+  DB_HOST: pgbouncer.internal
   DB_PORT: "6432"
   # DDL ringan saat start; dikunci pg_advisory_xact_lock → aman untuk replica yang start bersamaan.
   DB_STARTUP_DDL: "true"
@@ -77,7 +77,11 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:v1.25.2-p0
     restart: unless-stopped
-    networks: [webgis, global-network]
+    networks:
+      webgis:
+        aliases:
+          - pgbouncer.internal
+      global-network: {}
     environment:
       DB_HOST: ${PGB_DB_HOST:-gis-postgres}
       DB_PORT: ${PGB_DB_PORT:-5432}
@@ -219,7 +223,7 @@ services:
     restart: unless-stopped
     networks: [webgis]
     ports:
-      - "127.0.0.1:8080:80"      # HTTP dari Caddy (host) saja; TLS publik di Caddy
+      - "8080:80"      # HTTP dari Caddy (host) saja; TLS publik di Caddy
       - "127.0.0.1:8404:8404"    # stats + /healthz, localhost saja
       - "0.0.0.0:8443:8443"      # mTLS TCP passthrough → backend :8443 (publik; Docker melewati UFW)
     volumes:
