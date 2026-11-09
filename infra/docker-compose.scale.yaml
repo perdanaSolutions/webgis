@@ -7,9 +7,8 @@
 #   ./backend_fastapi/.env      → env aplikasi (SECRET_KEY, DB_USER/PASSWORD/NAME, CORS, token foto udara, dll.)
 #                                 DB_HOST/DB_PORT/REDIS_* di file itu DITIMPA di bawah (jaringan bridge, bukan loopback)
 #   ./gis-dashboard/.env        → env Nuxt; NUXT_API_BASE_URL_PYTHON_SERVER ditimpa ke HAProxy internal
-#   /etc/webgis/scale.env       → rahasia khusus scale, DI LUAR git, chmod 600 (lihat infra/env.scale.example):
-#                                 REDIS_PASSWORD, PGB_DB_HOST, PGB_DB_PORT, PGB_DB_USER, PGB_DB_PASSWORD, PGB_DB_NAME,
-#                                 opsional PGB_DEFAULT_POOL_SIZE, BACKEND_REPLICAS, DASHBOARD_REPLICAS
+#   /etc/webgis/scale.env       → rahasia + nilai per-server, DI LUAR git, chmod 600 (lihat infra/env.scale.example):
+#                                 REDIS_PASSWORD, PGB_DB_*, HAPROXY_*, BACKEND_DB_HOST, MTLS_ENABLED, dll.
 #
 # Topologi: Caddy (host, TLS :443) → 127.0.0.1:8080 HAProxy → backend_fastapi×2 :8000 / gis-dashboard×2 :3000
 #           Klien mTLS → 0.0.0.0:8443 HAProxy (TCP passthrough) → backend_fastapi×2 :8443 (TLS + verifikasi CN di backend)
@@ -25,6 +24,7 @@ networks:
   # Jaringan milik gis-postgres (dan global-redis). Dipakai pgbouncer saja untuk mencapai gis-postgres:5432.
   global-network:
     external: true
+    name: ${GLOBAL_NETWORK_NAME:-global-network}
 
 volumes:
   redis_data:
@@ -34,7 +34,7 @@ x-backend-env: &backend-env
   REDIS_CACHE_URL: "redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis-cache:6379/0"
   REDIS_AUTH_ENABLED: "true"
   REDIS_AUTH_TTL_SECONDS: "0"
-  DB_HOST: pgbouncer.internal
+  DB_HOST: ${BACKEND_DB_HOST:-pgbouncer.internal}
   DB_PORT: "6432"
   # DDL ringan saat start; dikunci pg_advisory_xact_lock → aman untuk replica yang start bersamaan.
   DB_STARTUP_DDL: "true"
@@ -128,7 +128,7 @@ services:
       DB_MAX_OVERFLOW: "10"
       # XFF dipercaya hanya dari HAProxy (bridge Docker).
       TRUSTED_PROXY_CIDRS: "172.16.0.0/12"
-      MTLS_ENABLED: "true"
+      MTLS_ENABLED: "${MTLS_ENABLED:-true}"
       MTLS_HOST: "0.0.0.0"
       MTLS_PORT: "8443"
     volumes:
@@ -223,9 +223,15 @@ services:
     restart: unless-stopped
     networks: [webgis]
     ports:
-      - "${HAPROXY_HTTP_BIND:-127.0.0.1}:8080:80"  # default localhost (prod+Caddy); TPA: HAPROXY_HTTP_BIND=0.0.0.0 di /etc/webgis/scale.env
-      - "127.0.0.1:8404:8404"    # stats + /healthz, localhost saja
-      - "0.0.0.0:8443:8443"      # mTLS TCP passthrough → backend :8443 (publik; Docker melewati UFW)
+      # default localhost (prod di belakang Caddy); TPA: HAPROXY_HTTP_BIND=0.0.0.0
+      - "${HAPROXY_HTTP_BIND:-127.0.0.1}:8080:80"
+      - "${HAPROXY_STATS_BIND:-127.0.0.1}:8404:8404"
+      # mTLS TCP passthrough → backend :8443; TPA tanpa mTLS publik: HAPROXY_MTLS_BIND=127.0.0.1
+      - "${HAPROXY_MTLS_BIND:-0.0.0.0}:8443:8443"
+    environment:
+      # Dipakai interpolasi ${...} di haproxy.cfg (default = host prod).
+      HAPROXY_API_HOST: ${HAPROXY_API_HOST:-api-webgis-prod.perdanasolusiteknologi.com}
+      HAPROXY_FE_HOST: ${HAPROXY_FE_HOST:-webgis-prod.perdanasolusiteknologi.com}
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     mem_limit: 128m

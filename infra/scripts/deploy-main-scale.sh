@@ -14,18 +14,45 @@ set -o pipefail  # agar kegagalan git pull/build/up terdeteksi walau output di-p
 # VPS prod (/var/aplikasi/project-webgis/webgis) dan server TPA (/home/ginanjar/aplikasi/webgis).
 # Bisa dioverride: REPO=/path/lain /bin/bash infra/scripts/deploy-main-scale.sh
 REPO="${REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
-LOG=/var/log/webgis-deploy-main.log
-LOCK=/tmp/webgis-deploy-main.lock
-SCALE_ENV=/etc/webgis/scale.env
+LOCK="${DEPLOY_LOCK:-/tmp/webgis-deploy-main.lock}"
+SCALE_ENV="${SCALE_ENV:-/etc/webgis/scale.env}"
+
+# Baca nilai per-server dari scale.env (default = nilai prod saat ini).
+# Hanya key yang dikenal; nilai rahasia tidak di-log.
+_env_get() {
+  # $1=KEY $2=default — bila KEY ada di SCALE_ENV (meski nilainya kosong), pakai nilai itu;
+  # bila KEY tidak ada, pakai default. Jadi DEPLOY_NOTIFY= (kosong) = nonaktif.
+  local key="$1" def="$2" line="" val=""
+  if [ -r "$SCALE_ENV" ]; then
+    line=$(grep -E "^${key}=" "$SCALE_ENV" | tail -1 || true)
+    if [ -n "$line" ]; then
+      val="${line#*=}"
+      val=$(printf "%s" "$val" | tr -d "\r" | sed "s/^\"//;s/\"$//;s/^'//;s/'$//")
+      printf "%s" "$val"
+      return 0
+    fi
+  fi
+  printf "%s" "$def"
+}
+
+LOG="${DEPLOY_LOG:-$(_env_get DEPLOY_LOG /var/log/webgis-deploy-main.log)}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-$(_env_get COMPOSE_PROJECT webgis-scale)}"
 COMPOSE_FILE_REL=infra/docker-compose.scale.yaml
-COMPOSE="docker compose -p webgis-scale -f $COMPOSE_FILE_REL --env-file $SCALE_ENV"
+COMPOSE="docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE_REL --env-file $SCALE_ENV"
 APP_SVCS="backend_fastapi upload_worker gis-dashboard"
 INFRA_SVCS="redis redis-cache pgbouncer"
-LB="http://127.0.0.1:8080"
+LB="${LB_BASE:-$(_env_get LB_BASE http://127.0.0.1:8080)}"
 BE_HEALTH="$LB/health"
 FE_URL="$LB/"
 PENGUMUMAN="$LB/api/v1/pengumuman/"
-HAPROXY_STATS="http://127.0.0.1:8404/stats;csv"
+HAPROXY_STATS="${HAPROXY_STATS_URL:-$(_env_get HAPROXY_STATS_URL 'http://127.0.0.1:8404/stats;csv')}"
+PG_CONTAINER="${PG_CONTAINER:-$(_env_get PG_CONTAINER gis-postgres)}"
+BACKUP_DIR="${BACKUP_DIR:-$(_env_get BACKUP_DIR /var/backups/postgres)}"
+KEEP_DUMPS="${KEEP_DUMPS:-$(_env_get KEEP_DUMPS 10)}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-$(_env_get DEPLOY_BRANCH main)}"
+NOTIFY="${DEPLOY_NOTIFY-$(_env_get DEPLOY_NOTIFY /usr/local/sbin/webgis-deploy-notify)}"
+HAPROXY_API_HOST="${HAPROXY_API_HOST:-$(_env_get HAPROXY_API_HOST api-webgis-prod.perdanasolusiteknologi.com)}"
+HAPROXY_FE_HOST="${HAPROXY_FE_HOST:-$(_env_get HAPROXY_FE_HOST webgis-prod.perdanasolusiteknologi.com)}"
 
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
 
@@ -38,11 +65,11 @@ fi
 RUN_TS=$(date '+%F %T')
 echo "[$RUN_TS] === deploy start ===" | tee -a "$LOG"
 # Notifikasi Telegram saat script selesai (setting: /etc/webgis-deploy/telegram.env).
-# Exit karena lock/busy terjadi sebelum trap ini, jadi tidak dinotifikasi. Tidak pernah menggagalkan deploy.
-NOTIFY=/usr/local/sbin/webgis-deploy-notify
-trap 'rc=$?; [ -x "$NOTIFY" ] && timeout 60 "$NOTIFY" "$rc" "$RUN_TS" >/dev/null 2>&1; exit $rc' EXIT
+# Kosongkan DEPLOY_NOTIFY= di scale.env untuk menonaktifkan. Exit karena lock/busy tidak dinotifikasi.
+trap 'rc=$?; [ -n "$NOTIFY" ] && [ -x "$NOTIFY" ] && timeout 60 "$NOTIFY" "$rc" "$RUN_TS" >/dev/null 2>&1; exit $rc' EXIT
 cd "$REPO" || { log "FAIL cd repo"; exit 1; }
 [ -r "$SCALE_ENV" ] || { log "FAIL $SCALE_ENV tidak ada/terbaca"; exit 1; }
+log "cfg repo=$REPO branch=$DEPLOY_BRANCH pg=$PG_CONTAINER lb=$LB backup_dir=$BACKUP_DIR project=$COMPOSE_PROJECT"
 
 # SSH: fixed agent socket (key lama) prioritas, deploy key fallback
 SSH_SOCK=/run/user/0/webgis-ssh-agent.sock
@@ -58,12 +85,12 @@ ssh_cmd() {
 }
 export GIT_SSH_COMMAND="$(ssh_cmd)"
 
-git fetch origin main 2>&1 | while read -r l; do log "fetch: $l"; done
+git fetch origin "$DEPLOY_BRANCH" 2>&1 | while read -r l; do log "fetch: $l"; done
 if [ "${PIPESTATUS[0]}" -ne 0 ]; then
   # fallback: coba ssh default (key lama via agent)
   log "fetch via deploy key gagal, coba ssh default"
   export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
-  git fetch origin main 2>&1 | while read -r l; do log "fetch2: $l"; done
+  git fetch origin "$DEPLOY_BRANCH" 2>&1 | while read -r l; do log "fetch2: $l"; done
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     log "FAIL git fetch (deploy key belum ditambah ke GitHub?)"
     exit 1
@@ -71,7 +98,7 @@ if [ "${PIPESTATUS[0]}" -ne 0 ]; then
 fi
 
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+REMOTE=$(git rev-parse "origin/$DEPLOY_BRANCH")
 log "local=$LOCAL remote=$REMOTE"
 if [ "$LOCAL" = "$REMOTE" ]; then
   log "SKIP already up-to-date $LOCAL"
@@ -82,7 +109,7 @@ fi
 CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE" | head -30 | tr '\n' ' ')
 log "changed files: $CHANGED"
 
-if ! git pull --ff-only origin main 2>&1 | while read -r l; do log "pull: $l"; done; then
+if ! git pull --ff-only origin "$DEPLOY_BRANCH" 2>&1 | while read -r l; do log "pull: $l"; done; then
   log "FAIL git pull --ff-only (diverged? manual fix)"
   exit 1
 fi
@@ -135,15 +162,13 @@ if ! $COMPOSE build backend_fastapi gis-dashboard 2>&1 | tail -5 | while read -r
 fi
 
 # ---- backup DB + migrasi (sebelum container lama diganti) ----
-BACKUP_DIR=/var/backups/postgres
 # Nama DB dibaca dari backend_fastapi/.env (DB_NAME); gagal = deploy dibatalkan
 DB_NAME_BK=$(sed -n 's/^DB_NAME=//p' "$REPO/backend_fastapi/.env" | tail -1 | tr -d '\r"' | xargs)
 if [ -z "$DB_NAME_BK" ] && [ "${SKIP_DB_STEPS:-0}" != "1" ]; then log "FAIL DB_NAME tidak ditemukan di backend_fastapi/.env -> deploy dibatalkan"; exit 1; fi
-KEEP_DUMPS=10
 db_backup() {
   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR" || return 1
   local f="$BACKUP_DIR/${DB_NAME_BK}-predeploy-$TS.dump"
-  if ! docker exec gis-postgres pg_dump -U postgres -Fc -d "$DB_NAME_BK" > "$f.tmp" 2>>"$LOG"; then
+  if ! docker exec "$PG_CONTAINER" pg_dump -U postgres -Fc -d "$DB_NAME_BK" > "$f.tmp" 2>>"$LOG"; then
     rm -f "$f.tmp"; return 1
   fi
   [ -s "$f.tmp" ] || { rm -f "$f.tmp"; return 1; }
@@ -184,7 +209,7 @@ if ! $COMPOSE up -d --force-recreate --no-deps $APP_SVCS 2>&1 | while read -r l;
 fi
 if [ "$HAPROXY_CHANGED" = "1" ]; then
   log "haproxy.cfg berubah -> validasi + recreate haproxy"
-  if docker run --rm -v "$REPO/infra/haproxy:/usr/local/etc/haproxy:ro" haproxy:2.9.15-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg >/dev/null 2>&1; then
+  if docker run --rm       -e "HAPROXY_API_HOST=$HAPROXY_API_HOST"       -e "HAPROXY_FE_HOST=$HAPROXY_FE_HOST"       -v "$REPO/infra/haproxy:/usr/local/etc/haproxy:ro" haproxy:2.9.15-alpine       haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg >/dev/null 2>&1; then
     $COMPOSE up -d --force-recreate --no-deps haproxy 2>&1 | while read -r l; do log "haproxy: $l"; done
   else
     log "WARN haproxy.cfg baru TIDAK valid -> haproxy lama dipertahankan"
