@@ -76,7 +76,7 @@ onMounted(async () => {
   display: flex;
   min-height: 100dvh;
   flex-direction: column;
-  background: transparent;
+  background: linear-gradient(180deg, #DCEEFC 0%, #EBF5FF 55%, #F3F9FF 100%);
   color: #1f2a18;
 }
 
@@ -88,7 +88,8 @@ onMounted(async () => {
   flex: 1 1 auto;
   flex-direction: column;
   overflow: hidden;
-  background: transparent;
+  /* background: linear-gradient(180deg, #DCEEFC 0%, #EBF5FF 55%, #F3F9FF 100%); */
+  background: black;
 }
 
 .dash-fs-btn {
@@ -138,6 +139,8 @@ onMounted(async () => {
 }
 
 .dash-home__panel {
+  position: relative;
+  z-index: 2;
   padding: 0.35rem 0.85rem 0.25rem;
 }
 
@@ -145,6 +148,10 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 0.2rem;
+}
+
+.dash-home__panel :deep(.kpi-grid) {
+  margin-top: 6.5rem;
 }
 
 .dash-home__logo {
@@ -168,7 +175,7 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 72%;
+  object-position: center 100%;
   pointer-events: none;
 }
 
@@ -252,6 +259,10 @@ onMounted(async () => {
     padding: 0.28rem 1rem 0.15rem;
   }
 
+  .dash-home__panel :deep(.kpi-grid) {
+    margin-top: 7rem;
+  }
+
   .dash-home__logo {
     height: 50px;
   }
@@ -264,6 +275,10 @@ onMounted(async () => {
 @media (min-width: 1024px) and (max-height: 760px) {
   .dash-home__panel {
     padding-top: 0.15rem;
+  }
+
+  .dash-home__panel :deep(.kpi-grid) {
+    margin-top: 4.5rem;
   }
 
   .dash-home__logo {
@@ -294,6 +309,10 @@ onMounted(async () => {
 
   .dash-home__panel {
     padding: 0.7rem 0.7rem 0.2rem;
+  }
+
+  .dash-home__panel :deep(.kpi-grid) {
+    margin-top: 4rem;
   }
 
   .dash-home__hero {

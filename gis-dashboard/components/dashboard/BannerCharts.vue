@@ -752,13 +752,15 @@ const rotationNote = computed(() =>
   min-width: 0;
   min-height: 100%;
   flex-direction: column;
-  border: 1px solid rgb(255 255 255 / 55%);
+  border: 1px solid transparent;
   border-radius: 22px;
-  background: rgba(205, 204, 204, 0.313);
+  background:
+    linear-gradient(rgb(220 238 252 / 8%), rgb(235 245 255 / 4%)) padding-box,
+    linear-gradient(180deg, rgba(220, 238, 252, 0.166), rgba(235, 245, 255, 0.289)) border-box;
   padding: 0.85rem 0.95rem 0.8rem;
-  box-shadow: 0 10px 30px rgb(31 42 24 / 12%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(31, 42, 24, 0.088);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   color: #1f2a18;
 }
 
