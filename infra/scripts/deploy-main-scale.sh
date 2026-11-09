@@ -1,6 +1,6 @@
 #!/bin/bash
 # Auto-deploy prod main ke STACK SCALE (infra/docker-compose.scale.yaml, project webgis-scale). Staging untouched.
-# Pasang: cp infra/scripts/deploy-main-scale.sh /var/aplikasi/project-webgis/deploy-main.sh (deploy-listener tetap sama).
+# Dipanggil wrapper /var/aplikasi/project-webgis/deploy-main.sh via: exec /bin/bash "$SCALE_DEPLOY_SCRIPT".
 # Beda dengan versi compose lama:
 #   - COMPOSE = docker compose -p webgis-scale -f infra/docker-compose.scale.yaml --env-file /etc/webgis/scale.env
 #   - hanya backend_fastapi, upload_worker, gis-dashboard yang di-recreate (redis/redis-cache/pgbouncer TIDAK,
@@ -10,7 +10,10 @@
 #   - migrasi: container sementara image baru, DB_HOST=pgbouncer (stack infra harus sudah jalan).
 set -u
 set -o pipefail  # agar kegagalan git pull/build/up terdeteksi walau output di-pipe ke while/log
-REPO=/home/ginanjar/aplikasi/webgis
+# REPO dihitung dari lokasi skrip ini (infra/scripts/../..) supaya satu kode jalan di
+# VPS prod (/var/aplikasi/project-webgis/webgis) dan server TPA (/home/ginanjar/aplikasi/webgis).
+# Bisa dioverride: REPO=/path/lain /bin/bash infra/scripts/deploy-main-scale.sh
+REPO="${REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 LOG=/var/log/webgis-deploy-main.log
 LOCK=/tmp/webgis-deploy-main.lock
 SCALE_ENV=/etc/webgis/scale.env

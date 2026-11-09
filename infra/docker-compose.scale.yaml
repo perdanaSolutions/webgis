@@ -223,7 +223,7 @@ services:
     restart: unless-stopped
     networks: [webgis]
     ports:
-      - "8080:80"      # HTTP dari Caddy (host) saja; TLS publik di Caddy
+      - "${HAPROXY_HTTP_BIND:-127.0.0.1}:8080:80"  # default localhost (prod+Caddy); TPA: HAPROXY_HTTP_BIND=0.0.0.0 di /etc/webgis/scale.env
       - "127.0.0.1:8404:8404"    # stats + /healthz, localhost saja
       - "0.0.0.0:8443:8443"      # mTLS TCP passthrough → backend :8443 (publik; Docker melewati UFW)
     volumes:
