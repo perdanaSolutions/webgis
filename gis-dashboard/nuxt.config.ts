@@ -1,5 +1,10 @@
-import tailwindcss from "@tailwindcss/vite"
-import { MAP_PAGE_CACHE, MAP_PAGE_URL, MAP_TILE_CACHE, MAP_TILE_URL } from "./utils/mapCacheSchema"
+import tailwindcss from "@tailwindcss/vite";
+import {
+  MAP_PAGE_CACHE,
+  MAP_PAGE_URL,
+  MAP_TILE_CACHE,
+  MAP_TILE_URL,
+} from "./utils/mapCacheSchema";
 
 export default defineNuxtConfig({
   css: ["~/src/styles/main.scss", "~/assets/css/index.css"],
@@ -73,7 +78,7 @@ export default defineNuxtConfig({
       globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
       // hand-deskripsi.svg ~9 MB (> limit 2 MiB workbox) bikin build gagal;
       // tetap dilayani biasa, hanya tidak di-precache service worker.
-      globIgnores: ["**/hand-deskripsi.*.svg"],
+      globIgnores: ["**/hand-deskripsi.*.webp"],
       // JSON API peta tidak masuk service worker: isinya tergantung user dan
       // disimpan lewat Cache Storage di utils/mapCacheSchema.ts.
       runtimeCaching: [

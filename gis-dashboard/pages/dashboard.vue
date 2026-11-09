@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import logoImage from '~/assets/image/logo-1.svg'
-import handsImage from '~/assets/image/hand-deskripsi.svg'
+import handsImage from '~/assets/image/hand-deskripsi.webp'
 import modulesImage from '~/assets/image/base_modul_overlay.svg'
 import estateImage from '~/assets/image/kebun_dashboard.svg'
 import { useAuthStore } from '~/stores/authStore'
@@ -53,34 +53,15 @@ onMounted(async () => {
         </div>
       </section>
 
-      <button
-        type="button"
-        class="dash-fs-btn"
-        :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
-        :title="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
-        :aria-pressed="isFullscreen"
-        @click="appFullscreen.toggleFullscreen()"
-      >
-        <svg
-          v-if="!isFullscreen"
-          viewBox="0 0 24 24"
-          class="dash-fs-btn__icon"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
+      <button type="button" class="dash-fs-btn" :aria-label="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'"
+        :title="isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'" :aria-pressed="isFullscreen"
+        @click="appFullscreen.toggleFullscreen()">
+        <svg v-if="!isFullscreen" viewBox="0 0 24 24" class="dash-fs-btn__icon" fill="none" stroke="currentColor"
+          stroke-width="2" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M15 4h5v5M4 15v5h5M20 15v5h-5" />
         </svg>
-        <svg
-          v-else
-          viewBox="0 0 24 24"
-          class="dash-fs-btn__icon"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
+        <svg v-else viewBox="0 0 24 24" class="dash-fs-btn__icon" fill="none" stroke="currentColor" stroke-width="2"
+          aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
         </svg>
       </button>
