@@ -198,6 +198,7 @@ export function createBasemapTileLayer(
       version: tile.version ?? "1.1.1",
       attribution: tile.attribution,
       maxZoom: tile.maxZoom ?? 22,
+      ...(tile.maxNativeZoom ? { maxNativeZoom: tile.maxNativeZoom } : {}),
       uppercase: true,
       ...tilePerf,
       ...(crossOrigin ? { crossOrigin } : {}),
@@ -206,6 +207,7 @@ export function createBasemapTileLayer(
   return leaflet.tileLayer(tile.url, {
     attribution: tile.attribution,
     maxZoom: tile.maxZoom ?? 19,
+    ...(tile.maxNativeZoom ? { maxNativeZoom: tile.maxNativeZoom } : {}),
     ...tilePerf,
     ...(tile.subdomains ? { subdomains: tile.subdomains } : {}),
     ...(crossOrigin ? { crossOrigin } : {}),

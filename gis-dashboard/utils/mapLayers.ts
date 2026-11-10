@@ -61,7 +61,10 @@ export const BASEMAPS: BasemapOption[] = [
       {
         url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         attribution: OSM_ATTRIBUTION,
-        maxZoom: 19,
+        // Native OSM ~z19 (skala ~30 m di khatulistiwa). maxZoom 22 = overzoom sampai ~5 m
+        // (ubin z19 diperbesar; detail baru tidak bertambah).
+        maxNativeZoom: 19,
+        maxZoom: 22,
       },
     ],
   },
@@ -73,7 +76,8 @@ export const BASEMAPS: BasemapOption[] = [
       {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attribution: ESRI_ATTRIBUTION,
-        maxZoom: 19,
+        maxNativeZoom: 19,
+        maxZoom: 22,
       },
     ],
   },
@@ -85,12 +89,14 @@ export const BASEMAPS: BasemapOption[] = [
       {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attribution: ESRI_ATTRIBUTION,
-        maxZoom: 19,
+        maxNativeZoom: 19,
+        maxZoom: 22,
       },
       {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
         attribution: "",
-        maxZoom: 19,
+        maxNativeZoom: 19,
+        maxZoom: 22,
       },
     ],
   },
@@ -102,7 +108,8 @@ export const BASEMAPS: BasemapOption[] = [
       {
         url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
         attribution: `${OSM_ATTRIBUTION}, SRTM | &copy; OpenTopoMap (CC-BY-SA)`,
-        maxZoom: 17,
+        maxNativeZoom: 17,
+        maxZoom: 22,
       },
     ],
   },
