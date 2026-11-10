@@ -1,14 +1,16 @@
 """Impor transaksi dari Excel atau JSON. Path Excel dipertahankan dari API lama."""
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Response
 
 from app.api.deps import CurrentUser, DbSession
-from app.api.params import Bulan, Tahun, UploadedFile, read_upload
+from app.api.params import BlockFilterDep, Bulan, Tahun, UploadedFile, read_upload
 from app.core.config import settings
 from app.core.exceptions import bad_request
 from app.schemas.trx_import import TrxJsonImport
-from app.services import trx_import_analysis, trx_import_service
+from app.services import trx_export_service, trx_import_analysis, trx_import_service, user_access
+from app.services.block_filter import BlockFilter
+from app.services.trx_export_service import XLSX_MEDIA_TYPE, ExportPeriod
 from app.services.trx_import_service import AREA_STATEMENT, PRODUCTION, ROTATION, ImportScope
 
 areal_statement_router = APIRouter()
@@ -239,3 +241,58 @@ def import_rotations_json(db: DbSession, user: CurrentUser, payload: TrxJsonImpo
         "Periode": 2026, "Bulan": 1, "Estate": "Ampen Medang Estate", "Afdeling": "AFDI01", "Blok": "C012"}]}},
 })):
     return trx_import_service.import_json(db, ROTATION, payload.data, payload.sumber, user.id)
+
+
+# =====================================================================
+# EXPORT EXCEL (data yang sudah tersimpan)
+# =====================================================================
+
+_EXPORT_DOC = """
+**Unduh data {label} yang sudah tersimpan sebagai Excel (.xlsx).**
+
+- Sheet **Data** memakai header yang sama persis dengan template import, jadi file ini bisa diedit lalu diunggah
+  ulang (upsert per blok & bulan). Sheet **Info** berisi filter dan waktu export.
+- Filter opsional: `tahun` (+ `bulan`), serta wilayah `kode_grup`, `area_id`, `kode_pt`, `kode_est`, `kode_afd`,
+  `kode_blok`, `ownership`, `tahun_tanam`. Tanpa filter = semua periode.
+- Data otomatis dibatasi wilayah yang boleh diakses role user; user tanpa hak akses transaksi ini mendapat 403.
+- Maksimal 1.048.575 baris per file (batas Excel); bila lebih, persempit filter.
+"""
+
+_EXPORT_RESPONSES = {200: {"content": {XLSX_MEDIA_TYPE: {}}}, 400: {"description": "Filter tidak valid / data terlalu banyak"},
+                     403: {"description": "Tidak ada hak akses transaksi"}}
+
+
+def _export(db, user, slug: str, flt: BlockFilter, tahun: int | None, bulan: int | None) -> Response:
+    kind = trx_export_service.EXPORT_KINDS[slug]
+    user_access.require_transaction(db, user, kind.table, kind.grant_alias)
+    filters = {"grup": flt.grup, "area": flt.area, "pt": flt.kode_pt, "estate": flt.kode_est,
+               "afdeling": flt.kode_afd, "blok": flt.blok, "tipe blok": flt.ownership, "tahun tanam": flt.tahun_tanam}
+    period = ExportPeriod(tahun, bulan)
+    flt = user_access.apply_data_scope(db, user, flt)
+    content, filename = trx_export_service.export_kind(db, kind, flt, period, filters)
+    return Response(content, media_type=XLSX_MEDIA_TYPE, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Cache-Control": "no-store",
+    })
+
+
+@areal_statement_router.get("/export-excel", summary="Export data Areal Statement ke Excel (format sama dengan template import)",
+                            description=_EXPORT_DOC.format(label="areal statement"), response_class=Response,
+                            responses=_EXPORT_RESPONSES)
+def export_area_statements(db: DbSession, user: CurrentUser, flt: BlockFilterDep, tahun: Tahun = None, bulan: Bulan = None):
+    return _export(db, user, "areal-statement", flt, tahun, bulan)
+
+
+@production_router.get("/export-excel", summary="Export data Produksi TBS ke Excel (format sama dengan template import)",
+                       description=_EXPORT_DOC.format(label="produksi TBS"), response_class=Response,
+                       responses=_EXPORT_RESPONSES)
+def export_productions(db: DbSession, user: CurrentUser, flt: BlockFilterDep, tahun: Tahun = None, bulan: Bulan = None):
+    return _export(db, user, "produksi-tbs", flt, tahun, bulan)
+
+
+@rotation_router.get("/export-excel", summary="Export data Rotasi & Pusingan ke Excel (format sama dengan template import)",
+                     description=_EXPORT_DOC.format(label="rotasi & pusingan"), response_class=Response,
+                     responses=_EXPORT_RESPONSES)
+def export_rotations(db: DbSession, user: CurrentUser, flt: BlockFilterDep, tahun: Tahun = None, bulan: Bulan = None):
+    return _export(db, user, "rotasi-pusingan", flt, tahun, bulan)
