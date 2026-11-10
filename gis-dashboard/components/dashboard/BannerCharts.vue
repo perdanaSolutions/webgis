@@ -752,11 +752,10 @@ const rotationNote = computed(() =>
   min-width: 0;
   min-height: 100%;
   flex-direction: column;
-  border: 1px solid transparent;
+  /* Border biru untuk semua kartu KPI (Produksi TBS, Yield, Status Tanam, Rotasi). */
+  border: 1.5px solid #2f7de1;
   border-radius: 22px;
-  background:
-    linear-gradient(rgb(220 238 252 / 8%), rgb(235 245 255 / 4%)) padding-box,
-    linear-gradient(180deg, rgba(220, 238, 252, 0.166), rgba(235, 245, 255, 0.289)) border-box;
+  background: linear-gradient(rgb(220 238 252 / 8%), rgb(235 245 255 / 4%));
   padding: 0.85rem 0.95rem 0.8rem;
   box-shadow: 0 6px 18px rgba(31, 42, 24, 0.088);
   backdrop-filter: blur(3px);
