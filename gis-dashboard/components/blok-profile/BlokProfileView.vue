@@ -398,6 +398,7 @@ async function downloadPdf() {
         data: layer.data!,
       })),
       sections: printSheetRef.value?.sections() ?? [],
+      mapView: mapRef.value?.getView() ?? null,
       onStatus: (message) => { exportStatus.value = message; },
     });
   } catch (error) {

@@ -1108,7 +1108,22 @@ function invalidateSize() {
   map?.invalidateSize({ animate: false });
 }
 
-defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, invalidateSize });
+/** Center/zoom/bounds viewport saat ini — dipakai Unduh Peta agar PDF mengikuti tampilan layar. */
+function getView() {
+  if (!map) return null;
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  return {
+    center: { lat: center.lat, lng: center.lng },
+    zoom: map.getZoom(),
+    bounds: [
+      [bounds.getSouth(), bounds.getWest()],
+      [bounds.getNorth(), bounds.getEast()],
+    ] as [[number, number], [number, number]],
+  };
+}
+
+defineExpose({ zoomIn, zoomOut, fitScope, suppressNextPan, releasePanSkip, invalidateSize, getView });
 
 // ------------------------------------------------------------------ siklus hidup
 onMounted(async () => {

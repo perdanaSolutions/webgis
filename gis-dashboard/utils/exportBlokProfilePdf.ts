@@ -23,6 +23,14 @@ export type PdfOverlay = {
   data: GeoJSON.FeatureCollection;
 };
 
+/** Viewport peta layar — supaya Unduh Peta tidak fitBounds ke seluruh layer. */
+export type PdfMapView = {
+  center: { lat: number; lng: number };
+  zoom: number;
+  /** [[south, west], [north, east]] — dipakai agar area geografis sama meski rasio kanvas PDF beda. */
+  bounds?: [[number, number], [number, number]];
+};
+
 export type PdfExportInput = {
   scopeLabel: string;
   filterLine: string;
@@ -37,6 +45,8 @@ export type PdfExportInput = {
   blocks: GeoJSON.FeatureCollection | null;
   overlays: PdfOverlay[];
   sections: HTMLElement[];
+  /** Center/zoom/bounds map live; tanpa ini export kembali fit seluruh layer. */
+  mapView?: PdfMapView | null;
   onStatus?: (message: string) => void;
 };
 
@@ -138,7 +148,12 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
     attributionControl: false,
     fadeAnimation: false,
     zoomAnimation: false,
-  }).setView([0.5, 117.5], 6);
+    // Samakan dengan peta layar (zoom pecahan dari scroll/tombol skala).
+    zoomSnap: 0,
+  }).setView(
+    input.mapView ? [input.mapView.center.lat, input.mapView.center.lng] : [0.5, 117.5],
+    input.mapView?.zoom ?? 6,
+  );
   for (const [name, z] of [["bp-polygons", 410], ["bp-blocks", 430], ["bp-lines", 440], ["bp-points", 450], ["bp-labels", 460]] as const) {
     map.createPane(name).style.zIndex = String(z);
   }
@@ -240,8 +255,20 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   let basemapDrawn = true;
   try {
     map.invalidateSize();
-    if (bounds.isValid()) {
-      const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
+    const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
+    if (input.mapView?.bounds) {
+      // Ikuti area geografis yang terlihat di layar (bukan seluruh layer scope).
+      // fitBounds menyesuaikan zoom ke kanvas PDF yang ukurannya beda dari map live.
+      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
+      await Promise.race([moved, sleep(1500)]);
+    } else if (input.mapView) {
+      map.setView(
+        [input.mapView.center.lat, input.mapView.center.lng],
+        input.mapView.zoom,
+        { animate: false },
+      );
+      await Promise.race([moved, sleep(1500)]);
+    } else if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [42, 54], maxZoom: 16 });
       await Promise.race([moved, sleep(1500)]);
     } else {
