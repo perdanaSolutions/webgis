@@ -9,7 +9,7 @@ from app.services import foto_udara_service as fu
 @pytest.fixture(autouse=True)
 def _cfg(monkeypatch):
     monkeypatch.setattr(settings, "SERVER_LOCAL", False)
-    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.17:8081/geoserver/tpgis/wms")
+    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.23:8081/geoserver/tpgis/wms")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_URL", "https://digilink.example/fu/wms")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_TOKEN", "tok-rahasia")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_LAYERS", "tpgis:tpgis_fu")
@@ -26,14 +26,17 @@ def test_getmap_query_aman_dan_token_hanya_di_upstream():
 
 def test_mode_server_local_pakai_ip_tanpa_token(monkeypatch):
     monkeypatch.setattr(settings, "SERVER_LOCAL", True)
-    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.17:8081/geoserver/tpgis/wms?")
+    monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "http://192.168.1.23:8081/geoserver/tpgis/wms?")
     monkeypatch.setattr(settings, "FOTO_UDARA_WMS_TOKEN", "")  # mode lokal tidak butuh token
+    monkeypatch.setattr(settings, "FOTO_UDARA_WMS_LAYERS", "tpgis_fu")  # sama seperti Leaflet lokal
     assert fu.configured() is True
     assert fu.uses_local_server() is True
-    assert fu.wms_base_url() == "http://192.168.1.17:8081/geoserver/tpgis/wms"
+    assert fu.wms_base_url() == "http://192.168.1.23:8081/geoserver/tpgis/wms"
+    # Frontend masih kirim tpgis:tpgis_fu; backend memetakan ke tpgis_fu (env lokal).
     q = fu.build_getmap_query({"bbox": "1,2,3,4", "width": "256", "height": "256", "layers": "tpgis:tpgis_fu"})
+    assert q["layers"] == "tpgis_fu"
     url = fu._upstream_url(q)
-    assert url.startswith("http://192.168.1.17:8081/geoserver/tpgis/wms?")
+    assert url.startswith("http://192.168.1.23:8081/geoserver/tpgis/wms?")
     assert "token=" not in url
 
 
@@ -41,6 +44,14 @@ def test_layer_lain_ditolak():
     with pytest.raises(fu.FotoUdaraError) as exc:
         fu.build_getmap_query({"bbox": "1,2,3,4", "layers": "tpgis:TPA-SGA"})
     assert exc.value.reason == "layer_not_found" and exc.value.status == 404
+
+
+def test_capabilities_menerima_alias_tanpa_workspace():
+    # Endpoint /tpgis/wms biasanya mengembalikan <Name>tpgis_fu</Name>, bukan tpgis:tpgis_fu.
+    xml = ('<Layer><Name>tpgis_fu</Name><Title>t</Title><SRS>EPSG:4326</SRS>'
+           '<LatLonBoundingBox minx="116.38" miny="-2.35" maxx="118.57" maxy="1.66"/></Layer>')
+    out = fu.parse_capabilities(xml, ["tpgis:tpgis_fu"])
+    assert out["layers"] == {"tpgis:tpgis_fu": {"bbox": [116.38, -2.35, 118.57, 1.66]}}
 
 
 @pytest.mark.parametrize("params", [{"bbox": "1,2,3"}, {"bbox": "a,b,c,d"}, {"bbox": "1,2,3,4", "width": "5000"},
@@ -109,7 +120,7 @@ async def _belum_dikonfigurasi(monkeypatch):
     monkeypatch.setattr(settings, "SERVER_LOCAL", True)
     monkeypatch.setattr(settings, "IP_LOCAL_FOTO_UDARA", "")
     with pytest.raises(fu.FotoUdaraError) as exc:
-        await fu.get_tile({"bbox": "1,2,3,4"})
+        await fu.get_tile({"bbox": "1,2,3,4", "layers": "tpgis:tpgis_fu"})
     assert exc.value.reason == "not_configured"
     assert "IP_LOCAL_FOTO_UDARA" in exc.value.message
 

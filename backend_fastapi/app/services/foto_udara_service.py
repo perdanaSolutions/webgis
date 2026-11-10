@@ -52,6 +52,40 @@ def allowed_layers() -> list[str]:
     return [x.strip() for x in (settings.FOTO_UDARA_WMS_LAYERS or "").split(",") if x.strip()]
 
 
+def layer_name_aliases(name: str) -> set[str]:
+    """GeoServer workspace WMS (/tpgis/wms) sering mengembalikan Name tanpa prefix workspace.
+    Jadi tpgis:tpgis_fu dan tpgis_fu dianggap nama yang sama."""
+    name = (name or "").strip()
+    if not name:
+        return set()
+    aliases = {name}
+    if ":" in name:
+        aliases.add(name.split(":", 1)[1])
+    return aliases
+
+
+def resolve_allowed_layers(requested: str) -> str:
+    """Petakan layer dari browser ke bentuk yang diizinkan di env (untuk upstream GetMap)."""
+    allowed = allowed_layers()
+    parts = [x.strip() for x in (requested or "").split(",") if x.strip()]
+    if not parts:
+        if not allowed:
+            raise FotoUdaraError("layer_not_found", "Layer belum dikonfigurasi (FOTO_UDARA_WMS_LAYERS).", 404)
+        return allowed[0]
+    resolved: list[str] = []
+    for part in parts:
+        aliases = layer_name_aliases(part)
+        match = next((a for a in allowed if aliases & layer_name_aliases(a)), None)
+        if not match:
+            raise FotoUdaraError(
+                "layer_not_found",
+                f"Layer '{part}' tidak diizinkan. Layer tersedia: {', '.join(allowed) or '-'}",
+                404,
+            )
+        resolved.append(match)
+    return ",".join(resolved)
+
+
 def uses_local_server() -> bool:
     """SERVER_LOCAL=true → GeoServer lokal (IP_LOCAL_FOTO_UDARA) tanpa token."""
     return bool(settings.SERVER_LOCAL)
@@ -95,10 +129,7 @@ def _upstream_url(query: dict[str, str]) -> str:
 def build_getmap_query(params: dict[str, str]) -> dict[str, str]:
     """Hanya parameter GetMap yang aman diteruskan; layer harus termasuk daftar yang diizinkan."""
     p = {k.lower(): v for k, v in params.items()}
-    layers = p.get("layers") or (allowed_layers()[:1] or [""])[0]
-    allowed = allowed_layers()
-    if not layers or any(layer not in allowed for layer in layers.split(",")):
-        raise FotoUdaraError("layer_not_found", f"Layer '{layers}' tidak diizinkan. Layer tersedia: {', '.join(allowed) or '-'}", 404)
+    layers = resolve_allowed_layers(p.get("layers") or "")
     version = p.get("version") or "1.1.1"
     if version not in ("1.1.1", "1.1.0", "1.3.0"):
         raise FotoUdaraError("bad_request", "Versi WMS tidak didukung.", 400)
@@ -213,10 +244,18 @@ async def get_tile(params: dict[str, str]) -> tuple[bytes, str, bool]:
 
 
 def parse_capabilities(xml: str, wanted: list[str]) -> dict:
-    """Cek layer yang diminta ada + ambil cakupan (LatLonBoundingBox / EX_GeographicBoundingBox)."""
+    """Cek layer yang diminta ada + ambil cakupan (LatLonBoundingBox / EX_GeographicBoundingBox).
+
+    Mencocokkan juga alias tanpa/dengan workspace (tpgis_fu ↔ tpgis:tpgis_fu) karena GetCapabilities
+    di endpoint /tpgis/wms biasanya memakai Name tanpa prefix.
+    """
     out: dict = {"layers": {}}
     for name in wanted:
-        i = xml.find(f"<Name>{name}</Name>")
+        i = -1
+        for alias in layer_name_aliases(name):
+            i = xml.find(f"<Name>{alias}</Name>")
+            if i >= 0:
+                break
         if i < 0:
             continue
         chunk = xml[i:i + 4000]

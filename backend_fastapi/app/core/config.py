@@ -61,10 +61,11 @@ class Settings(BaseSettings):
     # Basemap Foto Udara lewat proxy backend: token TIDAK pernah dikirim ke browser.
     # SERVER_LOCAL=false → digilink + FOTO_UDARA_WMS_TOKEN; true → IP_LOCAL_FOTO_UDARA tanpa token.
     SERVER_LOCAL: bool = False
-    IP_LOCAL_FOTO_UDARA: str = "http://192.168.1.17:8081/geoserver/tpgis/wms"
+    # Contoh lokal yang sudah jalan: http://192.168.1.23:8081/geoserver/tpgis/wms + layer tpgis_fu.
+    IP_LOCAL_FOTO_UDARA: str = "http://192.168.1.23:8081/geoserver/tpgis/wms"
     FOTO_UDARA_WMS_URL: str = "https://digilink.teladanprima.com/fu/wms"
     FOTO_UDARA_WMS_TOKEN: str = ""
-    # Layer WMS yang boleh diminta (dipisah koma). tpgis:tpgis_fu = layer group gabungan seluruh foto udara.
+    # Layer WMS yang boleh diminta (dipisah koma). Lokal: tpgis_fu; digilink: tpgis:tpgis_fu (alias saling cocok).
     FOTO_UDARA_WMS_LAYERS: str = "tpgis:tpgis_fu"
     # Foto udara jarang berubah dan GeoServer merender tiap ubin ~0,6–1,4 dtk tanpa cache, jadi ubin disimpan lama.
     FOTO_UDARA_CACHE_SECONDS: int = 90 * 24 * 3600
