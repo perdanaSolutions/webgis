@@ -42,3 +42,88 @@ psql -U postgres -d gis_db_v4 -v ON_ERROR_STOP=1 -1 -f database/dump/gis_db_v4_a
 - Import: `CREATE EXTENSION IF NOT EXISTS postgis;` lalu
   `psql -d <db> -v ON_ERROR_STOP=1 -1 -f database/dump/gis_db_v4_schema_audit_quarantine_spatial_trx_20261105.sql`
 - Kalau schema-schema ini sudah ada di db tujuan: backup lalu `DROP SCHEMA audit, quarantine, spatial, trx CASCADE;` dulu (JANGAN drop auth/master/ref).
+
+---
+
+# Dump schema trx dari gis_db_v4 (prod) — struktur + data
+
+- File: `gis_db_v4_trx_full_20261111.sql` (struktur + seluruh data, plain SQL, 34 MB)
+- Sumber: `gis_db_v4` di `gis-postgres` (PostgreSQL 16.4), dibuat 2026-11-11 10:09 WIB:
+  `pg_dump -d gis_db_v4 -n trx --no-owner --no-privileges -Fp`
+- Isi: 4 tabel + 1 view (`v_block_production_facts`) + 3 identity sequence.
+
+  | Tabel | Baris |
+  |-------|------:|
+  | area_statements | 131784 |
+  | area_statement_seed_varieties | 132852 |
+  | block_productions | 115244 |
+  | harvest_rotations | 26855 |
+
+- Tidak ada kolom geometry/PostGIS, dan tidak ada kolom token/password/kredensial.
+- Ketergantungan (wajib ada di database tujuan sebelum import):
+  - Tipe `ref.month_period` (kolom `period` di 3 tabel) — sudah ada jika dump auth/master/ref 20261105 diimpor.
+  - FK ke `master.blocks`, `master.areas`, `ref.planting_statuses`, `ref.soil_types`, `ref.topography_types`, `ref.seed_varieties`, `ref.rotation_statuses`.
+  - FK ke `audit.upload_batches(id)`: semua baris trx punya `upload_batch_id` (90 UUID berbeda). Tanpa baris itu, import gagal saat menambah constraint.
+  - Trigger `audit_row` / `audit_row_update` / `audit_truncate` memanggil `audit.log_row_change()` dan `audit.log_truncate()` — fungsi ini ada di dump struktur audit/quarantine/spatial/trx 20261105 (tanpa data `upload_batches`).
+- PERINGATAN: berisi data transaksi prod (area statement, produksi, rotasi panen) di repo public.
+
+## Restore (umum)
+
+Database tujuan harus sudah punya schema auth, master, ref, dan audit (fungsi + tabel `upload_batches`). File ini dump penuh (CREATE SCHEMA/TABLE + data), jadi pendekatan truncate saja tidak cocok. Jika schema trx sudah ada, backup dulu lalu `DROP SCHEMA trx CASCADE` (JANGAN drop auth/master/ref/audit) dan import dalam satu transaksi.
+
+```bash
+# Sisipkan stub untuk UUID upload_batch_id yang belum ada, agar FK lolos
+awk '
+  /^COPY trx\./ && /upload_batch_id/ {p=1; next}
+  p && $0=="\\." {p=0; next}
+  p {print $NF}
+' database/dump/gis_db_v4_trx_full_20261111.sql \
+| sort -u \
+| awk '{printf "INSERT INTO audit.upload_batches (id, source_type, target_table, record_count, status) SELECT '\''%s'\'', '\''IMPORT_STUB'\'', '\''trx'\'', 0, '\''COMPLETED'\'' WHERE NOT EXISTS (SELECT 1 FROM audit.upload_batches WHERE id = '\''%s'\'');\n", $1, $1}' \
+| psql -U postgres -d gis_db_v4 -v ON_ERROR_STOP=1
+
+# Backup schema trx yang ada, lalu ganti dengan dump ini (satu transaksi)
+pg_dump -U postgres -d gis_db_v4 -n trx --no-owner --no-privileges -Fp > trx_backup_sebelum_import.sql
+{
+  echo "DROP SCHEMA IF EXISTS trx CASCADE;"
+  cat database/dump/gis_db_v4_trx_full_20261111.sql
+} | psql -U postgres -d gis_db_v4 -v ON_ERROR_STOP=1 -1
+```
+
+## Import ke server TPA (container `global-postgres`, database `db_gis`)
+
+Jalankan di server TPA, dari checkout repo (mis. `/home/ginanjar/aplikasi/webgis`), setelah auth/master/ref dan struktur audit sudah ada:
+
+```bash
+cd /home/ginanjar/aplikasi/webgis
+PGU=$(docker exec global-postgres printenv POSTGRES_USER)
+DUMP=database/dump/gis_db_v4_trx_full_20261111.sql
+
+# 1. Backup schema trx yang sekarang ada di db_gis
+docker exec global-postgres pg_dump -U "$PGU" -d db_gis -n trx --no-owner --no-privileges -Fp \
+  > /tmp/db_gis_trx_backup_sebelum_import_20261111.sql
+
+# 2. Stub audit.upload_batches untuk UUID yang dirujuk dump (lewati id yang sudah ada)
+awk '
+  /^COPY trx\./ && /upload_batch_id/ {p=1; next}
+  p && $0=="\\." {p=0; next}
+  p {print $NF}
+' "$DUMP" \
+| sort -u \
+| awk '{printf "INSERT INTO audit.upload_batches (id, source_type, target_table, record_count, status) SELECT '\''%s'\'', '\''IMPORT_STUB'\'', '\''trx'\'', 0, '\''COMPLETED'\'' WHERE NOT EXISTS (SELECT 1 FROM audit.upload_batches WHERE id = '\''%s'\'');\n", $1, $1}' \
+| docker exec -i global-postgres psql -U "$PGU" -d db_gis -v ON_ERROR_STOP=1
+
+# 3. Ganti schema trx dalam satu transaksi
+{
+  echo "DROP SCHEMA IF EXISTS trx CASCADE;"
+  cat "$DUMP"
+} | docker exec -i global-postgres psql -U "$PGU" -d db_gis -v ON_ERROR_STOP=1 -1
+
+# 4. Verifikasi jumlah baris (harus sama dengan tabel di atas)
+docker exec global-postgres psql -U "$PGU" -d db_gis -c "
+SELECT 'area_statements' AS tabel, COUNT(*) FROM trx.area_statements
+UNION ALL SELECT 'area_statement_seed_varieties', COUNT(*) FROM trx.area_statement_seed_varieties
+UNION ALL SELECT 'block_productions', COUNT(*) FROM trx.block_productions
+UNION ALL SELECT 'harvest_rotations', COUNT(*) FROM trx.harvest_rotations;
+"
+```
