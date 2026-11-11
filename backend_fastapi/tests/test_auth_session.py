@@ -320,7 +320,7 @@ def test_monitoring_users_online_then_offline_after_logout(client, superadmin_id
     online = _monitor(client, admin, search=user["username"])
     row = online["data"][0]
     assert (row["status"], row["jumlah_sesi"]) == ("online", 1)
-    assert row["login_terakhir"] and row["ip_terakhir"]
+    assert row["login_terakhir"] and row["ip_terakhir"] and "/" not in row["ip_terakhir"]  # tanpa mask /32
     assert _monitor(client, admin, search=user["username"], status="offline")["data"] == []
 
     assert client.post("/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 200

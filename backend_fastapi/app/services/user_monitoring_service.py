@@ -20,7 +20,7 @@ from app.utils.pagination import page_response
 
 _LAST_ACTIVITY = """
     LEFT JOIN LATERAL (
-        SELECT created_at, ip_address::text AS ip FROM audit.user_activities a
+        SELECT created_at, host(ip_address) AS ip FROM audit.user_activities a
         WHERE a.user_id = u.id AND a.action = 'LOGIN' AND a.status = 'SUCCESS'
         ORDER BY created_at DESC LIMIT 1) li ON true
     LEFT JOIN LATERAL (
