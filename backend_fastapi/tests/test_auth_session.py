@@ -282,3 +282,113 @@ def test_token_without_session_rejected_when_auth_on(client, auth_redis, superad
     """Token dibuat tanpa create_session (mis. skrip) ditolak bila REDIS_AUTH_ENABLED."""
     headers = {"Authorization": f"Bearer {create_access_token(superadmin_id)}"}
     assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+
+# ---------- Monitoring user (GET /monitoring/users) ----------
+
+def _create_user(client, admin_headers, prefix: str) -> dict:
+    roles = client.get("/api/v1/roles/", headers=admin_headers).json()
+    viewer = next(r for r in roles if r["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    payload = {
+        "username": f"{prefix}_{suffix}",
+        "email": f"{prefix}_{suffix}@example.com",
+        "nama_lengkap": f"Monitor {suffix}",
+        "role_ids": [viewer["id"]],
+        "password": "rahasia123",
+    }
+    assert client.post("/api/v1/users/", headers=admin_headers, json=payload).status_code == 201
+    return payload
+
+
+def _monitor(client, headers, **params) -> dict:
+    response = client.get("/api/v1/monitoring/users", headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_monitoring_users_online_then_offline_after_logout(client, superadmin_id, auth_redis):
+    admin = _bearer_with_session(superadmin_id)
+    user = _create_user(client, admin, "mon")
+
+    before = _monitor(client, admin, search=user["username"])
+    assert before["sumber"] == "redis"
+    assert [r["status"] for r in before["data"]] == ["offline"]
+    assert before["ringkasan"] == {"total_user": 1, "online": 0, "offline": 1}
+
+    token = client.post("/api/v1/auth/login", json={"email": user["username"], "password": "rahasia123"}).json()["access_token"]
+    online = _monitor(client, admin, search=user["username"])
+    row = online["data"][0]
+    assert (row["status"], row["jumlah_sesi"]) == ("online", 1)
+    assert row["login_terakhir"] and row["ip_terakhir"]
+    assert _monitor(client, admin, search=user["username"], status="offline")["data"] == []
+
+    assert client.post("/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    after = _monitor(client, admin, search=user["username"])
+    assert after["data"][0]["status"] == "offline"
+    assert after["data"][0]["logout_terakhir"]
+
+
+def test_monitoring_users_requires_permission(client, superadmin_id, auth_redis):
+    admin = _bearer_with_session(superadmin_id)
+    user = _create_user(client, admin, "monforbid")
+    token = client.post("/api/v1/auth/login", json={"email": user["username"], "password": "rahasia123"}).json()["access_token"]
+    denied = client.get("/api/v1/monitoring/users", headers={"Authorization": f"Bearer {token}"})
+    assert denied.status_code == 403
+    assert client.get("/api/v1/monitoring/users").status_code == 401
+
+
+def test_monitoring_users_log_fallback_when_redis_auth_off(client, superadmin_id, monkeypatch):
+    monkeypatch.setattr(settings, "REDIS_AUTH_ENABLED", False)
+    headers = {"Authorization": f"Bearer {create_access_token(superadmin_id)}"}
+    result = _monitor(client, headers, limit=100)
+    assert result["sumber"] == "log_aktivitas"
+    assert result["ringkasan"]["total_user"] == result["ringkasan"]["online"] + result["ringkasan"]["offline"]
+
+
+def test_active_sessions_ignores_expired_jti(auth_redis):
+    live, expired = new_jti(), new_jti()
+    asyncio.run(create_session(live, "u-1"))
+    asyncio.run(create_session(expired, "u-1"))
+    del auth_redis.hashes[f"gis:auth:sess:{expired}"]  # sess kedaluwarsa, jti masih tercatat di set user
+    from app.core.auth_session import active_sessions
+    result = asyncio.run(active_sessions(["u-1", "u-2"]))
+    assert set(result) == {"u-1"} and result["u-1"]["jumlah"] == 1
+
+
+def test_active_sessions_none_when_redis_auth_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "REDIS_AUTH_ENABLED", False)
+    from app.core.auth_session import active_sessions
+    assert asyncio.run(active_sessions(["u-1"])) is None
+
+
+def test_build_monitoring_log_mode_rules():
+    from datetime import datetime, timedelta, timezone
+    from app.services.user_monitoring_service import build_monitoring
+
+    now = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
+
+    def row(uid, login, logout=None, active=True, locked=None):
+        return {"id": uid, "username": uid, "full_name": uid, "email": f"{uid}@x", "is_active": active,
+                "locked_at": locked, "roles": ["viewer"], "login_terakhir": login, "ip_terakhir": "10.0.0.1",
+                "logout_terakhir": logout, "aktivitas_terakhir": login}
+
+    ttl = timedelta(seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    users = [
+        row("masuk", now - timedelta(minutes=5)),
+        row("sudah_keluar", now - timedelta(minutes=5), logout=now - timedelta(minutes=1)),
+        row("login_ulang", now - timedelta(minutes=5), logout=now - timedelta(minutes=9)),
+        row("kedaluwarsa", now - ttl - timedelta(minutes=1)),
+        row("nonaktif", now - timedelta(minutes=5), active=False),
+        row("terkunci", now - timedelta(minutes=5), locked=now),
+        row("belum_pernah", None),
+    ]
+    result = build_monitoring(users, None, status=None, page=1, limit=50, now=now)
+    status = {r["username"]: r["status"] for r in result["data"]}
+    assert status == {"masuk": "online", "login_ulang": "online", "sudah_keluar": "offline",
+                      "kedaluwarsa": "offline", "nonaktif": "offline", "terkunci": "offline",
+                      "belum_pernah": "offline"}
+    assert result["ringkasan"] == {"total_user": 7, "online": 2, "offline": 5}
+    assert [r["status"] for r in result["data"][:2]] == ["online", "online"]  # online di urutan teratas
+    only_online = build_monitoring(users, None, status="online", page=1, limit=1, now=now)
+    assert only_online["total_data"] == 2 and only_online["total_page"] == 2 and len(only_online["data"]) == 1

@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     geo_catalog,
     layers,
     menu,
+    monitoring,
     mtls,
     quarantine,
     role,
@@ -34,6 +35,7 @@ api_router.include_router(upload_history.router, prefix="/upload-history", tags=
 api_router.include_router(upload_jobs.router, prefix="/upload-jobs", tags=["Antrian Upload GeoJSON"])
 api_router.include_router(quarantine.router, prefix="/karantina", tags=["Audit Logs"])
 
+api_router.include_router(monitoring.router, prefix="/monitoring", tags=["Monitoring User"])
 api_router.include_router(announcement.router, prefix="/pengumuman", tags=["Pengumuman"])
 
 # Router Role Management

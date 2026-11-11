@@ -138,6 +138,34 @@ async def revoke_jti(
         raise AuthSessionUnavailable("Redis auth tidak tersedia") from exc
 
 
+async def active_sessions(user_ids: list[str]) -> dict[str, dict] | None:
+    """
+    Sesi aktif per user dari registry Redis: {user_id: {"jumlah": n, "login_terakhir": epoch}}.
+    User tanpa sesi aktif tidak muncul. None bila REDIS_AUTH_ENABLED=false (registry tidak ada).
+    """
+    client = await _require_client()
+    if client is None:
+        return None
+    result: dict[str, dict] = {}
+    try:
+        for uid in user_ids:
+            iats: list[int] = []
+            for raw in await client.smembers(f"{USER_PREFIX}{uid}") or []:
+                jti = raw.decode() if isinstance(raw, bytes) else str(raw)
+                iat = await client.hget(f"{SESS_PREFIX}{jti}", b"iat")
+                if iat is not None:  # sess key kedaluwarsa/dicabut -> bukan sesi aktif
+                    iats.append(int(iat))
+            if iats:
+                result[uid] = {"jumlah": len(iats), "login_terakhir": max(iats)}
+    except AuthSessionUnavailable:
+        raise
+    except Exception as exc:
+        await redis_client.mark_down(client)
+        logger.warning("Gagal membaca sesi aktif Redis: %s", exc)
+        raise AuthSessionUnavailable("Redis auth tidak tersedia") from exc
+    return result
+
+
 async def revoke_user(user_id: str) -> None:
     """Cabut semua jti aktif user (ganti password / kunci / nonaktif)."""
     client = await _require_client()
