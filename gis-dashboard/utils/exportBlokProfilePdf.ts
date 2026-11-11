@@ -23,12 +23,10 @@ export type PdfOverlay = {
   data: GeoJSON.FeatureCollection;
 };
 
-/** Viewport peta layar — supaya Unduh Peta memakai center + zoom yang sama dengan halaman. */
+/** Center + zoom peta layar saat Unduh Peta diklik — bukan fit center default. */
 export type PdfMapView = {
   center: { lat: number; lng: number };
-  /** Level zoom Leaflet persis seperti peta layar (ikut skala mis. 500 m). */
   zoom: number;
-  /** Cadangan jika zoom tidak valid: [[south, west], [north, east]]. */
   bounds?: [[number, number], [number, number]];
 };
 
@@ -46,7 +44,7 @@ export type PdfExportInput = {
   blocks: GeoJSON.FeatureCollection | null;
   overlays: PdfOverlay[];
   sections: HTMLElement[];
-  /** Center/zoom/bounds map live; tanpa ini export kembali fit seluruh layer. */
+  /** Wajib untuk framing: center + zoom halaman map saat ini. */
   mapView?: PdfMapView | null;
   onStatus?: (message: string) => void;
 };
@@ -258,9 +256,8 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   try {
     map.invalidateSize();
     const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
+    // Framing = center + zoom halaman map saat ini (bukan default fit center / fit seluruh layer).
     if (input.mapView && Number.isFinite(input.mapView.zoom)) {
-      // Wajib setView(center, zoom) — jangan fitBounds viewport: kanvas PDF beda ukuran,
-      // fitBounds akan mengubah level zoom sehingga skala (mis. 500 m) tidak sama dengan halaman.
       map.setView(
         [input.mapView.center.lat, input.mapView.center.lng],
         input.mapView.zoom,

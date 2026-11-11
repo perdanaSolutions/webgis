@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "../utils/mapView";
+import { bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "../utils/mapView";
 
-const poly = (coords: number[][]) => ({ geometry: { type: "Polygon", coordinates: [coords] } });
+const poly = (coords: number[][], id?: string) => ({
+  geometry: { type: "Polygon", coordinates: [coords] },
+  properties: id ? { blok_id: id } : {},
+});
 
 describe("featuresBBox / bboxCenter", () => {
   it("menghitung barat-timur dan selatan-utara dari semua blok", () => {
@@ -22,6 +25,24 @@ describe("featuresBBox / bboxCenter", () => {
   });
   it("null bila kosong", () => {
     expect(featuresBBox([])).toBeNull();
+  });
+});
+
+describe("fitCenterBBox", () => {
+  it("memakai bbox blok terpilih bila selectedId ada", () => {
+    const features = [
+      poly([[0, 0], [1, 0], [1, 1], [0, 0]], "a"),
+      poly([[9, 9], [10, 9], [10, 10], [9, 9]], "b"),
+    ];
+    expect(fitCenterBBox(features, "b")).toEqual({ west: 9, south: 9, east: 10, north: 10 });
+  });
+  it("fallback ke semua blok bila selectedId kosong / tidak ketemu", () => {
+    const features = [
+      poly([[0, 0], [1, 0], [1, 1], [0, 0]], "a"),
+      poly([[9, 9], [10, 9], [10, 10], [9, 9]], "b"),
+    ];
+    expect(fitCenterBBox(features, "")).toEqual({ west: 0, south: 0, east: 10, north: 10 });
+    expect(fitCenterBBox(features, "missing")).toEqual({ west: 0, south: 0, east: 10, north: 10 });
   });
 });
 

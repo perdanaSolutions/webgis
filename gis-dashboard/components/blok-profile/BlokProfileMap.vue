@@ -31,7 +31,7 @@ import {
   AFDELING_HIT_PX, AFDELING_LAYER_CODE, afdelingDeclutter, afdelingLabelText, afdelingLabelsVisible, afdelingPopupHtml,
   afdelingStyle, declutterLabels, largestPart, polylabel, ringsDistance,
 } from "~/utils/afdelingBoundary";
-import { bboxCenter, featuresBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
+import { FIT_PAD_PX, bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 type L = typeof import("leaflet");
@@ -113,7 +113,7 @@ let stopSmoothWheel: (() => void) | null = null;
 /** Lebar garis skala (px) — dasar definisi "100 m" dan "500 m". */
 const SCALE_PX = 100;
 /** Padding simetris saat fit semua blok. */
-const FIT_PAD = 24;
+const FIT_PAD = FIT_PAD_PX;
 /** Skala target terakhir dari tombol +/− (null = zoom bebas oleh user). */
 let buttonScale: number | null = null;
 let buttonZoom: number | null = null;
@@ -593,14 +593,12 @@ function focusBlock(layer: any) {
 }
 
 /**
- * Tengah presisi: bbox barat–timur & selatan–utara SEMUA blok yang tampil, tengahnya dihitung sendiri,
- * zoom dipilih agar lebar dan tinggi bbox muat. Padding simetris dan tidak dipengaruhi kartu kiri/kanan.
+ * Tengah presisi: sama dengan tombol fit center — blok terpilih, atau bbox semua blok tampil.
+ * Padding simetris; kartu kiri/kanan tidak ikut dihitung.
  */
 function fitVisibleBlocks() {
   if (!map || !Lf || !blockLayer) return;
-  const chosen = selectedLayer();
-  if (chosen && focusBlock(chosen)) return;
-  const box = featuresBBox(props.blocks?.features ?? []);
+  const box = fitCenterBBox(props.blocks?.features ?? [], props.selectedId);
   if (box) fitBox(box);
 }
 

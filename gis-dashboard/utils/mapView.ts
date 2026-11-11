@@ -41,6 +41,27 @@ export function featuresBBox(features: Array<{ geometry?: any } | null | undefin
   return box;
 }
 
+/**
+ * Padding fit-center (px per sisi). Leaflet `getBoundsZoom(..., point(pad*2, pad*2))`
+ * mengurangi ukuran peta total pad*2 — sama dengan tombol fit center di BlokProfileMap.
+ */
+export const FIT_PAD_PX = 24;
+
+/**
+ * BBox yang dipakai tombol fit center: blok terpilih bila ada, selain itu semua blok tampil.
+ */
+export function fitCenterBBox(
+  features: Array<{ geometry?: any; properties?: Record<string, unknown> | null } | null | undefined>,
+  selectedId?: string | null,
+): BBox | null {
+  if (selectedId) {
+    const selected = features.filter((f) => String(f?.properties?.blok_id ?? "") === selectedId);
+    const box = featuresBBox(selected);
+    if (box) return box;
+  }
+  return featuresBBox(features);
+}
+
 const RAD = Math.PI / 180;
 function mercY(lat: number) {
   return Math.log(Math.tan(Math.PI / 4 + (lat * RAD) / 2));
