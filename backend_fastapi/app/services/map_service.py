@@ -6,7 +6,7 @@ batas TERBARU dengan period <= periode yang diminta (tanpa parameter = terbaru).
 
 `produksi_tbs` memakai rentang transaksi (`TrxWindow`) dari bulan/tahun + `year_to_date`:
 - year_to_date + bulan  -> Januari s/d bulan itu
-- year_to_date tanpa bulan -> Januari s/d bulan berjalan (tahun lalu: s/d Desember)
+- year_to_date tanpa bulan -> Januari s/d bulan produksi terakhir yang diupload di tahun itu (bukan bulan kalender)
 - bukan year_to_date + bulan -> bulan itu saja
 - bukan year_to_date tanpa bulan -> bulan produksi terakhir yang diupload di tahun itu (blok yang difilter)
 Tanpa tahun: acuannya bulan produksi terakhir yang ada. `areal_statement` (dan luas untuk yield)
@@ -77,9 +77,7 @@ def resolve_trx_window(db: Session, block_ids: list[int], bulan: int | None, tah
                        year_to_date: bool) -> TrxWindow | None:
     if bulan and tahun:
         return TrxWindow.of(to_period(bulan, tahun), year_to_date)
-    if tahun and year_to_date:
-        today = date.today()
-        return TrxWindow.of(to_period(today.month if tahun == today.year else 12, tahun), True)
+    # Tanpa bulan: akhir rentang = bulan produksi terbaru yang diupload (YTD: Januari s/d bulan itu).
     year_filter = "AND extract(year FROM period) = :tahun" if tahun else ""
     latest = db.execute(text(f"""
         SELECT max(period) FROM trx.block_productions WHERE block_id = ANY(:ids) {year_filter}

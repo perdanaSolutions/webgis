@@ -9,6 +9,7 @@ import { BULAN_POPUP_OPTIONS } from "~/utils/mapBlokPopup";
 type FieldKey = "grup" | "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
 
 const props = defineProps<{
+  ytdEndMonth?: number;
   groupOptions: Option[];
   areaOptions: Option[];
   ptOptions: Option[];
@@ -87,8 +88,8 @@ const yearOptions = computed(() => {
 
 /** Akhir rentang Year to Date bila bulan periode dikosongkan. */
 const yearToDateEndLabel = computed(() => {
-  const year = Number(props.tahun) || new Date().getFullYear();
-  const index = year === new Date().getFullYear() ? new Date().getMonth() : 11;
+  // Akhir YTD = bulan data terbaru (dari store), bukan bulan kalender.
+  const index = (props.ytdEndMonth || 12) - 1;
   return BULAN_POPUP_OPTIONS[index]?.label ?? "";
 });
 

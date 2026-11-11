@@ -163,9 +163,7 @@ def test_blocks_geojson_year_to_date_sums_january_to_month(client, auth, sample_
 
 
 def test_blocks_geojson_without_month(client, auth, sample_block):
-    """Tanpa bulan: false = bulan terakhir yang diupload di tahun itu; true = Januari s/d bulan berjalan."""
-    from datetime import date
-
+    """Tanpa bulan: false = bulan terakhir yang diupload di tahun itu; true = Januari s/d bulan terakhir itu."""
     from sqlalchemy import text
 
     from app.db.session import engine
@@ -179,10 +177,8 @@ def test_blocks_geojson_without_month(client, auth, sample_block):
     assert prod["periode_awal"] == prod["periode_akhir"] == f"{latest.month}-{latest.year}"
 
     ytd = _block_props(client, auth, sample_block, tahun=period.year, year_to_date="true").get("produksi_tbs")
-    if ytd:
-        today = date.today()
-        end_month = today.month if period.year == today.year else 12
-        assert (ytd["periode_awal"], ytd["periode_akhir"]) == (f"1-{period.year}", f"{end_month}-{period.year}")
+    assert ytd, "YTD tanpa bulan harus memakai bulan data terbaru, bukan bulan kalender"
+    assert (ytd["periode_awal"], ytd["periode_akhir"]) == (f"1-{period.year}", f"{latest.month}-{latest.year}")
 
 
 def test_blocks_geojson_comparison(client, auth, sample_block):

@@ -191,7 +191,7 @@ Batas blok (poligon terbaru s/d bulan/tahun) beserta ringkasan transaksi per blo
 | year_to_date | bulan | Data yang diproses |
 |---|---|---|
 | true | diisi (mis. 10) | Januari s/d Oktober tahun itu |
-| true | kosong | Januari s/d bulan berjalan (tahun lalu: s/d Desember) |
+| true | kosong | Januari s/d bulan terakhir yang sudah diupload di tahun itu (blok yang difilter) |
 | false | diisi | bulan itu saja |
 | false | kosong | bulan terakhir yang sudah diupload di tahun itu (blok yang difilter) |
 
