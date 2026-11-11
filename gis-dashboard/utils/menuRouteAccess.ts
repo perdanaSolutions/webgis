@@ -15,6 +15,7 @@ export const PROTECTED_PAGE_PATHS = [
   "/document",
   "/riwayat",
   "/pengumuman",
+  "/monitoring-user",
 ] as const;
 
 export const MENU_ROUTE_UNLOCKED_KEY = "menu-route-unlocked";
