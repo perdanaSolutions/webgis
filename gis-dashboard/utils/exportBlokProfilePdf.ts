@@ -23,11 +23,12 @@ export type PdfOverlay = {
   data: GeoJSON.FeatureCollection;
 };
 
-/** Viewport peta layar — supaya Unduh Peta tidak fitBounds ke seluruh layer. */
+/** Viewport peta layar — supaya Unduh Peta memakai center + zoom yang sama dengan halaman. */
 export type PdfMapView = {
   center: { lat: number; lng: number };
+  /** Level zoom Leaflet persis seperti peta layar (ikut skala mis. 500 m). */
   zoom: number;
-  /** [[south, west], [north, east]] — dipakai agar area geografis sama meski rasio kanvas PDF beda. */
+  /** Cadangan jika zoom tidak valid: [[south, west], [north, east]]. */
   bounds?: [[number, number], [number, number]];
 };
 
@@ -159,7 +160,8 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   }
   map.getPane("bp-labels")!.style.pointerEvents = "none";
   const pointRenderer = Lf.canvas({ pane: "bp-points", padding: 0.5 });
-  Lf.control.scale({ imperial: false, position: "bottomleft", maxWidth: 120 }).addTo(map);
+  // maxWidth 100 sama dengan peta layar supaya label skala (mis. 500 m) konsisten pada zoom yang sama.
+  Lf.control.scale({ imperial: false, position: "bottomleft", maxWidth: 100 }).addTo(map);
 
   const north = document.createElement("div");
   north.className = "bp-print-north";
@@ -256,17 +258,17 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   try {
     map.invalidateSize();
     const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
-    if (input.mapView?.bounds) {
-      // Ikuti area geografis yang terlihat di layar (bukan seluruh layer scope).
-      // fitBounds menyesuaikan zoom ke kanvas PDF yang ukurannya beda dari map live.
-      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
-      await Promise.race([moved, sleep(1500)]);
-    } else if (input.mapView) {
+    if (input.mapView && Number.isFinite(input.mapView.zoom)) {
+      // Wajib setView(center, zoom) — jangan fitBounds viewport: kanvas PDF beda ukuran,
+      // fitBounds akan mengubah level zoom sehingga skala (mis. 500 m) tidak sama dengan halaman.
       map.setView(
         [input.mapView.center.lat, input.mapView.center.lng],
         input.mapView.zoom,
         { animate: false },
       );
+      await Promise.race([moved, sleep(1500)]);
+    } else if (input.mapView?.bounds) {
+      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
       await Promise.race([moved, sleep(1500)]);
     } else if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [42, 54], maxZoom: 16 });

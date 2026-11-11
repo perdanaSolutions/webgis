@@ -1108,7 +1108,7 @@ function invalidateSize() {
   map?.invalidateSize({ animate: false });
 }
 
-/** Center/zoom/bounds viewport saat ini — dipakai Unduh Peta agar PDF mengikuti tampilan layar. */
+/** Center + zoom viewport saat ini — Unduh Peta harus memakai zoom yang sama (skala mis. 500 m). */
 function getView() {
   if (!map) return null;
   const center = map.getCenter();

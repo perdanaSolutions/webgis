@@ -6,18 +6,21 @@ const panen = [5637.75, 5230.96, 5425.12, 5065.49, 4282.87, 5256.52, 5478.45, 51
 const rows = panen.map((luasPanen) => ({ luas: 1406.53, luasPanen }));
 
 describe("rotationTotals", () => {
-  it("pakai ringkasan backend apa adanya", () => {
-    expect(rotationTotals(rows, { luas_panen: 41481.25, luas_tanam: 1406.53, rotasi: 29.49 }))
-      .toEqual({ luas_panen: 41481.25, luas_tanam: 1406.53, rotasi: 29.49 });
+  it("pakai luas ringkasan backend, rotasi = Σ panen ÷ (tanam × n)", () => {
+    // 41481.25 / (1406.53 × 8) ≈ 3.6861 — abaikan backend.rotasi lama (tanpa ÷ n)
+    const t = rotationTotals(rows, { luas_panen: 41481.25, luas_tanam: 1406.53, rotasi: 29.49 })!;
+    expect(t.luas_panen).toBe(41481.25);
+    expect(t.luas_tanam).toBe(1406.53);
+    expect(t.rotasi!).toBeCloseTo(41481.25 / (1406.53 * 8), 4);
   });
-  it("cadangan lokal: Σ luas panen ÷ luas tanam bulan terakhir (bukan SUM rotasi)", () => {
+  it("cadangan lokal: Σ luas panen ÷ (luas tanam × n bulan)", () => {
     const t = rotationTotals(rows)!;
     expect(t.luas_panen).toBeCloseTo(41481.25, 2);
-    expect(t.rotasi!).toBeCloseTo(29.49, 2);
+    expect(t.rotasi!).toBeCloseTo(41481.25 / (1406.53 * 8), 4);
   });
-  it("luas tanam ikut bulan terakhir", () => {
+  it("luas tanam ikut bulan terakhir; n = jumlah baris", () => {
     const t = rotationTotals([{ luas: 100, luasPanen: 300 }, { luas: 120, luasPanen: 360 }])!;
-    expect(t).toEqual({ luas_panen: 660, luas_tanam: 120, rotasi: 5.5 });
+    expect(t).toEqual({ luas_panen: 660, luas_tanam: 120, rotasi: 660 / (120 * 2) });
   });
   it("respons lama tanpa luas_panen -> null", () => {
     expect(rotationTotals([{ luas: 100, luasPanen: null }])).toBeNull();

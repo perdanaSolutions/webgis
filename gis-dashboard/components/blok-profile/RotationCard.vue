@@ -93,10 +93,11 @@ const totals = computed(() => {
   return {
     period,
     hari: list.reduce((sum, row) => sum + row.hari, 0) / n,
-    /** Luas Panen ÷ Luas Tanam (bulan terakhir). */
+    /** Luas Panen ÷ (Luas Tanam × n), n = jumlah bulan periode. */
     rotasi: ringkasan?.rotasi ?? Number.NaN,
     luas: ringkasan?.luas_panen ?? Number.NaN,
     luasTanam: ringkasan?.luas_tanam ?? last.luas,
+    bulan: n,
   };
 });
 
@@ -149,7 +150,7 @@ function metricLine(row: { rotasi: number; putaran: number; luas: number; pokok:
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Rotasi</p>
           <p class="text-14 font-semibold tabular-nums text-[#1f2a18]"
-            :title="`Luas Panen ${num(totals.luas)} ha ÷ Luas Tanam ${num(totals.luasTanam)} ha`">{{ num(totals.rotasi, 2) }}</p>
+            :title="`Luas Panen ${num(totals.luas)} ha ÷ (Luas Tanam ${num(totals.luasTanam)} ha × ${totals.bulan} bulan)`">{{ num(totals.rotasi, 2) }}</p>
         </div>
         <div class="rounded-lg bg-[#eef2e8] px-3 py-2">
           <p class="text-11 text-[#6e7866]">Luas Panen</p>

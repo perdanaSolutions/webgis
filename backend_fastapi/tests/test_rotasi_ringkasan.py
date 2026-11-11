@@ -5,10 +5,11 @@ def _r(tahun, bulan, tanam, panen):
     return {"tahun": tahun, "bulan": bulan, "total_luas_rotasi": tanam, "luas_panen": panen}
 
 
-def test_rotasi_total_luas_panen_dibagi_luas_tanam_bulan_terakhir():
+def test_rotasi_total_luas_panen_dibagi_luas_tanam_kali_n_bulan():
     rows = [_r(2026, 1, 100, 300), _r(2026, 2, 120, 360)]
     s = rotation_summary(rows)
-    assert s == {"luas_panen": 660.0, "luas_tanam": 120.0, "rotasi": 5.5,
+    # R = 660 / (120 × 2) = 2.75
+    assert s == {"luas_panen": 660.0, "luas_tanam": 120.0, "rotasi": 2.75,
                  "periode_luas_tanam": {"tahun": 2026, "bulan": 2}}
 
 

@@ -506,7 +506,7 @@ def _rotation(
 
 
 def rotation_summary(rows) -> dict | None:
-    """Total rotasi periode = Σ luas panen ÷ luas tanam (bukan SUM rotasi bulanan).
+    """Total rotasi periode = Σ luas panen ÷ (luas tanam × n), n = jumlah bulan periode.
 
     Per baris trx.harvest_rotations: area_ha = luas tanam blok (sama dengan planted_area_ha area statement),
     rotation_no = berapa kali blok dipanen di bulan itu, jadi luas panen = area_ha × rotation_no.
@@ -515,12 +515,14 @@ def rotation_summary(rows) -> dict | None:
     rows = [r for r in rows if r["total_luas_rotasi"] is not None]
     if not rows:
         return None
+    n = len(rows)
     luas_panen = sum(float(r["luas_panen"] or 0) for r in rows)
     luas_tanam = float(rows[-1]["total_luas_rotasi"] or 0)
+    denom = luas_tanam * n
     return {
         "luas_panen": round(luas_panen, 4),
         "luas_tanam": round(luas_tanam, 4),
-        "rotasi": round(luas_panen / luas_tanam, 4) if luas_tanam > 0 else None,
+        "rotasi": round(luas_panen / denom, 4) if denom > 0 else None,
         "periode_luas_tanam": {"tahun": rows[-1]["tahun"], "bulan": rows[-1]["bulan"]},
     }
 
