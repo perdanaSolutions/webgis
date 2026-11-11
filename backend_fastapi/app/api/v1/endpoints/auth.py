@@ -157,6 +157,13 @@ async def process_user_login(db: Session, input_identifier: str, input_password:
 
     # JWT + registry sesi Redis (jti) agar logout konsisten di semua instance
     jti = new_jti()
+    # Akun selain Admin = satu akun untuk satu pengguna: login baru mencabut sesi lama
+    is_admin = any(r.nama == settings.SUPERADMIN_ROLE for r in (user.roles or []))
+    if not is_admin:
+        try:
+            await revoke_user(str(user.id))
+        except AuthSessionUnavailable:
+            raise _auth_unavailable()
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
         subject=user.id, expires_delta=access_token_expires, jti=jti,

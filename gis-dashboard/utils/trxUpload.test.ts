@@ -59,7 +59,7 @@ describe("katalog upload transaksi", () => {
 
   it("katalog tidak punya endpoint/contoh JSON lagi", () => {
     for (const kind of TRX_KINDS) {
-      expect(Object.keys(kind.endpoints).sort()).toEqual(["analyze", "excel"])
+      expect(Object.keys(kind.endpoints).sort()).toEqual(["analyze", "excel", "export"])
       expect("jsonFilename" in kind).toBe(false)
     }
   })
@@ -93,5 +93,13 @@ describe("template excel", () => {
     expect(preview.sheetName).toBe("Data")
     expect(preview.headers).toEqual(["Year", "Month", "StatusTanam"])
     expect(preview.rows).toEqual([{ Year: "2026", Month: "1", StatusTanam: "" }])
+  })
+})
+
+describe("export Excel transaksi", () => {
+  it("setiap jenis punya endpoint export GET", () => {
+    for (const kind of TRX_KINDS) {
+      expect(kind.endpoints.export).toMatch(/^\/v1\/.+\/export-excel$/)
+    }
   })
 })

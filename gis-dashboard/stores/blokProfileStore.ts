@@ -26,7 +26,7 @@ import type { ProductionGroupChart } from "~/utils/productionGroups";
  *   Setiap GeoJSON membawa tahun dari field Periode, plus bulan bila dipilih.
  *   Tahun default = tahun periode terakhir yang sudah diupload (GET /spatial/periode-terakhir);
  *   bulan periode selalu kosong saat load pertama dan reset.
- * - Year to date tanpa bulan = produksi Januari s/d bulan berjalan (tahun lalu: s/d Desember).
+ * - Year to date tanpa bulan = produksi Januari s/d bulan data terbaru yang sudah diupload pada tahun itu.
  *   Mencentang Year to Date mengosongkan bulan periode. Year to date dan periode
  *   pembanding hanya dikirim ke GeoJSON batas blok
  *   (`year_to_date`, `bulan_comparison` + `tahun_comparison`), bukan ke layer lain.
@@ -976,9 +976,13 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     }
   }
 
-  /** Akhir rentang Year to Date: bulan berjalan pada tahun ini, Desember pada tahun lain. */
+  /**
+   * Akhir rentang Year to Date = bulan data terbaru (periode terakhir yang diupload), bukan bulan kalender.
+   * Hanya tahun default yang diketahui bulannya; tahun lain memakai 12 (backend membatasi ke data terbaru
+   * di tahun itu, mis. gap_bulan=12 = "terbaru s/d Desember").
+   */
   function yearToDateEndMonth(year: string) {
-    return year === currentYear() ? String(new Date().getMonth() + 1) : "12";
+    return defaultPeriod.value?.tahun === year && defaultPeriod.value.bulan ? defaultPeriod.value.bulan : "12";
   }
 
   /** Periode cadangan popup bila blok tidak punya produksi: bulan filter, akhir YTD, atau periode default. */
@@ -1903,6 +1907,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   });
 
   return {
+    yearToDateEndMonth,
     groupOptions,
     areaOptions,
     fieldLoading,

@@ -31,6 +31,8 @@ export type TrxKindSpec = {
   endpoints: {
     analyze: string;
     excel: string;
+    /** GET: unduh data tersimpan sebagai Excel (header sama dengan template import). */
+    export: string;
   };
   /** Kode `layer` untuk POST /v1/upload-jobs (sama dengan id jenis). */
   uploadJobLayer: TrxKindId;
@@ -54,6 +56,7 @@ export const TRX_KINDS: TrxKindSpec[] = [
     endpoints: {
       analyze: "/v1/areal-statement/import-excel/analyze",
       excel: "/v1/areal-statement/import-excel",
+      export: "/v1/areal-statement/export-excel",
     },
     uploadJobLayer: "areal-statement",
     columns: [
@@ -148,6 +151,7 @@ export const TRX_KINDS: TrxKindSpec[] = [
     endpoints: {
       analyze: "/v1/trx-rotasi-pusingan/import-rotasi-pusingan/analyze",
       excel: "/v1/trx-rotasi-pusingan/import-rotasi-pusingan",
+      export: "/v1/trx-rotasi-pusingan/export-excel",
     },
     uploadJobLayer: "rotasi-pusingan",
     columns: [

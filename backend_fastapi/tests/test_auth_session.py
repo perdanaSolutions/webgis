@@ -221,9 +221,7 @@ def test_password_change_revokes_all_sessions(client, superadmin_id, auth_redis)
     assert client.post("/api/v1/users/", headers=admin, json=payload).status_code == 201
 
     t1 = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"}).json()["access_token"]
-    t2 = client.post("/api/v1/auth/login", json={"email": payload["username"], "password": "rahasia123"}).json()["access_token"]
     h1 = {"Authorization": f"Bearer {t1}"}
-    h2 = {"Authorization": f"Bearer {t2}"}
 
     assert client.put(
         "/api/v1/auth/me/password",
@@ -231,7 +229,40 @@ def test_password_change_revokes_all_sessions(client, superadmin_id, auth_redis)
         json={"password_lama": "rahasia123", "password_baru": "baru12345"},
     ).status_code == 200
     assert client.get("/api/v1/auth/me", headers=h1).status_code == 401
-    assert client.get("/api/v1/auth/me", headers=h2).status_code == 401
+
+
+def test_non_admin_login_revokes_previous_session(client, superadmin_id, auth_redis):
+    """Satu akun satu pengguna: login baru non-Admin mencabut sesi lama."""
+    admin = _bearer_with_session(superadmin_id)
+    roles = client.get("/api/v1/roles/", headers=admin).json()
+    viewer = next(r for r in roles if r["nama"] != "superadmin")
+    suffix = uuid.uuid4().hex[:8]
+    payload = {
+        "username": f"single_{suffix}",
+        "email": f"single_{suffix}@example.com",
+        "nama_lengkap": "Single Session",
+        "role_ids": [viewer["id"]],
+        "password": "rahasia123",
+    }
+    assert client.post("/api/v1/users/", headers=admin, json=payload).status_code == 201
+    cred = {"email": payload["username"], "password": "rahasia123"}
+
+    h1 = {"Authorization": "Bearer " + client.post("/api/v1/auth/login", json=cred).json()["access_token"]}
+    assert client.get("/api/v1/auth/me", headers=h1).status_code == 200
+    h2 = {"Authorization": "Bearer " + client.post("/api/v1/auth/login", json=cred).json()["access_token"]}
+    assert client.get("/api/v1/auth/me", headers=h1).status_code == 401
+    assert client.get("/api/v1/auth/me", headers=h2).status_code == 200
+
+
+def test_admin_login_keeps_multiple_sessions(client, auth_redis):
+    cred = {"email": settings.SEED_ADMIN_USERNAME, "password": settings.SEED_ADMIN_PASSWORD}
+    r1 = client.post("/api/v1/auth/login", json=cred)
+    if r1.status_code != 200:
+        pytest.skip("kredensial superadmin seed tidak tersedia di env tes")
+    h1 = {"Authorization": "Bearer " + r1.json()["access_token"]}
+    h2 = {"Authorization": "Bearer " + client.post("/api/v1/auth/login", json=cred).json()["access_token"]}
+    assert client.get("/api/v1/auth/me", headers=h1).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=h2).status_code == 200
 
 
 def test_health_reports_redis_auth_flag(client, monkeypatch):

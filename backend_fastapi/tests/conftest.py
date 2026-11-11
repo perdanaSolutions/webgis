@@ -62,7 +62,13 @@ def sample_block() -> dict:
             JOIN master.divisions dv ON dv.id = bl.division_id
             JOIN master.estates es ON es.id = dv.estate_id
             JOIN master.companies co ON co.id = es.company_id
-            WHERE EXISTS (SELECT 1 FROM spatial.block_boundaries b WHERE b.block_id = bl.id)
+            WHERE EXISTS (
+                    SELECT 1 FROM spatial.block_boundaries b
+                    WHERE b.block_id = bl.id
+                      -- batas dibaca "per periode": harus ada pada/sebelum periode produksi + statement terakhir
+                      AND b.period <= (SELECT max(p.period) FROM trx.block_productions p
+                                       JOIN trx.area_statements a ON a.block_id = p.block_id AND a.period = p.period
+                                       WHERE p.block_id = bl.id))
               AND EXISTS (SELECT 1 FROM trx.area_statements a WHERE a.block_id = bl.id)
               AND EXISTS (SELECT 1 FROM trx.block_productions p WHERE p.block_id = bl.id)
             ORDER BY bl.id LIMIT 1

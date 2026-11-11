@@ -6,6 +6,7 @@ import { countQuarantined } from "~/utils/failedRowsDownload";
 import { countFailedPreview } from "~/utils/failedRowsExcel";
 import UploadAnalysisGroups from "~/components/upload/AnalysisGroups.vue";
 import UploadColumnFilter from "~/components/upload/ColumnFilter.vue";
+import UploadTrxExportExcel from "~/components/upload/TrxExportExcel.vue";
 import { useTrxUploadStore } from "~/stores/trxUploadStore";
 import { TRX_ROWS_PER_PART } from "~/utils/trxExcelParts";
 import { isTrxExcelFile, TRX_FILE_ACCEPT, TRX_UNSUPPORTED_FILE_MESSAGE } from "~/utils/trxUpload";
@@ -429,6 +430,8 @@ onMounted(async () => {
               <li v-for="rule in kind.rules" :key="rule">{{ rule }}</li>
             </ul>
           </details>
+
+          <UploadTrxExportExcel :kind="kind" :disabled="trxUploadStore.isBusy" />
         </div>
 
         <div class="mt-5 rounded-2xl border border-dashed border-tan-hover bg-cream-light p-6 text-center"

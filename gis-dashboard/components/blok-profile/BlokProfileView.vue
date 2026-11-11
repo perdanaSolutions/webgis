@@ -314,7 +314,7 @@ const pdfFilterLine = computed(() => {
   const filter = store.summary.filter;
   const applied = store.appliedFilter;
   const ownership = store.ownershipOptions.find((item) => item.value === applied.ownership)?.label || "Semua";
-  const ytdEnd = applied.tahun === String(new Date().getFullYear()) ? new Date().getMonth() : 11;
+  const ytdEnd = Number(store.yearToDateEndMonth(applied.tahun || String(new Date().getFullYear()))) - 1;
   const month = applied.bulan
     ? MONTHS[Number(applied.bulan) - 1] ?? applied.bulan
     : applied.yearToDate
@@ -644,7 +644,7 @@ onBeforeUnmount(() => {
             :afdeling-options="store.afdelingOptions" :blok-options="store.blokOptions"
             :ownership-options="store.ownershipOptions" :grup="store.grup" :area="store.area" :pt="store.pt"
             :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
-            :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate"
+            :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate" :ytd-end-month="Number(store.yearToDateEndMonth(store.tahun || String(new Date().getFullYear())))"
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"

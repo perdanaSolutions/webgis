@@ -2,7 +2,7 @@
 
 Rentang mengikuti aturan `produksi_tbs` di GeoJSON (`map_service.resolve_trx_window`):
 - year_to_date + bulan -> Januari s/d bulan itu; tanpa year_to_date -> bulan itu saja;
-- tanpa bulan -> bulan produksi terakhir (atau s/d bulan berjalan untuk Year to Date).
+- tanpa bulan -> bulan produksi terakhir (Year to Date: Januari s/d bulan produksi terakhir).
 Pembanding "tahun lalu" = rentang bulan yang sama setahun sebelumnya.
 
 Pengelompokan memakai master SAAT INI (grup milik PT, area milik estate), sama dengan filter peta.
