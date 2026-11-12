@@ -127,3 +127,65 @@ UNION ALL SELECT 'block_productions', COUNT(*) FROM trx.block_productions
 UNION ALL SELECT 'harvest_rotations', COUNT(*) FROM trx.harvest_rotations;
 "
 ```
+
+---
+
+# Dump schema trx + baris terkait audit.upload_batches dari gis_db_v4 (prod) — 2026-11-12
+
+- File: `gis_db_v4_trx_and_related_20261112.sql` (plain SQL, ~35 MB)
+- Sumber: `gis_db_v4` di `gis-postgres` (PostgreSQL 16.4), dibuat 2026-11-12 14:57 WIB
+- Bagian A: 320 baris `audit.upload_batches` sebagai `INSERT ... ON CONFLICT (id) DO UPDATE` (idempotent; menimpa stub `IMPORT_STUB` jika ada). `uploaded_by` diisi hanya jika user sudah ada di `auth.users`.
+- Bagian B: `DROP SCHEMA trx CASCADE` + `pg_dump -n trx --no-owner --no-privileges` (struktur + seluruh data).
+
+  | Tabel | Baris |
+  |-------|------:|
+  | area_statements | 131784 |
+  | area_statement_seed_varieties | 132852 |
+  | block_productions | 115244 |
+  | harvest_rotations | 26855 |
+
+- Objek trx lain: view `v_block_production_facts`, 3 identity sequence, 12 trigger audit (`audit.log_row_change` / `audit.log_truncate`).
+- 90 UUID `upload_batch_id` dirujuk baris trx; 189 batch punya `target_table` `trx.*`; file ini membawa seluruh 320 baris `audit.upload_batches` agar FK lengkap tanpa stub.
+- Tidak ada FK dari schema lain ke tabel trx. Data `master`/`ref` tidak di-dump ulang (sudah ada di `gis_db_v4_auth_master_ref_20261105.sql`; semua ID yang dirujuk trx ada di prod).
+- Tidak ikut: `audit.upload_jobs` (0 baris terkait trx), `quarantine.rows` (ada ~11947 baris terkait batch target trx, tidak wajib untuk import), `audit.change_logs`.
+- Tidak ada kolom token/password/kredensial. Metadata `upload_batches` hanya kunci operasional (`csv`, `detail_statistik`, `jenis`, `layer`, `periode`, `periode_target`, `step`).
+- Selama import, `session_replication_role = replica` supaya trigger tidak menulis `audit.change_logs`.
+- PERINGATAN: berisi data transaksi prod di repo public. Schema trx di database tujuan akan diganti; backup dulu. Schema auth/master/ref/audit/quarantine/spatial tidak di-drop.
+
+## Import ke server TPA (container `global-postgres`, database `db_gis`)
+
+Jalankan di server TPA, dari checkout repo (mis. `/home/ginanjar/aplikasi/webgis`). Database tujuan harus sudah punya schema auth, master, ref, dan struktur audit (hasil import dump 20261105). Jika schema trx sudah berisi data, langkah 2 akan menggantinya (backup di langkah 1).
+
+```bash
+cd /home/ginanjar/aplikasi/webgis
+git checkout dev-bayu && git pull origin dev-bayu
+PGU=$(docker exec global-postgres printenv POSTGRES_USER); PGU=${PGU:-postgres}; echo "user=[$PGU]"
+DUMP=database/dump/gis_db_v4_trx_and_related_20261112.sql
+ls -lh "$DUMP"     # sekitar 35 MB
+
+# 1. Backup schema trx yang sekarang ada di db_gis (simpan di /root)
+docker exec global-postgres pg_dump -U "$PGU" -d db_gis -n trx --no-owner --no-privileges   > /root/backup_db_gis_trx_$(date +%Y%m%d_%H%M).sql
+
+# 2. Sisipkan/perbarui 320 baris audit.upload_batches, lalu ganti schema trx.
+#    Satu transaksi: jika ada error, semua perubahan dibatalkan.
+#    Schema auth/master/ref/audit/quarantine/spatial tidak di-drop.
+docker exec -i global-postgres psql -U "$PGU" -d db_gis -v ON_ERROR_STOP=1 -1 < "$DUMP"
+
+# 3. Verifikasi (harus 131784 / 132852 / 115244 / 26855, dan 90 batch dirujuk trx sudah ada)
+docker exec global-postgres psql -U "$PGU" -d db_gis -c "
+SELECT 'area_statements' t, count(*) FROM trx.area_statements
+UNION ALL SELECT 'area_statement_seed_varieties', count(*) FROM trx.area_statement_seed_varieties
+UNION ALL SELECT 'block_productions', count(*) FROM trx.block_productions
+UNION ALL SELECT 'harvest_rotations', count(*) FROM trx.harvest_rotations
+UNION ALL SELECT 'upload_batches_total', count(*) FROM audit.upload_batches
+UNION ALL SELECT 'upload_batches_dirujuk_trx', count(DISTINCT bid) FROM (
+  SELECT upload_batch_id bid FROM trx.area_statements
+  UNION
+  SELECT upload_batch_id FROM trx.block_productions
+  UNION
+  SELECT upload_batch_id FROM trx.harvest_rotations
+) s;
+"
+```
+
+Setelah selesai, restart backend di TPA supaya koneksi lamanya ter-refresh. Kalau langkah 2 error, seluruh transaksi dibatalkan (schema trx lama tetap ada); kirim pesan errornya.
