@@ -3,7 +3,8 @@ import { WMS_HIDPI_TILE_PX, basemapAccessMessage, basemapCapabilitiesUrl, basema
 import { BASEMAPS } from "./mapLayers";
 
 const fotoUdara = BASEMAPS.find((item) => item.key === "tpa-sga")!;
-const tile = fotoUdara.tiles[0]!;
+const underlay = fotoUdara.tiles[0]!;
+const tile = fotoUdara.tiles[1]!;
 
 describe("basemap Foto Udara", () => {
   it("judul Foto Udara (bukan 'Udata') dan lewat proxy backend dengan layer group tpgis:tpgis_fu", () => {
@@ -13,6 +14,14 @@ describe("basemap Foto Udara", () => {
     expect(tile.layers).toBe("tpgis:tpgis_fu");
     expect(tile.tokenParam).toBeUndefined();
     expect(basemapHost(fotoUdara)).toBe("digilink.teladanprima.com");
+  });
+
+  it("Esri World Imagery di bawah agar luar cakupan foto udara tidak putih", () => {
+    expect(fotoUdara.tiles).toHaveLength(2);
+    expect(underlay.url).toContain("World_Imagery");
+    expect(underlay.service).toBeUndefined();
+    expect(tile.transparent).toBe(true);
+    expect(tile.format).toBe("image/png");
   });
 
   it("token tidak pernah ditempel ke URL browser untuk tile proxy", () => {
@@ -45,8 +54,9 @@ describe("basemap Foto Udara", () => {
 });
 
 describe("kualitas Foto Udara", () => {
-  it("JPEG, ubin rapat (hiDpi), maxNativeZoom 20 sesuai resolusi sumber ~7 cm", () => {
-    expect(tile.format).toBe("image/jpeg");
+  it("PNG transparan + hiDpi, maxNativeZoom 20 sesuai resolusi sumber ~7 cm", () => {
+    expect(tile.format).toBe("image/png");
+    expect(tile.transparent).toBe(true);
     expect(tile.hiDpi).toBe(true);
     expect(tile.maxNativeZoom).toBe(20);
     expect(tile.maxZoom).toBe(22);

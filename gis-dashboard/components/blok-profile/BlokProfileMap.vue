@@ -1106,11 +1106,12 @@ function invalidateSize() {
   map?.invalidateSize({ animate: false });
 }
 
-/** Center + zoom viewport saat ini — Unduh Peta harus memakai zoom yang sama (skala mis. 500 m). */
+/** Center + zoom + ukuran viewport saat ini — Unduh Peta harus framing sama (tidak terpotong). */
 function getView() {
   if (!map) return null;
   const center = map.getCenter();
   const bounds = map.getBounds();
+  const size = map.getSize();
   return {
     center: { lat: center.lat, lng: center.lng },
     zoom: map.getZoom(),
@@ -1118,6 +1119,7 @@ function getView() {
       [bounds.getSouth(), bounds.getWest()],
       [bounds.getNorth(), bounds.getEast()],
     ] as [[number, number], [number, number]],
+    size: { width: size.x, height: size.y },
   };
 }
 

@@ -23,11 +23,13 @@ export type PdfOverlay = {
   data: GeoJSON.FeatureCollection;
 };
 
-/** Center + zoom peta layar saat Unduh Peta diklik — bukan fit center default. */
+/** Center + zoom + ukuran peta layar — supaya framing Unduh Peta tidak terpotong. */
 export type PdfMapView = {
   center: { lat: number; lng: number };
   zoom: number;
   bounds?: [[number, number], [number, number]];
+  /** Ukuran container peta layar (px) — rasio ini dipakai kanvas cetak. */
+  size?: { width: number; height: number };
 };
 
 export type PdfExportInput = {
@@ -71,14 +73,19 @@ function geometryKind(type: string) {
   return "polygon";
 }
 
-function legendFrame(count: number) {
+function legendFrame(count: number, liveAspect?: number) {
   const columns = count > 8 ? 4 : 3;
   const rows = count ? Math.ceil(count / columns) : 0;
   const legendH = rows * 6;
   const mapY = MARGIN + 10;
   const footerTop = PAGE_H - 8;
-  const mapH = Math.max(70, footerTop - mapY - (legendH ? legendH + 2 : 0));
-  return { columns, legendH, mapY, mapH, mapW: PAGE_W - MARGIN * 2, footerTop };
+  const mapW = PAGE_W - MARGIN * 2;
+  const maxMapH = Math.max(70, footerTop - mapY - (legendH ? legendH + 2 : 0));
+  // Samakan rasio slot PDF dengan rasio peta layar agar setView(center, zoom) tidak memotong isi.
+  const mapH = liveAspect && liveAspect > 0
+    ? Math.max(70, Math.min(maxMapH, mapW / liveAspect))
+    : maxMapH;
+  return { columns, legendH, mapY, mapH, mapW, footerTop };
 }
 
 function loadImage(src: string) {
@@ -131,8 +138,10 @@ async function settleTiles(layers: import("leaflet").TileLayer[]) {
 
 async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, mapW: number) {
   const { toPng } = await import("html-to-image");
+  // Kanvas cetak mengikuti rasio slot PDF (sudah diselaraskan ke rasio peta layar di legendFrame).
+  // setView(zoom layar) pada rasio beda = sisi atas/bawah atau kiri/kanan terpotong.
   const cssW = 1500;
-  const cssH = Math.max(520, Math.round(cssW * (mapH / mapW)));
+  const cssH = Math.max(400, Math.round(cssW * (mapH / mapW)));
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
   const satellite = input.basemap === "satellite" || input.basemap === "hybrid" || input.basemap === "tpa-sga";
   const background = satellite ? "#243028" : "#e7efe0";
@@ -256,16 +265,18 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   try {
     map.invalidateSize();
     const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
-    // Framing = center + zoom halaman map saat ini (bukan default fit center / fit seluruh layer).
-    if (input.mapView && Number.isFinite(input.mapView.zoom)) {
+    // Framing = viewport halaman map saat ini (bukan fit seluruh layer / fit-center default).
+    // Utamakan bounds viewport: menjamin isi layar tidak terpotong meski rasio kanvas sedikit beda.
+    // setView(center, zoom) dipakai hanya jika bounds tidak ada — sama skala, rawan crop bila rasio beda.
+    if (input.mapView?.bounds) {
+      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
+      await Promise.race([moved, sleep(1500)]);
+    } else if (input.mapView && Number.isFinite(input.mapView.zoom)) {
       map.setView(
         [input.mapView.center.lat, input.mapView.center.lng],
         input.mapView.zoom,
         { animate: false },
       );
-      await Promise.race([moved, sleep(1500)]);
-    } else if (input.mapView?.bounds) {
-      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
       await Promise.race([moved, sleep(1500)]);
     } else if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [42, 54], maxZoom: 16 });
@@ -509,7 +520,10 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
     budgetColors: input.budgetColors,
     overlays: input.overlays,
   });
-  const frame = legendFrame(swatches.length);
+  const liveW = input.mapView?.size?.width ?? 0;
+  const liveH = input.mapView?.size?.height ?? 0;
+  const liveAspect = liveW > 2 && liveH > 2 ? liveW / liveH : undefined;
+  const frame = legendFrame(swatches.length, liveAspect);
   input.onStatus?.("Menggambar peta dan informasi…");
   const Lf = await import("leaflet");
   const [mapShot, shots] = await Promise.all([
