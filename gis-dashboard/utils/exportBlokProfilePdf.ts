@@ -11,8 +11,8 @@ import {
   type LegendItem,
 } from "~/utils/mapLayers";
 import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch, infoPageFirstMove } from "~/utils/blokProfilePdf";
+import { BLOCK_LABEL_MAX_SCALE_M } from "~/utils/mapView";
 import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
-import { formatDecimalId } from "~/utils/numberFormat";
 
 export type PdfOverlay = {
   code: string;
@@ -30,6 +30,8 @@ export type PdfMapView = {
   bounds?: [[number, number], [number, number]];
   /** Ukuran container peta layar (px) — rasio ini dipakai kanvas cetak. */
   size?: { width: number; height: number };
+  /** Jarak (m) per 100 px garis skala di peta layar — untuk label & cek skala PDF. */
+  scaleMeters?: number;
 };
 
 export type PdfExportInput = {
@@ -79,13 +81,21 @@ function legendFrame(count: number, liveAspect?: number) {
   const legendH = rows * 6;
   const mapY = MARGIN + 10;
   const footerTop = PAGE_H - 8;
-  const mapW = PAGE_W - MARGIN * 2;
+  const maxMapW = PAGE_W - MARGIN * 2;
   const maxMapH = Math.max(70, footerTop - mapY - (legendH ? legendH + 2 : 0));
-  // Samakan rasio slot PDF dengan rasio peta layar agar setView(center, zoom) tidak memotong isi.
-  const mapH = liveAspect && liveAspect > 0
-    ? Math.max(70, Math.min(maxMapH, mapW / liveAspect))
-    : maxMapH;
-  return { columns, legendH, mapY, mapH, mapW, footerTop };
+  // Slot PDF wajib se-rasio peta layar. Jika terlalu tinggi, kecilkan lebar (jangan ubah rasio).
+  let mapW = maxMapW;
+  let mapH = maxMapH;
+  if (liveAspect && liveAspect > 0) {
+    mapH = mapW / liveAspect;
+    if (mapH > maxMapH) {
+      mapH = maxMapH;
+      mapW = mapH * liveAspect;
+    }
+    mapH = Math.max(70, mapH);
+    mapW = Math.max(70, mapW);
+  }
+  return { columns, legendH, mapY, mapH, mapW, maxMapW, footerTop };
 }
 
 function loadImage(src: string) {
@@ -138,10 +148,12 @@ async function settleTiles(layers: import("leaflet").TileLayer[]) {
 
 async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, mapW: number) {
   const { toPng } = await import("html-to-image");
-  // Kanvas cetak mengikuti rasio slot PDF (sudah diselaraskan ke rasio peta layar di legendFrame).
-  // setView(zoom layar) pada rasio beda = sisi atas/bawah atau kiri/kanan terpotong.
+  // Kanvas cetak = rasio slot PDF (= rasio peta layar). Zoom layar hanya aman jika rasio sama.
+  const liveW = input.mapView?.size?.width ?? 0;
+  const liveH = input.mapView?.size?.height ?? 0;
+  const aspect = liveW > 2 && liveH > 2 ? liveW / liveH : mapW / mapH;
   const cssW = 1500;
-  const cssH = Math.max(400, Math.round(cssW * (mapH / mapW)));
+  const cssH = Math.max(400, Math.round(cssW / aspect));
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
   const satellite = input.basemap === "satellite" || input.basemap === "hybrid" || input.basemap === "tpa-sga";
   const background = satellite ? "#243028" : "#e7efe0";
@@ -251,8 +263,6 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       interactive: false,
       style: (feature) => paint(feature ?? undefined),
     }).addTo(map));
-    if (blockFeatures.length <= 80) addBlockLabels(Lf, map, blockLayer, input);
-    addSelectedTag(Lf, map, blockLayer, input.selectedId);
   }
 
   const bounds = Lf.latLngBounds([]);
@@ -265,18 +275,28 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   try {
     map.invalidateSize();
     const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
-    // Framing = viewport halaman map saat ini (bukan fit seluruh layer / fit-center default).
-    // Utamakan bounds viewport: menjamin isi layar tidak terpotong meski rasio kanvas sedikit beda.
-    // setView(center, zoom) dipakai hanya jika bounds tidak ada — sama skala, rawan crop bila rasio beda.
-    if (input.mapView?.bounds) {
-      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
-      await Promise.race([moved, sleep(1500)]);
-    } else if (input.mapView && Number.isFinite(input.mapView.zoom)) {
+    // setView(center, zoom) + kanvas se-rasio layar = skala sama (500 m tetap 500 m) tanpa potong.
+    // Jangan fitBounds dulu: rasio beda akan mengubah zoom (500 m → 1 km).
+    if (input.mapView && Number.isFinite(input.mapView.zoom)) {
       map.setView(
         [input.mapView.center.lat, input.mapView.center.lng],
         input.mapView.zoom,
         { animate: false },
       );
+      await Promise.race([moved, sleep(1500)]);
+      // Jika kanvas tetap memotong bounds layar, longgarkan sedikit agar tidak terpotong.
+      if (input.mapView.bounds) {
+        const want = Lf.latLngBounds(input.mapView.bounds);
+        const have = map.getBounds();
+        const cropped = !have.contains(want.getSouthWest()) || !have.contains(want.getNorthEast());
+        if (cropped) {
+          const again = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
+          map.fitBounds(want, { animate: false, padding: [0, 0] });
+          await Promise.race([again, sleep(1500)]);
+        }
+      }
+    } else if (input.mapView?.bounds) {
+      map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
       await Promise.race([moved, sleep(1500)]);
     } else if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [42, 54], maxZoom: 16 });
@@ -286,6 +306,14 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       note.className = "bp-print-empty";
       note.textContent = "Belum ada batas blok atau layer aktif pada scope ini.";
       host.appendChild(note);
+    }
+    // Label blok: terlihat di 1 km, hilang di 2 km (sama halaman map). Pakai skala layar saat unduh diklik.
+    const liveScale = input.mapView?.scaleMeters;
+    const scaleOk = Number.isFinite(liveScale)
+      ? (liveScale as number) < BLOCK_LABEL_MAX_SCALE_M
+      : printScaleMeters(map) < BLOCK_LABEL_MAX_SCALE_M;
+    if (input.showBlocks && blockLayer && scaleOk) {
+      addBlockLabels(Lf, map, blockLayer, input);
     }
     await settleTiles(basemapLayers);
     let basemapNote = "";
@@ -354,24 +382,53 @@ function labelLatLng(
   return bounds.getCenter();
 }
 
+/** Jarak (m) per 100 px garis skala — sama perhitungan label di halaman map. */
+function printScaleMeters(map: import("leaflet").Map, scalePx = 100) {
+  const y = map.getSize().y / 2;
+  return map.distance(map.containerPointToLatLng([0, y]), map.containerPointToLatLng([scalePx, y]));
+}
+
+const PRINT_LABEL_STYLE = `
+.bp-print-map .bp-block-label{background:none;border:none;white-space:nowrap;font-size:11px;font-weight:700;letter-spacing:.02em;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+.bp-print-map .bp-block-label-text.is-center,.bp-print-map .bp-block-label-text.is-below{display:inline-block;width:max-content}
+.bp-print-map .bp-block-label-text.is-center{transform:translate(-50%,-50%)}
+.bp-print-map .bp-block-label-text.is-below{transform:translate(-50%,10px)}
+`;
+
+function ensurePrintLabelStyle(host: HTMLElement) {
+  if (host.querySelector("style[data-bp-print-labels]")) return;
+  const style = document.createElement("style");
+  style.setAttribute("data-bp-print-labels", "1");
+  style.textContent = PRINT_LABEL_STYLE;
+  host.appendChild(style);
+}
+
+/** Label kode blok di viewport (sama halaman map). Tanpa batas 80 fitur. */
 function addBlockLabels(
   Lf: Leaflet,
   map: import("leaflet").Map,
   blocks: import("leaflet").GeoJSON,
   input: PdfExportInput,
 ) {
+  ensurePrintLabelStyle(map.getContainer());
+  const view = map.getBounds().pad(0.05);
   const labels = Lf.layerGroup();
   const markers = Lf.layerGroup();
+  let shown = 0;
+  const maxLabels = 900;
   blocks.eachLayer((layer) => {
+    if (shown >= maxLabels) return;
     const feature = (layer as import("leaflet").GeoJSON & { feature?: GeoJSON.Feature }).feature;
     const bounds = (layer as { getBounds?: () => import("leaflet").LatLngBounds }).getBounds?.();
     if (!bounds?.isValid()) return;
+    const center = labelLatLng(Lf, feature?.geometry, bounds);
+    if (!view.contains(center)) return;
     const properties = feature?.properties as Record<string, any> | null | undefined;
     const category = input.showYieldGap ? readComparisonBudgetCategory(properties) : "";
     const color = category && input.budgetColors[category] !== false ? BUDGET_GAP_COLOR[category] ?? null : null;
-    const center = labelLatLng(Lf, feature?.geometry, bounds);
     const kode = escapeHtml(feature?.properties?.kode_blok);
-    const selected = String(properties?.blok_id ?? "") === input.selectedId;
+    if (!kode) return;
+    shown += 1;
     if (color) {
       Lf.circleMarker(center, {
         pane: "bp-labels",
@@ -384,7 +441,6 @@ function addBlockLabels(
         interactive: false,
       }).addTo(markers);
     }
-    if (selected) return;
     Lf.marker(center, {
       pane: "bp-labels",
       interactive: false,
@@ -397,31 +453,6 @@ function addBlockLabels(
   });
   markers.addTo(map);
   labels.addTo(map);
-}
-
-function addSelectedTag(Lf: Leaflet, map: import("leaflet").Map, blocks: import("leaflet").GeoJSON, selectedId: string) {
-  if (!selectedId) return;
-  blocks.eachLayer((layer) => {
-    const feature = (layer as { feature?: GeoJSON.Feature }).feature;
-    if (String(feature?.properties?.blok_id ?? "") !== selectedId) return;
-    const bounds = (layer as { getBounds?: () => import("leaflet").LatLngBounds }).getBounds?.();
-    if (!bounds?.isValid()) return;
-    (layer as { bringToFront?: () => void }).bringToFront?.();
-    const center = labelLatLng(Lf, feature?.geometry, bounds);
-    const luas = feature?.properties?.areal_statement?.luas_tanam;
-    const luasText = Number.isFinite(Number(luas)) && Number(luas) !== 0
-      ? ` · ${formatDecimalId(Number(luas))} Ha`
-      : "";
-    Lf.marker(center, {
-      pane: "bp-labels",
-      interactive: false,
-      icon: Lf.divIcon({
-        className: "bp-selected-tag",
-        html: `<div class="bp-tag-inner"><span class="bp-pin" aria-hidden="true"></span>${escapeHtml(feature?.properties?.kode_blok)}${escapeHtml(luasText)}</div>`,
-        iconSize: [0, 0],
-      }),
-    }).addTo(map);
-  });
 }
 
 function addSlopeLabels(Lf: Leaflet, map: import("leaflet").Map, geo: import("leaflet").GeoJSON) {
@@ -544,8 +575,9 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
   pdf.setTextColor(110, 120, 102);
   pdf.text(input.printedAt, PAGE_W - MARGIN, MARGIN + 5, { align: "right" });
 
-  pdf.addImage(mapShot.dataUrl, "PNG", MARGIN, frame.mapY, frame.mapW, frame.mapH, undefined, "FAST");
-  if (swatches.length) drawLegend(pdf, swatches, MARGIN, frame.mapY + frame.mapH + 2, frame.mapW, frame.columns);
+  const mapX = MARGIN + Math.max(0, (frame.maxMapW - frame.mapW) / 2);
+  pdf.addImage(mapShot.dataUrl, "PNG", mapX, frame.mapY, frame.mapW, frame.mapH, undefined, "FAST");
+  if (swatches.length) drawLegend(pdf, swatches, MARGIN, frame.mapY + frame.mapH + 2, frame.maxMapW, frame.columns);
 
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
   const credit = option.tiles.map((tile) => plainAttribution(tile.attribution)).filter(Boolean).join(" · ");

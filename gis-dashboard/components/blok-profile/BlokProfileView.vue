@@ -378,6 +378,9 @@ function onExportKeydown(event: KeyboardEvent) {
 
 async function downloadPdf() {
   if (exporting.value) return;
+  // Ambil viewport SEBELUM loader/overlay mengubah ukuran peta (kalau tidak, unduhan terpotong / zoom berubah).
+  mapRef.value?.invalidateSize();
+  const mapView = mapRef.value?.getView() ?? null;
   exporting.value = true;
   exportError.value = "";
   exportStatus.value = "Menunggu data peta…";
@@ -411,7 +414,7 @@ async function downloadPdf() {
         data: layer.data!,
       })),
       sections: printSheetRef.value?.sections() ?? [],
-      mapView: mapRef.value?.getView() ?? null,
+      mapView,
       onStatus: (message) => { exportStatus.value = message; },
     });
   } catch (error) {

@@ -31,7 +31,7 @@ import {
   AFDELING_HIT_PX, AFDELING_LAYER_CODE, afdelingDeclutter, afdelingLabelText, afdelingLabelsVisible, afdelingPopupHtml,
   afdelingStyle, declutterLabels, largestPart, polylabel, ringsDistance,
 } from "~/utils/afdelingBoundary";
-import { FIT_PAD_PX, bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
+import { BLOCK_LABEL_MAX_SCALE_M, FIT_PAD_PX, bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "~/utils/mapView";
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 type L = typeof import("leaflet");
@@ -100,11 +100,10 @@ let skipViewAdjust = false;
 let rebuilding = false;
 
 /**
- * Label kode blok tampil bila garis skala menunjukkan "1 km" atau lebih dekat.
+ * Label kode blok: terlihat di 1 km, hilang di 2 km (ambang < 2000 m per 100 px).
  * Dihitung dari jarak nyata per 100 px (bukan level zoom bulat) agar tetap benar pada zoom pecahan.
- * Label Leaflet "1 km" berlaku sampai < 2 km per 100 px.
  */
-const LABEL_MAX_SCALE_M = 2000;
+const LABEL_MAX_SCALE_M = BLOCK_LABEL_MAX_SCALE_M;
 /** Batas jumlah label di layar sekaligus (hanya blok di dalam area pandang yang diberi label). */
 const LABEL_MAX_ON_SCREEN = 900;
 let labelMarkers: import("leaflet").Marker[] = [];
@@ -1106,7 +1105,7 @@ function invalidateSize() {
   map?.invalidateSize({ animate: false });
 }
 
-/** Center + zoom + ukuran viewport saat ini — Unduh Peta harus framing sama (tidak terpotong). */
+/** Center + zoom + ukuran + skala viewport — Unduh Peta harus sama persis (mis. 500 m). */
 function getView() {
   if (!map) return null;
   const center = map.getCenter();
@@ -1120,6 +1119,7 @@ function getView() {
       [bounds.getNorth(), bounds.getEast()],
     ] as [[number, number], [number, number]],
     size: { width: size.x, height: size.y },
+    scaleMeters: currentScaleMeters(),
   };
 }
 

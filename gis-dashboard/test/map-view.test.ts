@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "../utils/mapView";
+import { BLOCK_LABEL_MAX_SCALE_M, bboxCenter, featuresBBox, fitCenterBBox, roundScaleMeters, scaleStep, zoomForScale } from "../utils/mapView";
 
 const poly = (coords: number[][], id?: string) => ({
   geometry: { type: "Polygon", coordinates: [coords] },
@@ -25,6 +25,12 @@ describe("featuresBBox / bboxCenter", () => {
   });
   it("null bila kosong", () => {
     expect(featuresBBox([])).toBeNull();
+  });
+});
+
+describe("BLOCK_LABEL_MAX_SCALE_M", () => {
+  it("label terlihat di 1 km, hilang di 2 km (ambang 2000 m)", () => {
+    expect(BLOCK_LABEL_MAX_SCALE_M).toBe(2000);
   });
 });
 

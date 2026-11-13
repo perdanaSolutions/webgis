@@ -82,6 +82,11 @@ export function bboxCenter(box: BBox): { lat: number; lng: number } {
 export const BLOCK_SCALE_M = 100;
 export const ZOOM_STEP_M = 500;
 export const MAX_SCALE_M = 100000;
+/**
+ * Label kode blok: tampil di skala 1 km (dan lebih dekat), hilang mulai 2 km.
+ * Ambang < 2000 m: garis skala "1 km" masih berlabel; "2 km" tidak.
+ */
+export const BLOCK_LABEL_MAX_SCALE_M = 2000;
 
 /**
  * Skala berikutnya untuk tombol zoom. Skala = jarak yang diwakili garis skala (100 px).
