@@ -119,13 +119,6 @@ export const BASEMAPS: BasemapOption[] = [
     preview: "linear-gradient(135deg,#1f3b24 0%,#6d8a45 55%,#c4b48a 100%)",
     tiles: [
       {
-        // Underlay: di luar cakupan foto udara (area putih) tetap terisi Esri World Imagery.
-        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attribution: ESRI_ATTRIBUTION,
-        maxNativeZoom: 19,
-        maxZoom: 22,
-      },
-      {
         // GeoServer digilink lewat proxy backend (GET /v1/basemap/foto-udara/wms). tpgis:tpgis_fu = layer group
         // gabungan seluruh foto udara (Berau, Kutim, Paser, ...); tpgis:TPA-SGA tidak ada di GeoServer.
         service: "wms",
@@ -133,11 +126,12 @@ export const BASEMAPS: BasemapOption[] = [
         url: "/v1/basemap/foto-udara/wms",
         upstreamHost: "digilink.teladanprima.com",
         layers: "tpgis:tpgis_fu",
-        // PNG + transparent wajib agar piksel di luar cakupan tembus ke Esri di bawah.
-        // JPEG tidak punya alpha — area kosong jadi putih solid dan menutup Esri.
-        format: "image/png",
+        // Foto: JPEG ~3–10x lebih kecil dari PNG dengan ketajaman setara (uji 30 Okt 2026), jadi ubin retina
+        // 512 px JPEG (~45–75 KB) tetap lebih ringan dari ubin 256 px PNG lama (~140–170 KB).
+        // Tidak ditumpuk Esri: PNG transparan + underlay membuat load jauh lebih berat.
+        format: "image/jpeg",
         version: "1.1.1",
-        transparent: true,
+        transparent: false,
         hiDpi: true,
         // Resolusi sumber ~7 cm (WCS offsetVector 7,19e-7° Kutim2B, 0,07 m BERAU2); ubin 512 px pada z20 = ~7,5 cm
         // per piksel perangkat. Di atas z20 detail tidak bertambah, jadi ubin z20 diperbesar Leaflet.
