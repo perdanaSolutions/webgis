@@ -92,18 +92,29 @@ const opacity = ref(80);
 const showBlocks = ref(true);
 const showYieldGap = ref(false);
 const showPlantingYear = ref(false);
-/** Yield Gap dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala. */
-function toggleYieldGap() {
-  showYieldGap.value = !showYieldGap.value;
-  if (showYieldGap.value) showPlantingYear.value = false;
-}
-function togglePlantingYear() {
-  showPlantingYear.value = !showPlantingYear.value;
-  if (showPlantingYear.value) showYieldGap.value = false;
-}
 /** Kartu keterangan bawah (Tahun Tanam / Yield Gap): tampil-sembunyi lewat tombol di samping Unduh Peta. Default tersembunyi. */
 const legendPlantingYear = ref(false);
 const legendYieldGap = ref(false);
+/** Yield Gap dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala.
+ * Tombol info + kartu legenda hanya boleh aktif ketika layer di Layer Data menyala. */
+function toggleYieldGap() {
+  showYieldGap.value = !showYieldGap.value;
+  if (showYieldGap.value) {
+    showPlantingYear.value = false;
+    legendPlantingYear.value = false;
+  } else {
+    legendYieldGap.value = false;
+  }
+}
+function togglePlantingYear() {
+  showPlantingYear.value = !showPlantingYear.value;
+  if (showPlantingYear.value) {
+    showYieldGap.value = false;
+    legendYieldGap.value = false;
+  } else {
+    legendPlantingYear.value = false;
+  }
+}
 const plantingYears = computed(() => plantingYearLegend(store.visibleBlocks?.features ?? []));
 const yieldComparisonOn = computed(() => Boolean(store.appliedFilter.bulanComparison && store.appliedFilter.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
@@ -301,6 +312,8 @@ function resetMapLayers() {
   showBlocks.value = true;
   showYieldGap.value = false;
   showPlantingYear.value = false;
+  legendYieldGap.value = false;
+  legendPlantingYear.value = false;
   overlays.disableAll();
 }
 
@@ -504,11 +517,8 @@ onBeforeUnmount(() => {
         <!-- Legenda + zoom: pojok kanan bawah -->
         <div v-show="!(isMobile && (activeLeft || activeRight))"
           class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <div v-if="legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+          <div v-if="showYieldGap && legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
-            <p v-if="!showYieldGap" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
-              Aktifkan Yield Gap di Layer Data untuk mewarnai blok.
-            </p>
             <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
               Isi blok mengikuti periode. Titik di tengah mengikuti pembanding.
             </p>
@@ -520,11 +530,8 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-          <div v-if="legendPlantingYear" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+          <div v-if="showPlantingYear && legendPlantingYear" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Tahun Tanam</p>
-            <p v-if="!showPlantingYear" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
-              Aktifkan Tahun Tanam di Layer Data untuk mewarnai blok.
-            </p>
             <p v-if="!plantingYears.length" class="text-12 text-[#6e7866]">Belum ada data tahun tanam.</p>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
               <span v-for="item in plantingYears" :key="item.label"
@@ -559,12 +566,12 @@ onBeforeUnmount(() => {
               </svg>
             </button>
             <div class="flex flex-wrap items-end justify-end gap-2">
-              <button v-show="showMapDownload" type="button" class="bp-btn bp-legend-toggle"
+              <button v-show="showMapDownload && showPlantingYear" type="button" class="bp-btn bp-legend-toggle"
                 :class="legendPlantingYear && 'is-active'" :aria-pressed="legendPlantingYear"
                 title="Tampilkan / sembunyikan informasi Tahun Tanam" @click="legendPlantingYear = !legendPlantingYear">
                 Tahun Tanam
               </button>
-              <button v-show="showMapDownload" type="button" class="bp-btn bp-legend-toggle"
+              <button v-show="showMapDownload && showYieldGap" type="button" class="bp-btn bp-legend-toggle"
                 :class="legendYieldGap && 'is-active'" :aria-pressed="legendYieldGap"
                 title="Tampilkan / sembunyikan informasi Yield Gap" @click="legendYieldGap = !legendYieldGap">
                 Yield Gap
