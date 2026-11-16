@@ -264,7 +264,8 @@ onMounted(async () => {
   }
 
   .dash-home__logo {
-    height: 50px;
+    height: 120px;
+    padding-top: 20px;
   }
 
   .dash-home__hero {
@@ -282,7 +283,7 @@ onMounted(async () => {
   }
 
   .dash-home__logo {
-    height: 24px;
+    height: 84px;
   }
 
   .dash-home__panel :deep(.kpi__svg) {
@@ -298,6 +299,12 @@ onMounted(async () => {
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dash-home__logo {
+    height: 84px;
   }
 }
 

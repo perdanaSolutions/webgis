@@ -103,6 +103,7 @@ def test_role_bulk_access_one_request(client, auth, sample_block):
         "akses_menu": [menu["id"]],
         "akses_data": tree,
         "akses_transaksi": ["trx.block_productions"],
+        "akses_unduh_peta": True,
     })
     assert created.status_code == 201, created.text
     created = created.json()
@@ -110,6 +111,7 @@ def test_role_bulk_access_one_request(client, auth, sample_block):
     assert created["akses_transaksi"][0]["nama_table_transaksi"] == "trx.block_productions"
     assert created["akses_data"][0]["level"] == "division"
     assert created["akses_wilayah"][0]["perusahaan"][0]["estate"][0]["afdeling"][0]["id_afdeling"] == str(divisions[0]["id"])
+    assert created["akses_unduh_peta"] is True
 
     detail = client.get(f"/api/v1/roles/{created['id']}", headers=auth)
     assert detail.status_code == 200
@@ -117,6 +119,7 @@ def test_role_bulk_access_one_request(client, auth, sample_block):
     assert len(detail["akses_menu"]) == 1
     assert len(detail["akses_transaksi"]) == 1
     assert detail["akses_wilayah"][0]["perusahaan"][0]["estate"][0]["afdeling"]
+    assert detail["akses_unduh_peta"] is True
 
     cleared = client.put(f"/api/v1/roles/{created['id']}", headers=auth, json={
         "nama": f"Bulk {suffix}",
@@ -124,6 +127,7 @@ def test_role_bulk_access_one_request(client, auth, sample_block):
         "akses_menu": [],
         "akses_data": [],
         "akses_transaksi": [],
+        "akses_unduh_peta": False,
     })
     assert cleared.status_code == 200, cleared.text
     cleared = cleared.json()
@@ -131,6 +135,7 @@ def test_role_bulk_access_one_request(client, auth, sample_block):
     assert cleared["akses_data"] == []
     assert cleared["akses_wilayah"] == []
     assert cleared["akses_transaksi"] == []
+    assert cleared["akses_unduh_peta"] is False
 
     # API belum punya DELETE /roles (FE tidak memakainya) -> bersihkan lewat SQL
     with engine.begin() as conn:

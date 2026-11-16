@@ -50,6 +50,7 @@ const form = reactive({
   layer_ids: [],
   transaksi_ids: [],
   preserved_grant_ids: [],
+  unduh_peta: false,
   selected_area_items: [],
   selected_perusahaan_items: [],
   selected_estate_items: [],
@@ -289,6 +290,7 @@ function resetForm() {
   form.layer_ids = [];
   form.transaksi_ids = [];
   form.preserved_grant_ids = [];
+  form.unduh_peta = false;
   form.selected_area_items = [];
   form.selected_perusahaan_items = [];
   form.selected_estate_items = [];
@@ -364,6 +366,7 @@ async function fillForm(role) {
     form.layer_ids = savedGrants.layer_ids;
     form.transaksi_ids = savedGrants.transaksi_ids;
     form.preserved_grant_ids = savedGrants.preserved_grant_ids;
+    form.unduh_peta = Boolean(existingAkses?.unduh_peta);
     grantCatalogReady.value = true;
 
     await applySavedGroupTree(existingAkses?.grup ?? []);
@@ -512,6 +515,7 @@ async function submitForm() {
   const payload = {
     ...form,
     akses_data: buildAksesData(),
+    akses_unduh_peta: Boolean(form.unduh_peta),
   };
 
   try {
@@ -1728,6 +1732,11 @@ onMounted(async () => {
                 : 'border border-tan bg-cream text-brand'" @click="changeContent('transaksi')">
                 Akses Transaksi
               </button>
+              <button type="button" class="rounded-xl px-4 py-2 text-size-sm font-semibold transition" :class="activePermissionTab === 'unduh_peta'
+                ? 'bg-brand text-on-brand'
+                : 'border border-tan bg-cream text-brand'" @click="changeContent('unduh_peta')">
+                Akses Unduh Peta
+              </button>
             </div>
 
             <div v-show="activePermissionTab === 'menu'" class="rounded-xl border border-default p-4">
@@ -1980,6 +1989,25 @@ onMounted(async () => {
                     class="h-4 w-4" @change="togglePermission(getTransaksiCode(transaksi))" />
                   <span>{{ transaksi?.label ?? transaksi?.title ?? transaksi?.table }}</span>
                 </label>
+              </div>
+            </div>
+
+            <div v-show="activePermissionTab === 'unduh_peta'" class="rounded-xl border border-default p-4">
+              <p class="mb-1 font-semibold text-brand">Akses Unduh Peta</p>
+              <p class="mb-4 text-muted">
+                Jika aktif, tombol Unduh Peta tampil di halaman map untuk user dengan role ini.
+              </p>
+              <div class="flex flex-wrap items-center gap-3">
+                <button type="button" role="switch" :aria-checked="form.unduh_peta"
+                  class="relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition"
+                  :class="form.unduh_peta ? 'bg-brand' : 'bg-slate-light'"
+                  @click="form.unduh_peta = !form.unduh_peta">
+                  <span class="inline-block h-6 w-6 transform rounded-full bg-surface shadow transition"
+                    :class="form.unduh_peta ? 'translate-x-7' : 'translate-x-1'" />
+                </button>
+                <span class="font-semibold" :class="form.unduh_peta ? 'text-brand' : 'text-muted'">
+                  {{ form.unduh_peta ? "Aktif" : "Non aktif" }}
+                </span>
               </div>
             </div>
           </div>

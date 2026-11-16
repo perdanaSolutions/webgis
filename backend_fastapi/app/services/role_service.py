@@ -54,6 +54,9 @@ def role_responses(db: Session, roles: list[Role]) -> list[dict]:
             "akses_wilayah": access_service.scopes_as_tree(scopes_by_role.get(str(role.id), [])),
             "akses_wilayah_grup": group_trees.get(str(role.id), []),
             "akses_transaksi": transactions_by_role.get(str(role.id), []),
+            "akses_unduh_peta": access_service.role_has_feature(
+                db, role.id, access_service.MAP_DOWNLOAD_CODE
+            ),
         }
         for role in roles
     ]
@@ -85,6 +88,8 @@ def _sync_access(db: Session, role: Role, payload: RoleCreate | RoleUpdate, *, r
         _replace_data_access(db, role.id, payload.akses_data or [])
     if replace_missing or payload.akses_transaksi is not None:
         access_service.replace_transactions(db, role.id, payload.akses_transaksi or [])
+    if replace_missing or payload.akses_unduh_peta is not None:
+        access_service.set_map_download(db, role.id, bool(payload.akses_unduh_peta))
 
 
 def create_role(db: Session, payload: RoleCreate, current_user=None) -> dict:

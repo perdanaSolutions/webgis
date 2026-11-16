@@ -670,8 +670,12 @@ function buildOverlayLayer(L: LeafletModule, overlay: OverlayState, data: Featur
       renderer: pointRenderer ?? undefined,
       pane: POINT_PANE,
       radius: style.radius ?? 5,
-      color: overlay.code === 'jembatan' ? '#0c4a6e' : '#ffffff',
-      weight: overlay.code === 'sawit' ? 0.4 : 1.2,
+      color: overlay.code === 'jembatan'
+        ? '#0c4a6e'
+        : overlay.code === 'sawit'
+          ? getOverlayColor(style, feature.properties)
+          : '#ffffff',
+      weight: style.weight ?? (overlay.code === 'sawit' ? 0 : 1.2),
       fillColor: getOverlayColor(style, feature.properties),
       fillOpacity: 0.95,
     }),

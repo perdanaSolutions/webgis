@@ -95,7 +95,7 @@ export function useMapOverlays(scopeParams: Ref<Record<string, string | undefine
 
     const sawit = items.find((item) => item.code === "sawit");
     if (sawit) {
-      const style: OverlayStyle = { ...getOverlayStyle("sawit"), colors: undefined, colorBy: undefined, defaultColor: "#eab308", radius: 4 };
+      const style: OverlayStyle = { ...getOverlayStyle("sawit"), colors: undefined, colorBy: undefined, defaultColor: "#fde047", radius: 4 };
       items.push({
         ...sawit, code: "kuning", name: LABELS.kuning!, style, legend: [], enabled: false, data: null,
         filter: (p) => String(p.kategori ?? "").toLowerCase() === "kuning",

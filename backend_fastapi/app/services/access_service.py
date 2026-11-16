@@ -739,6 +739,68 @@ def replace_transactions(db: Session, role_id: UUID, tables: list[str]) -> None:
     )
 
 
+MAP_DOWNLOAD_CODE = "map:download"
+
+
+def role_has_feature(db: Session, role_id: UUID, code: str) -> bool:
+    row = db.execute(
+        text("""
+            SELECT 1
+            FROM auth.role_permissions rp
+            JOIN auth.permissions p ON p.id = rp.permission_id
+            WHERE rp.role_id = :r AND p.code = :c
+            LIMIT 1
+        """),
+        {"r": str(role_id), "c": code},
+    ).first()
+    return row is not None
+
+
+def set_role_feature(db: Session, role_id: UUID, code: str, enabled: bool, *,
+                     resource: str, action: str, description: str) -> None:
+    """Grant/revoke satu permission fitur (bukan akses tabel schema.table)."""
+    db.execute(
+        text("""
+            INSERT INTO auth.permissions (code, resource, action, description)
+            VALUES (:code, :resource, :action, :description)
+            ON CONFLICT (code) DO NOTHING
+        """),
+        {"code": code, "resource": resource, "action": action, "description": description},
+    )
+    if enabled:
+        db.execute(
+            text("""
+                INSERT INTO auth.role_permissions (role_id, permission_id)
+                SELECT CAST(:role_id AS uuid), p.id
+                FROM auth.permissions p
+                WHERE p.code = :code
+                ON CONFLICT DO NOTHING
+            """),
+            {"role_id": str(role_id), "code": code},
+        )
+        return
+    db.execute(
+        text("""
+            DELETE FROM auth.role_permissions rp
+            USING auth.permissions p
+            WHERE rp.permission_id = p.id AND rp.role_id = :r AND p.code = :c
+        """),
+        {"r": str(role_id), "c": code},
+    )
+
+
+def set_map_download(db: Session, role_id: UUID, enabled: bool) -> None:
+    set_role_feature(
+        db,
+        role_id,
+        MAP_DOWNLOAD_CODE,
+        enabled,
+        resource="map",
+        action="download",
+        description="Mengunduh peta (PDF) dari halaman map",
+    )
+
+
 def _ensure_exists(db: Session, table: str, row_id: str, label: str) -> None:
     try:
         UUID(str(row_id))

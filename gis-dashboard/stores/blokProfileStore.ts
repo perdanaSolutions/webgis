@@ -26,10 +26,11 @@ import type { ProductionGroupChart } from "~/utils/productionGroups";
  *   Setiap GeoJSON membawa tahun dari field Periode, plus bulan bila dipilih.
  *   Tahun default = tahun periode terakhir yang sudah diupload (GET /spatial/periode-terakhir);
  *   bulan periode selalu kosong saat load pertama dan reset.
- * - Year to date tanpa bulan = produksi Januari s/d bulan data terbaru yang sudah diupload pada tahun itu.
- *   Mencentang Year to Date mengosongkan bulan periode. Year to date dan periode
- *   pembanding hanya dikirim ke GeoJSON batas blok
- *   (`year_to_date`, `bulan_comparison` + `tahun_comparison`), bukan ke layer lain.
+ * - Year to Date + bulan = produksi Januari s/d bulan periode; tanpa bulan = Januari s/d
+ *   bulan data terbaru yang sudah diupload pada tahun itu. Periode pembanding memakai
+ *   aturan yang sama (YTD: Januari s/d bulan pembanding). Year to date dan pembanding
+ *   hanya dikirim ke GeoJSON batas blok (`year_to_date`, `bulan_comparison` +
+ *   `tahun_comparison`), bukan ke layer lain.
  * - Popup blok dibuka pada bulan produksi yang mewarnai blok itu (produksi_tbs.periode).
  * - Blok spesifik: GeoJSON hanya batas poligon blok terpilih (`kode_blok`).
  *   Tanpa pilihan blok, batas mengikuti estate/afdeling/area seperti biasa.
@@ -1150,10 +1151,14 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     ).trim();
     // Sementara hanya `tahun` yang dikirim; `bulan` di-hide dulu.
     const tahun = String(overrides?.tahun ?? applied.value.tahun ?? "").trim();
-    // Year to Date: ringkasan Gap Produksi = agregat Januari s/d bulan akhir YTD tahun filter.
+    // Year to Date: ringkasan Gap = Januari s/d bulan filter (atau bulan data terbaru bila kosong).
     const ytdYear = applied.value.yearToDate ? String(applied.value.tahun || currentYear()) : "";
     const ytd = ytdYear
-      ? { year_to_date: "true", gap_tahun: ytdYear, gap_bulan: String(Number(yearToDateEndMonth(ytdYear))) }
+      ? {
+          year_to_date: "true",
+          gap_tahun: ytdYear,
+          gap_bulan: String(Number(applied.value.bulan || yearToDateEndMonth(ytdYear))),
+        }
       : {};
     return {
       ...ytd,
@@ -1283,19 +1288,8 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     return incoming || "";
   }
 
-  /** Periode dan pembanding sama-sama punya bulan serta tahun, jadi Year to Date dilepas. */
-  function comparingFixedPeriods() {
-    return Boolean(
-      bulan.value &&
-      tahun.value &&
-      bulanComparison.value &&
-      tahunComparison.value,
-    );
-  }
-
   /** Terapkan semua field form ke peta (GeoJSON) dan kartu transaksi. Panggilan lama dibatalkan. */
   async function applyFilters() {
-    if (comparingFixedPeriods()) yearToDate.value = false;
     const ticket = ++applySeq;
     const epoch = filterEpoch;
     mapDrillActive = false;
@@ -1466,9 +1460,7 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
   }
 
   function setYearToDate(value: boolean) {
-    if (comparingFixedPeriods()) return;
     yearToDate.value = Boolean(value);
-    if (yearToDate.value) bulan.value = "";
   }
 
   function setBulanComparison(value: string) {

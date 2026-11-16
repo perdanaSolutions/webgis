@@ -553,6 +553,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
         ...transaksiTables,
         ...preserved,
       ]),
+      akses_unduh_peta: Boolean(payload?.akses_unduh_peta ?? payload?.unduh_peta),
     };
   }
 
@@ -586,6 +587,7 @@ export const useManageRoleStore = defineStore("manageRole", () => {
       data: Array.isArray(role?.akses_wilayah) ? role.akses_wilayah : [],
       grup: Array.isArray(role?.akses_wilayah_grup) ? role.akses_wilayah_grup : [],
       transaksi: Array.isArray(role?.akses_transaksi) ? role.akses_transaksi : [],
+      unduh_peta: Boolean(role?.akses_unduh_peta),
     };
   }
 

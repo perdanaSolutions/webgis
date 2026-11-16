@@ -38,11 +38,12 @@ class RoleBase(BaseModel):
 
 
 class RoleCreate(RoleBase):
-    """Satu payload: menu, pohon wilayah, dan tabel transaksi sekaligus."""
+    """Satu payload: menu, pohon wilayah, tabel transaksi, dan flag unduh peta."""
 
     akses_menu: List[str] = Field(default_factory=list)
     akses_data: List[AksesDataItem] = Field(default_factory=list)
     akses_transaksi: List[str] = Field(default_factory=list)
+    akses_unduh_peta: bool = False
 
     @field_validator("akses_data", mode="before")
     @classmethod
@@ -60,6 +61,7 @@ class RoleUpdate(BaseModel):
     akses_menu: Optional[List[str]] = None
     akses_data: Optional[List[AksesDataItem]] = None
     akses_transaksi: Optional[List[str]] = None
+    akses_unduh_peta: Optional[bool] = None
 
     @field_validator("akses_data", mode="before")
     @classmethod
@@ -79,6 +81,7 @@ class RoleResponse(RoleBase):
     akses_wilayah: List[AreaTreeSchema] = []
     akses_wilayah_grup: List[GroupTreeSchema] = []  # urutan struktur v2: Grup -> PT -> Area -> Estate -> Afdeling
     akses_transaksi: List[AksesTransaksiResponse] = []
+    akses_unduh_peta: bool = False
 
     class Config:
         from_attributes = True

@@ -24,6 +24,8 @@ type UserInfo = {
   akses_menu: string[];
   akses_data: AksesData[];
   akses_transaksi: string[];
+  /** Kode permission fitur (mis. map:download, upload:geojson). */
+  permissions: string[];
 };
 
 function uniqueText(values: unknown) {
@@ -78,6 +80,11 @@ function normalizeUser(raw: Partial<UserInfo> | null | undefined): UserInfo {
     akses_transaksi: uniqueText(
       (Array.isArray(raw?.akses_transaksi) ? raw.akses_transaksi : []).map((item: any) =>
         typeof item === "string" ? item : item?.nama_table_transaksi ?? item?.table_name ?? "",
+      ),
+    ),
+    permissions: uniqueText(
+      (Array.isArray(raw?.permissions) ? raw.permissions : []).map((item: any) =>
+        typeof item === "string" ? item : item?.kode ?? item?.code ?? "",
       ),
     ),
   };
@@ -155,6 +162,7 @@ export const useAuthStore = defineStore("auth", () => {
       akses_menu: [],
       akses_data: [],
       akses_transaksi: [],
+      permissions: [],
     };
   }
 

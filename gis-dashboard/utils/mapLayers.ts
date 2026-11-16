@@ -302,6 +302,8 @@ export type OverlayStyle = {
   radius?: number; // untuk titik
   weight?: number; // untuk garis/tepi
   fillOpacity?: number;
+  /** Bentuk marker titik. Default lingkaran. */
+  markerShape?: "circle" | "square";
   /** properti yang ditampilkan di popup (urut), beserta labelnya */
   popupFields: Array<[string, string]>;
 };
@@ -322,10 +324,9 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     popupFields: [],
   },
   sawit: {
-    colorBy: "kategori",
-    colors: { Normal: "#16a34a", Kuning: "#eab308", Mati: "#dc2626" },
-    defaultColor: "#64748b",
+    defaultColor: "#fde047",
     radius: 3,
+    weight: 0,
     popupFields: [
       ...BLOCK_FIELDS,
       ["objectid", "Object ID"],
@@ -335,10 +336,10 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     ],
   },
   tph: {
-    colorBy: "kategori",
-    colors: { Estimasi: "#f97316", Survei: "#8b5cf6" },
-    defaultColor: "#f97316",
+    defaultColor: "#22c55e",
     radius: 5,
+    weight: 0,
+    markerShape: "square",
     popupFields: [
       ...BLOCK_FIELDS,
       ["tph_id", "ID TPH"],

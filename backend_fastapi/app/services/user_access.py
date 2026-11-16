@@ -239,6 +239,16 @@ def merged_access(db: Session, user) -> dict:
             ids,
         ):
             add_trx(row["nama_table_transaksi"])
+    feature_codes: list[str] = []
+    feature_seen: set[str] = set()
+
+    def add_feature(value) -> None:
+        text_value = str(value or "").strip()
+        folded = text_value.lower()
+        if text_value and folded not in feature_seen:
+            feature_seen.add(folded)
+            feature_codes.append(text_value)
+
     permissions = _pick(tables.get("permissions", []), "auth")
     role_permissions = _pick(tables.get("role_permissions", []), "auth")
     if ids and permissions and role_permissions:
@@ -254,6 +264,18 @@ def merged_access(db: Session, user) -> dict:
             ids,
         ):
             add_trx(row["nama_table_transaksi"])
+        for row in _distinct(
+            db,
+            f"""
+            SELECT DISTINCT p.code AS permission_code
+            FROM {role_permissions} rp
+            JOIN {permissions} p ON p.id = rp.permission_id
+            WHERE rp.role_id::text IN :role_ids
+              AND p.resource NOT LIKE '%.%'
+            """,
+            ids,
+        ):
+            add_feature(row["permission_code"])
     if uuid_ids:
         try:
             with db.begin_nested():
@@ -262,7 +284,12 @@ def merged_access(db: Session, user) -> dict:
         except Exception:
             pass
 
-    return {"akses_menu": menus, "akses_data": scopes, "akses_transaksi": transactions}
+    return {
+        "akses_menu": menus,
+        "akses_data": scopes,
+        "akses_transaksi": transactions,
+        "permissions": feature_codes,
+    }
 
 
 def _expand_grants(names: set[str]) -> set[str]:

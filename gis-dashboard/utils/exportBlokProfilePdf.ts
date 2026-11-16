@@ -146,14 +146,19 @@ async function settleTiles(layers: import("leaflet").TileLayer[]) {
   await sleep(160);
 }
 
+/** Ukuran kanvas cetak = ukuran peta layar. CircleMarker radius dalam px layar; beda ukuran + fitBounds membuat titik membengkak (blob kuning). */
+function printMapCssSize(mapView: PdfMapView | null | undefined, mapH: number, mapW: number) {
+  const liveW = mapView?.size?.width ?? 0;
+  const liveH = mapView?.size?.height ?? 0;
+  if (liveW > 2 && liveH > 2) return { cssW: Math.round(liveW), cssH: Math.round(liveH) };
+  const aspect = mapW / mapH;
+  const cssW = 1500;
+  return { cssW, cssH: Math.max(400, Math.round(cssW / (aspect > 0 ? aspect : 16 / 9))) };
+}
+
 async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, mapW: number) {
   const { toPng } = await import("html-to-image");
-  // Kanvas cetak = rasio slot PDF (= rasio peta layar). Zoom layar hanya aman jika rasio sama.
-  const liveW = input.mapView?.size?.width ?? 0;
-  const liveH = input.mapView?.size?.height ?? 0;
-  const aspect = liveW > 2 && liveH > 2 ? liveW / liveH : mapW / mapH;
-  const cssW = 1500;
-  const cssH = Math.max(400, Math.round(cssW / aspect));
+  const { cssW, cssH } = printMapCssSize(input.mapView, mapH, mapW);
   const option = BASEMAPS.find((item) => item.key === input.basemap) ?? BASEMAPS[0]!;
   const satellite = input.basemap === "satellite" || input.basemap === "hybrid" || input.basemap === "tpa-sga";
   const background = satellite ? "#243028" : "#e7efe0";
@@ -221,17 +226,34 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
       track(Lf.geoJSON(overlay.data, {
         pane: "bp-points",
         interactive: false,
-        pointToLayer: (feature, latlng) => Lf.circleMarker(latlng, {
-          renderer: pointRenderer,
-          pane: "bp-points",
-          radius: Math.max(overlay.style.radius ?? 5, 4),
-          color: overlay.code === "sawit" ? "#1f2937" : "#ffffff",
-          weight: overlay.code === "sawit" ? 0.6 : 1.4,
-          opacity: 1,
-          fillColor: getOverlayColor(overlay.style, feature.properties as Record<string, unknown> | null),
-          fillOpacity: 1,
-          interactive: false,
-        }),
+        pointToLayer: (feature, latlng) => {
+          const fill = getOverlayColor(overlay.style, feature.properties as Record<string, unknown> | null);
+          // Samakan persis BlokProfileMap: radius/size dari style, tanpa lantai min yang membesarkan titik.
+          if (overlay.style.markerShape === "square") {
+            const size = Math.round((overlay.style.radius ?? 5) * 2);
+            return Lf.marker(latlng, {
+              pane: "bp-points",
+              interactive: false,
+              icon: Lf.divIcon({
+                className: "bp-point-square",
+                html: `<span style="display:block;width:${size}px;height:${size}px;background:${fill}"></span>`,
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
+              }),
+            });
+          }
+          return Lf.circleMarker(latlng, {
+            renderer: pointRenderer,
+            pane: "bp-points",
+            radius: overlay.style.radius ?? 5,
+            color: overlay.code === "sawit" || overlay.code === "kuning" ? fill : "#ffffff",
+            weight: overlay.style.weight ?? (overlay.code === "sawit" || overlay.code === "kuning" ? 0 : 1.2),
+            opacity: 1,
+            fillColor: fill,
+            fillOpacity: 1,
+            interactive: false,
+          });
+        },
       }).addTo(map));
       continue;
     }
@@ -275,8 +297,8 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
   try {
     map.invalidateSize();
     const moved = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
-    // setView(center, zoom) + kanvas se-rasio layar = skala sama (500 m tetap 500 m) tanpa potong.
-    // Jangan fitBounds dulu: rasio beda akan mengubah zoom (500 m → 1 km).
+    // Kanvas = ukuran layar + setView(center, zoom) saja. Jangan fitBounds: itu mengubah zoom
+    // sementara radius titik tetap (px), jadi Pokok Sawit/TPH jadi blob besar di PDF.
     if (input.mapView && Number.isFinite(input.mapView.zoom)) {
       map.setView(
         [input.mapView.center.lat, input.mapView.center.lng],
@@ -284,17 +306,6 @@ async function renderPrintMap(Lf: Leaflet, input: PdfExportInput, mapH: number, 
         { animate: false },
       );
       await Promise.race([moved, sleep(1500)]);
-      // Jika kanvas tetap memotong bounds layar, longgarkan sedikit agar tidak terpotong.
-      if (input.mapView.bounds) {
-        const want = Lf.latLngBounds(input.mapView.bounds);
-        const have = map.getBounds();
-        const cropped = !have.contains(want.getSouthWest()) || !have.contains(want.getNorthEast());
-        if (cropped) {
-          const again = new Promise<void>((resolve) => map.once("moveend", () => resolve()));
-          map.fitBounds(want, { animate: false, padding: [0, 0] });
-          await Promise.race([again, sleep(1500)]);
-        }
-      }
     } else if (input.mapView?.bounds) {
       map.fitBounds(input.mapView.bounds, { animate: false, padding: [0, 0] });
       await Promise.race([moved, sleep(1500)]);

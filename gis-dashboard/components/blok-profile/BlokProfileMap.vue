@@ -886,18 +886,35 @@ function renderOverlays() {
         fillOpacity: (layer.style.fillOpacity ?? 0.55) * props.opacity,
         bubblingMouseEvents: false,
       }),
-      pointToLayer: (f, latlng) => Lf!.circleMarker(latlng, {
-        renderer: pointRenderer ?? undefined,
-        pane: "bp-points",
-        radius: layer.style.radius ?? 5,
-        color: layer.code === "sawit" ? "#1f2937" : "#ffffff",
-        weight: layer.code === "sawit" ? 0.3 : 1.2,
-        opacity: props.opacity,
-        fillColor: getOverlayColor(layer.style, f.properties),
-        fillOpacity: props.opacity,
-        interactive: true,
-        bubblingMouseEvents: false,
-      }),
+      pointToLayer: (f, latlng) => {
+        const fill = getOverlayColor(layer.style, f.properties);
+        if (layer.style.markerShape === "square") {
+          const size = Math.round((layer.style.radius ?? 5) * 2);
+          return Lf!.marker(latlng, {
+            pane: "bp-points",
+            opacity: props.opacity,
+            interactive: true,
+            icon: Lf!.divIcon({
+              className: "bp-point-square",
+              html: `<span style="display:block;width:${size}px;height:${size}px;background:${fill}"></span>`,
+              iconSize: [size, size],
+              iconAnchor: [size / 2, size / 2],
+            }),
+          });
+        }
+        return Lf!.circleMarker(latlng, {
+          renderer: pointRenderer ?? undefined,
+          pane: "bp-points",
+          radius: layer.style.radius ?? 5,
+          color: layer.code === "sawit" || layer.code === "kuning" ? fill : "#ffffff",
+          weight: layer.style.weight ?? (layer.code === "sawit" || layer.code === "kuning" ? 0 : 1.2),
+          opacity: props.opacity,
+          fillColor: fill,
+          fillOpacity: props.opacity,
+          interactive: true,
+          bubblingMouseEvents: false,
+        });
+      },
       onEachFeature: (f, l) => {
         l.on("click", (event) => Lf?.DomEvent.stopPropagation(event));
         l.bindPopup(() => overlayPopup(layer, (f.properties ?? {}) as Record<string, any>), {
@@ -1247,6 +1264,10 @@ watch(() => props.insets, applyInsets, { deep: true });
   /* Gestur di atas peta milik peta: halaman/induk tidak ikut scroll, tidak ada pull-to-refresh. */
   touch-action: none;
   overscroll-behavior: contain;
+}
+.bp-point-square {
+  background: transparent !important;
+  border: none !important;
 }
 .bp-area-bubble { background: none; border: none; }
 .bp-area-bubble span {

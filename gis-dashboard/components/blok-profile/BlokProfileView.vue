@@ -13,6 +13,7 @@ import ProductionGroupChartCard from "~/components/blok-profile/ProductionGroupC
 import RotationCard from "~/components/blok-profile/RotationCard.vue";
 import SlopeInfoCard from "~/components/blok-profile/SlopeInfoCard.vue";
 import Header from "~/components/Header.vue";
+import { useAccessControl } from "~/composables/useAccessControl";
 import { useMapOverlays } from "~/composables/useMapOverlays";
 import { useAuthStore } from "~/stores/authStore";
 import { useBlokProfileStore } from "~/stores/blokProfileStore";
@@ -27,9 +28,11 @@ import { isAccessTokenExpired } from "~/utils/authSession";
 defineOptions({ name: "BlokProfileView" });
 
 const authStore = useAuthStore();
+const { hasPermission } = useAccessControl();
 const dashboardService = dashboardStore();
 const store = useBlokProfileStore();
 const route = useRoute();
+const canDownloadMap = computed(() => hasPermission("map:download"));
 
 const overlays = useMapOverlays(computed(() => ({ ...store.scopeParams })));
 const layers = overlays.layers;
@@ -137,7 +140,8 @@ watch(basemap, (value) => {
 // ------------------------------------------------------------------ tata letak
 const isDesktop = ref(false);
 const isMobile = ref(false);
-const showMapDownload = computed(() => !(isMobile.value && (activeLeft.value || activeRight.value)));
+const showMapToolbar = computed(() => !(isMobile.value && (activeLeft.value || activeRight.value)));
+const showMapDownload = computed(() => canDownloadMap.value && showMapToolbar.value);
 const online = ref(true);
 const stageRef = ref<HTMLElement | null>(null);
 const stageW = ref(0);
@@ -328,11 +332,10 @@ const pdfFilterLine = computed(() => {
   const applied = store.appliedFilter;
   const ownership = store.ownershipOptions.find((item) => item.value === applied.ownership)?.label || "Semua";
   const ytdEnd = Number(store.yearToDateEndMonth(applied.tahun || String(new Date().getFullYear()))) - 1;
-  const month = applied.bulan
-    ? MONTHS[Number(applied.bulan) - 1] ?? applied.bulan
-    : applied.yearToDate
-      ? `Jan s/d ${MONTHS[ytdEnd]}`
-      : "Semua bulan";
+  const monthName = applied.bulan ? (MONTHS[Number(applied.bulan) - 1] ?? applied.bulan) : "";
+  const month = applied.yearToDate
+    ? `Jan s/d ${monthName || MONTHS[ytdEnd]}`
+    : (monthName || "Semua bulan");
   const year = applied.tahun || String(new Date().getFullYear());
   return `Grup ${filter.grup} · PT ${filter.pt} · Estate ${filter.estate} · Afdeling ${filter.afdeling} · Blok ${filter.blok} · ${ownership} · ${month} ${year}`;
 });
@@ -456,7 +459,8 @@ onMounted(async () => {
     window.location.replace("/login");
     return;
   }
-  const session = await authStore.ensureSession();
+  // /me supaya permissions (map:download) ikut terbaru tanpa wajib login ulang.
+  const session = await authStore.validateToken({ redirect: false });
   if (!session) {
     window.location.replace("/login");
     return;
@@ -569,12 +573,12 @@ onBeforeUnmount(() => {
               </svg>
             </button>
             <div class="flex flex-wrap items-end justify-end gap-2">
-              <button v-show="showMapDownload && showPlantingYear" type="button" class="bp-btn bp-legend-toggle"
+              <button v-show="showMapToolbar && showPlantingYear" type="button" class="bp-btn bp-legend-toggle"
                 :class="legendPlantingYear && 'is-active'" :aria-pressed="legendPlantingYear"
                 title="Tampilkan / sembunyikan informasi Tahun Tanam" @click="legendPlantingYear = !legendPlantingYear">
                 Tahun Tanam
               </button>
-              <button v-show="showMapDownload && showYieldGap" type="button" class="bp-btn bp-legend-toggle"
+              <button v-show="showMapToolbar && showYieldGap" type="button" class="bp-btn bp-legend-toggle"
                 :class="legendYieldGap && 'is-active'" :aria-pressed="legendYieldGap"
                 title="Tampilkan / sembunyikan informasi Yield Gap" @click="legendYieldGap = !legendYieldGap">
                 Yield Gap

@@ -26,7 +26,7 @@ const props = defineProps<{
   ownership: string;
   bulan: string;
   tahun: string;
-  /** true = produksi Januari s/d bulan Periode, atau s/d bulan berjalan bila bulan kosong. */
+  /** true = produksi Januari s/d bulan Periode (atau s/d bulan data terbaru bila bulan kosong). */
   yearToDate: boolean;
   bulanComparison: string;
   tahunComparison: string;
@@ -86,6 +86,10 @@ const yearOptions = computed(() => {
   });
 });
 
+/** Pembanding dipakai hanya bila bulan dan tahunnya diisi. */
+const comparisonComplete = computed(() => Boolean(props.bulanComparison && props.tahunComparison));
+const comparisonIncomplete = computed(() => Boolean(props.bulanComparison) !== Boolean(props.tahunComparison));
+
 /** Akhir rentang Year to Date bila bulan periode dikosongkan. */
 const yearToDateEndLabel = computed(() => {
   // Akhir YTD = bulan data terbaru (dari store), bukan bulan kalender.
@@ -93,17 +97,32 @@ const yearToDateEndLabel = computed(() => {
   return BULAN_POPUP_OPTIONS[index]?.label ?? "";
 });
 
-const periodMonthLabel = computed(() => {
-  if (props.bulan) return BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulan)?.label ?? "";
-  if (props.yearToDate) return `Januari s/d ${yearToDateEndLabel.value}`;
-  return "";
+function monthLabel(value: string) {
+  return BULAN_POPUP_OPTIONS.find((item) => item.value === value)?.label ?? "";
+}
+
+/** Label rentang: YTD + bulan = Januari s/d bulan itu; YTD tanpa bulan = s/d data terbaru. */
+function rangeLabel(bulan: string, fallbackEnd: string) {
+  if (bulan) {
+    const label = monthLabel(bulan);
+    return props.yearToDate ? `Januari s/d ${label}` : label;
+  }
+  return props.yearToDate ? `Januari s/d ${fallbackEnd}` : "";
+}
+
+const periodMonthLabel = computed(() => rangeLabel(props.bulan, yearToDateEndLabel.value));
+
+const comparisonMonthLabel = computed(() => {
+  if (!comparisonComplete.value) return "";
+  return rangeLabel(props.bulanComparison, monthLabel(props.bulanComparison));
 });
 
 const scopeInfo = computed(() => {
   const month = periodMonthLabel.value;
   const periode = [props.yearToDate ? "YTD" : "", month, props.tahun].filter(Boolean).join(" ");
-  const comparisonMonth = BULAN_POPUP_OPTIONS.find((item) => item.value === props.bulanComparison)?.label ?? "";
-  const comparison = comparisonComplete.value ? `vs ${comparisonMonth} ${props.tahunComparison}` : "";
+  const comparison = comparisonComplete.value
+    ? `vs ${[props.yearToDate ? "YTD" : "", comparisonMonthLabel.value, props.tahunComparison].filter(Boolean).join(" ")}`
+    : "";
   const grupLabel = props.grup ? `Grup ${props.groupOptions.find((o) => o.value === props.grup)?.label ?? props.grup}` : "";
   const extra = [grupLabel, props.ownership, periode, comparison].filter(Boolean);
   const suffix = extra.length ? ` · ${extra.join(" · ")}` : "";
@@ -114,12 +133,6 @@ const scopeInfo = computed(() => {
     ? `${base}. Ada perubahan yang belum diterapkan, klik Apply untuk memuat peta dan data transaksi.`
     : `${base}. Peta dan data transaksi sudah mengikuti pilihan ini.`;
 });
-
-/** Pembanding dipakai hanya bila bulan dan tahunnya diisi. */
-const comparisonComplete = computed(() => Boolean(props.bulanComparison && props.tahunComparison));
-const comparisonIncomplete = computed(() => Boolean(props.bulanComparison) !== Boolean(props.tahunComparison));
-/** Kedua periode sudah tetap, jadi Year to Date tidak dipakai. */
-const yearToDateLocked = computed(() => Boolean(props.bulan && props.tahun && comparisonComplete.value));
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0)
   + (props.showYieldGap ? 1 : 0) + (props.showPlantingYear ? 1 : 0));
@@ -207,10 +220,9 @@ function onField(key: FieldKey, value: unknown) {
       <div class="mb-3">
         <div class="mb-1.5 flex items-center justify-between gap-3">
           <span class="bp-label" style="margin-bottom: 0">Periode</span>
-          <label class="flex shrink-0 items-center gap-2 text-13 font-semibold"
-            :class="yearToDateLocked ? 'cursor-not-allowed text-[#9aa392]' : 'text-[#1f2a18]'">
+          <label class="flex shrink-0 items-center gap-2 text-13 font-semibold text-[#1f2a18]">
             <input type="checkbox" class="h-4 w-4 accent-[#638840] disabled:cursor-not-allowed"
-              :checked="yearToDate && !yearToDateLocked" :disabled="loading || yearToDateLocked"
+              :checked="yearToDate" :disabled="loading"
               @change="emit('update:yearToDate', ($event.target as HTMLInputElement).checked)">
             Year to Date
           </label>
@@ -230,8 +242,8 @@ function onField(key: FieldKey, value: unknown) {
             :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:tahun', $event == null ? '' : String($event))" />
         </div>
-        <p v-if="yearToDate && !bulan" class="mt-1 text-12 text-[#55604c]">
-          Data diambil dari Januari s/d {{ yearToDateEndLabel }}.
+        <p v-if="yearToDate" class="mt-1 text-12 text-[#55604c]">
+          Data diambil dari {{ periodMonthLabel || `Januari s/d ${yearToDateEndLabel}` }}{{ tahun ? ` ${tahun}` : "" }}.
         </p>
 
         <span class="bp-label mt-3">Periode pembanding</span>
@@ -249,6 +261,9 @@ function onField(key: FieldKey, value: unknown) {
             no-data-text="Tidak ditemukan" :menu-props="{ contentClass: 'bp-filter-menu', attach: '#bp-map-stage' }"
             @update:model-value="emit('update:tahunComparison', $event == null ? '' : String($event))" />
         </div>
+        <p v-if="yearToDate && comparisonComplete" class="mt-1 text-12 text-[#55604c]">
+          Pembanding diambil dari {{ comparisonMonthLabel }}{{ tahunComparison ? ` ${tahunComparison}` : "" }}.
+        </p>
         <p v-if="comparisonIncomplete" class="mt-1 text-12 text-[#b45309]">
           Isi bulan dan tahun pembanding agar kategori pembanding ikut dimuat.
         </p>
@@ -347,7 +362,10 @@ function onField(key: FieldKey, value: unknown) {
 
         <li v-for="layer in layers" :key="layer.code" class="bp-layer-row">
           <span class="bp-layer-icon" :style="{ color: layer.style.defaultColor }">
-            <svg v-if="layer.geometryType.toUpperCase().includes('POINT')" viewBox="0 0 24 24" class="h-4 w-4"
+            <svg v-if="layer.style.markerShape === 'square'" viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor">
+              <rect x="5" y="5" width="14" height="14" rx="1" />
+            </svg>
+            <svg v-else-if="layer.geometryType.toUpperCase().includes('POINT')" viewBox="0 0 24 24" class="h-4 w-4"
               fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11Z" />
               <circle cx="12" cy="10" r="2.5" />
