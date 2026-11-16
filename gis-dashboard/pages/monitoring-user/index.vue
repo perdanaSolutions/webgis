@@ -6,6 +6,7 @@ import {
   type MonitoringStatus,
   type MonitoringUserItem,
 } from "~/stores/monitoringUserStore";
+import { exportMonitoringExcel, exportMonitoringPdf } from "~/utils/exportMonitoringUser";
 
 defineOptions({
   name: "MonitoringUserPage",
@@ -250,6 +251,36 @@ async function gotoDashboard() {
               :disabled="store.loading" @click="load(undefined)">
               Muat ulang
             </button>
+            <div class="relative">
+              <button
+                class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand disabled:opacity-50"
+                :disabled="isExporting" :aria-expanded="exportDropdownOpen" @click="toggleExportDropdown">
+                Unduh data ▾
+              </button>
+              <div v-if="exportDropdownOpen"
+                class="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-default bg-surface py-1 shadow-lg"
+                role="menu">
+                <p class="px-3 pb-1 pt-2 text-12 font-semibold text-muted">Excel</p>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportExcel('filter')">
+                  Semua data sesuai filter
+                </button>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportExcel('all')">
+                  Semua data (tanpa filter)
+                </button>
+                <div class="my-1 border-t border-row"></div>
+                <p class="px-3 pb-1 text-12 font-semibold text-muted">PDF</p>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportPdf('filter')">
+                  Semua data sesuai filter
+                </button>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportPdf('all')">
+                  Semua data (tanpa filter)
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
