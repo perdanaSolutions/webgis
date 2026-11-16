@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import Header from "~/components/Header.vue";
 import {
   useMonitoringUserStore,
@@ -137,14 +137,15 @@ function toggleExportDropdown() {
   exportDropdownOpen.value = !exportDropdownOpen.value;
 }
 
-// Tutup menu saat klik di luar.
-watch(exportDropdownOpen, (open) => {
-  function onDocClick() {
+// Tutup menu saat klik di luar area tombol + dropdown.
+function onDocClick(e: MouseEvent) {
+  if (!exportDropdownOpen.value) return;
+  const target = e.target as HTMLElement;
+  const root = document.querySelector("[data-export-menu]");
+  if (root && !root.contains(target)) {
     exportDropdownOpen.value = false;
-    document.removeEventListener("click", onDocClick);
   }
-  if (open) nextTick(() => document.addEventListener("click", onDocClick));
-});
+}
 
 async function doExportExcel(scope: "filter" | "all") {
   exportDropdownOpen.value = false;
@@ -186,9 +187,13 @@ async function doExportPdf(scope: "filter" | "all") {
 onMounted(async () => {
   await load(1);
   startTimer();
+  document.addEventListener("click", onDocClick);
 });
 
-onBeforeUnmount(stopTimer);
+onBeforeUnmount(() => {
+  stopTimer();
+  document.removeEventListener("click", onDocClick);
+});
 
 async function gotoDashboard() {
   await navigateTo("/dashboard");
@@ -251,7 +256,7 @@ async function gotoDashboard() {
               :disabled="store.loading" @click="load(undefined)">
               Muat ulang
             </button>
-            <div class="relative">
+            <div class="relative" data-export-menu>
               <button
                 class="rounded-lg border border-tan bg-cream px-3 py-1.5 font-semibold text-brand disabled:opacity-50"
                 :disabled="isExporting" :aria-expanded="exportDropdownOpen" @click="toggleExportDropdown">

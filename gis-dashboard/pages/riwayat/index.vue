@@ -7,6 +7,7 @@ import {
   type UploadSourceType,
   type UploadStatus,
 } from "~/stores/uploadHistoryStore";
+import { exportUploadHistoryExcel, exportUploadHistoryPdf } from "~/utils/exportUploadHistory";
 
 defineOptions({
   name: "RiwayatUploadPage",
@@ -32,6 +33,10 @@ const uploadHistoryStore = useUploadHistoryStore();
 const search = ref("");
 const statusFilter = ref<UploadStatus | "">("");
 const sourceFilter = ref<UploadSourceType | "">("");
+const filterMode = ref<"date_range" | "spesifik_tahun" | "spesifik_bulan" | "spesifik_hari">("date_range");
+const tahun = ref<number | "">("");
+const bulan = ref<number | "">("");
+const hari = ref<number | "">("");
 const tanggalDari = ref("");
 const tanggalSampai = ref("");
 const showDetailModal = ref(false);
@@ -100,20 +105,48 @@ function uploaderName(item: UploadHistoryItem) {
   return item.diupload_oleh?.nama_lengkap || "User terhapus";
 }
 
+const currentYear = new Date().getFullYear();
+const YEARS = Array.from({ length: currentYear - 2015 + 1 }, (_, i) => currentYear - i);
+const MONTHS = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+];
+
 async function loadUploadHistory(nextPage?: number) {
-  await uploadHistoryStore.fetchUploadHistory({
+  const query: any = {
     search: search.value.trim(),
     status: statusFilter.value,
     source_type: sourceFilter.value,
-    tanggal_dari: tanggalDari.value,
-    tanggal_sampai: tanggalSampai.value,
     page: nextPage ?? uploadHistoryStore.page,
     limit: uploadHistoryStore.limit,
-  });
+  };
+
+  if (filterMode.value === "spesifik_tahun") {
+    if (tahun.value !== "") query.tahun = Number(tahun.value);
+  } else if (filterMode.value === "spesifik_bulan") {
+    if (tahun.value !== "") query.tahun = Number(tahun.value);
+    if (bulan.value !== "") query.bulan = Number(bulan.value);
+  } else if (filterMode.value === "spesifik_hari") {
+    if (hari.value !== "") query.hari = Number(hari.value);
+  } else {
+    if (tanggalDari.value) query.tanggal_dari = tanggalDari.value;
+    if (tanggalSampai.value) query.tanggal_sampai = tanggalSampai.value;
+  }
+
+  await uploadHistoryStore.fetchUploadHistory(query);
+}
+
+function onFilterModeChange() {
+  tahun.value = "";
+  bulan.value = "";
+  hari.value = "";
+  tanggalDari.value = "";
+  tanggalSampai.value = "";
+  void loadUploadHistory(1);
 }
 
 async function onSearch() {
-  if (tanggalDari.value && tanggalSampai.value && tanggalSampai.value < tanggalDari.value) {
+  if (filterMode.value === "date_range" && tanggalDari.value && tanggalSampai.value && tanggalSampai.value < tanggalDari.value) {
     uploadHistoryStore.errorMessage =
       "Tanggal sampai tidak boleh lebih awal dari tanggal dari.";
     return;
@@ -125,23 +158,109 @@ async function onResetSearch() {
   search.value = "";
   statusFilter.value = "";
   sourceFilter.value = "";
+  filterMode.value = "date_range";
+  tahun.value = "";
+  bulan.value = "";
+  hari.value = "";
   tanggalDari.value = "";
   tanggalSampai.value = "";
   await loadUploadHistory(1);
 }
 
-async function openDetailModal(item: UploadHistoryItem) {
+const isExporting = ref(false);
+const exportDropdownOpen = ref(false);
+
+function toggleExportDropdown() {
+  exportDropdownOpen.value = !exportDropdownOpen.value;
+}
+
+function onDocClick(e: MouseEvent) {
+  if (!exportDropdownOpen.value) return;
+  const target = e.target as HTMLElement;
+  const root = document.querySelector("[data-export-menu]");
+  if (root && !root.contains(target)) {
+    exportDropdownOpen.value = false;
+  }
+}
+
+async function doExportExcel(scope: "filter" | "all") {
+  exportDropdownOpen.value = false;
+  if (isExporting.value) return;
+  isExporting.value = true;
+  try {
+    let query: any = {};
+    if (scope === "filter") {
+      query = {
+        search: search.value.trim(),
+        status: statusFilter.value,
+        source_type: sourceFilter.value,
+      };
+      if (filterMode.value === "spesifik_tahun") {
+        if (tahun.value !== "") query.tahun = Number(tahun.value);
+      } else if (filterMode.value === "spesifik_bulan") {
+        if (tahun.value !== "") query.tahun = Number(tahun.value);
+        if (bulan.value !== "") query.bulan = Number(bulan.value);
+      } else if (filterMode.value === "spesifik_hari") {
+        if (hari.value !== "") query.hari = Number(hari.value);
+      } else {
+        if (tanggalDari.value) query.tanggal_dari = tanggalDari.value;
+        if (tanggalSampai.value) query.tanggal_sampai = tanggalSampai.value;
+      }
+    }
+    const itemsToExport = await uploadHistoryStore.fetchAllMatching(query);
+    if (!itemsToExport.length) return;
+    await exportUploadHistoryExcel(itemsToExport, scope === "filter" ? "Data sesuai filter" : "Semua data");
+  } catch (err) {
+    console.error("Gagal mengekspor Excel:", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+async function doExportPdf(scope: "filter" | "all") {
+  exportDropdownOpen.value = false;
+  if (isExporting.value) return;
+  isExporting.value = true;
+  try {
+    let query: any = {};
+    if (scope === "filter") {
+      query = {
+        search: search.value.trim(),
+        status: statusFilter.value,
+        source_type: sourceFilter.value,
+      };
+      if (filterMode.value === "spesifik_tahun") {
+        if (tahun.value !== "") query.tahun = Number(tahun.value);
+      } else if (filterMode.value === "spesifik_bulan") {
+        if (tahun.value !== "") query.tahun = Number(tahun.value);
+        if (bulan.value !== "") query.bulan = Number(bulan.value);
+      } else if (filterMode.value === "spesifik_hari") {
+        if (hari.value !== "") query.hari = Number(hari.value);
+      } else {
+        if (tanggalDari.value) query.tanggal_dari = tanggalDari.value;
+        if (tanggalSampai.value) query.tanggal_sampai = tanggalSampai.value;
+      }
+    }
+    const itemsToExport = await uploadHistoryStore.fetchAllMatching(query);
+    if (!itemsToExport.length) return;
+    await exportUploadHistoryPdf(itemsToExport, scope === "filter" ? "Data sesuai filter" : "Semua data");
+  } catch (err) {
+    console.error("Gagal mengekspor PDF:", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+function openDetailModal(item: UploadHistoryItem) {
   selectedId.value = item.id;
   detailError.value = "";
   showDetailModal.value = true;
 
-  try {
-    await uploadHistoryStore.fetchUploadHistoryById(item.id);
-  } catch {
+  void uploadHistoryStore.fetchUploadHistoryById(item.id).catch(() => {
     detailError.value =
       uploadHistoryStore.errorMessage || "Gagal mengambil detail riwayat upload.";
     uploadHistoryStore.clearError();
-  }
+  });
 }
 
 function closeDetailModal() {
@@ -167,6 +286,11 @@ async function onLimitChange(event: Event) {
 
 onMounted(async () => {
   await loadUploadHistory(1);
+  document.addEventListener("click", onDocClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
 });
 
 async function gotoDashboard() {
@@ -217,10 +341,52 @@ async function gotoDashboard() {
               {{ option.label }}
             </option>
           </select>
-          <input v-model="tanggalDari" type="date" title="Tanggal upload dari"
-            class="h-11 rounded-xl border border-default px-3 outline-none md:col-span-1" @change="onSearch" />
-          <input v-model="tanggalSampai" type="date" title="Tanggal upload sampai"
-            class="h-11 rounded-xl border border-default px-3 outline-none md:col-span-1" @change="onSearch" />
+          <select v-model="filterMode"
+            class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
+            @change="onFilterModeChange">
+            <option value="date_range">Date Range</option>
+            <option value="spesifik_tahun">Spesifik Tahun</option>
+            <option value="spesifik_bulan">Spesifik Bulan</option>
+            <option value="spesifik_hari">Spesifik Hari</option>
+          </select>
+
+          <template v-if="filterMode === 'spesifik_tahun'">
+            <select v-model="tahun"
+              class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
+              @change="onSearch">
+              <option value="">Semua tahun</option>
+              <option v-for="y in YEARS" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </template>
+          <template v-else-if="filterMode === 'spesifik_bulan'">
+            <select v-model="tahun"
+              class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
+              @change="onSearch">
+              <option value="">Semua tahun</option>
+              <option v-for="y in YEARS" :key="y" :value="y">{{ y }}</option>
+            </select>
+            <select v-model="bulan"
+              class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
+              @change="onSearch">
+              <option value="">Semua bulan</option>
+              <option v-for="(name, index) in MONTHS" :key="name" :value="index + 1">{{ name }}</option>
+            </select>
+          </template>
+          <template v-else-if="filterMode === 'spesifik_hari'">
+            <select v-model="hari"
+              class="h-11 rounded-xl border border-default bg-surface px-3 outline-none md:col-span-1"
+              @change="onSearch">
+              <option value="">Semua hari</option>
+              <option v-for="d in 31" :key="d" :value="d">{{ d }}</option>
+            </select>
+          </template>
+          <template v-else>
+            <input v-model="tanggalDari" type="date" title="Tanggal upload dari"
+              class="h-11 rounded-xl border border-default px-3 outline-none md:col-span-1" @change="onSearch" />
+            <input v-model="tanggalSampai" type="date" title="Tanggal upload sampai"
+              class="h-11 rounded-xl border border-default px-3 outline-none md:col-span-1" @change="onSearch" />
+          </template>
+
           <div class="flex items-center gap-2 md:col-span-6 md:justify-end">
             <button class="h-11 rounded-xl bg-brand px-6 font-semibold text-on-brand" @click="onSearch">
               Cari
@@ -229,6 +395,36 @@ async function gotoDashboard() {
               @click="onResetSearch">
               Reset
             </button>
+            <div class="relative" data-export-menu>
+              <button
+                class="h-11 rounded-xl border border-tan bg-cream px-3 font-semibold text-brand disabled:opacity-50"
+                :disabled="isExporting" :aria-expanded="exportDropdownOpen" @click="toggleExportDropdown">
+                Unduh data ▾
+              </button>
+              <div v-if="exportDropdownOpen"
+                class="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-default bg-surface py-1 shadow-lg"
+                role="menu">
+                <p class="px-3 pb-1 pt-2 text-12 font-semibold text-muted">Excel</p>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportExcel('filter')">
+                  Semua data sesuai filter
+                </button>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportExcel('all')">
+                  Semua data (tanpa filter)
+                </button>
+                <div class="my-1 border-t border-row"></div>
+                <p class="px-3 pb-1 text-12 font-semibold text-muted">PDF</p>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportPdf('filter')">
+                  Semua data sesuai filter
+                </button>
+                <button class="block w-full px-3 py-2 text-left text-14 hover:bg-slate-light" role="menuitem"
+                  :disabled="isExporting" @click="doExportPdf('all')">
+                  Semua data (tanpa filter)
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -332,89 +528,88 @@ async function gotoDashboard() {
     </div>
 
     <AppModalTeleport>
-    <div v-if="showDetailModal" class="app-modal-backdrop bg-overlay"
-      @click.self="closeDetailModal">
-      <div class="app-modal-panel app-modal-size-lg w-full rounded-2xl bg-surface">
-        <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-18 font-bold">Detail Riwayat Upload</h3>
-          <button class="text-muted" @click="closeDetailModal">✕</button>
-        </div>
-
-        <p v-if="uploadHistoryStore.loadingDetail" class="mb-3 text-muted">
-          Memuat detail riwayat upload...
-        </p>
-
-        <p v-if="detailError" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
-          {{ detailError }}
-        </p>
-
-        <template v-if="detail">
-          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
-            <div class="md:col-span-2">
-              <dt class="text-label">Nama File</dt>
-              <dd class="break-all font-semibold">{{ detail.nama_file || "-" }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Diupload Oleh</dt>
-              <dd>
-                {{ uploaderName(detail) }}
-                <span v-if="detail.diupload_oleh" class="text-muted">(@{{ detail.diupload_oleh.username }})</span>
-              </dd>
-            </div>
-            <div>
-              <dt class="text-label">Status</dt>
-              <dd>
-                <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="statusClass(detail.status)">
-                  {{ statusLabel(detail.status) }}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt class="text-label">Sumber</dt>
-              <dd>{{ sourceLabel(detail.jenis_sumber) }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Tujuan</dt>
-              <dd>{{ detail.layer ? `${detail.layer} (${detail.tabel_tujuan})` : detail.tabel_tujuan }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Periode Data</dt>
-              <dd>{{ formatPeriode(detail.periode) }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Jumlah Data</dt>
-              <dd>{{ detail.jumlah_data.toLocaleString("id-ID") }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Mulai</dt>
-              <dd>{{ formatDateTime(detail.mulai) || "-" }}</dd>
-            </div>
-            <div>
-              <dt class="text-label">Selesai</dt>
-              <dd>{{ formatDateTime(detail.selesai) || "-" }} ({{ formatDurasi(detail.durasi_detik) }})</dd>
-            </div>
-          </dl>
-
-          <div v-if="detail.pesan_error" class="mt-4">
-            <p class="mb-1 text-label">Pesan Error</p>
-            <p class="whitespace-pre-wrap rounded-xl bg-error-light px-4 py-3 text-error">{{ detail.pesan_error }}</p>
+      <div v-if="showDetailModal" class="app-modal-backdrop bg-overlay" @click.self="closeDetailModal">
+        <div class="app-modal-panel app-modal-size-lg w-full rounded-2xl bg-surface">
+          <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-18 font-bold">Detail Riwayat Upload</h3>
+            <button class="text-muted" @click="closeDetailModal">✕</button>
           </div>
 
-          <div v-if="detailMetadata" class="mt-4">
-            <p class="mb-1 text-label">Metadata Proses</p>
-            <pre
-              class="max-h-72 overflow-auto rounded-xl border border-default bg-surface-warm px-4 py-3 text-12">{{ detailMetadata }}</pre>
-          </div>
-        </template>
+          <p v-if="uploadHistoryStore.loadingDetail" class="mb-3 text-muted">
+            Memuat detail riwayat upload...
+          </p>
 
-        <div class="mt-5 flex justify-end">
-          <button class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
-            @click="closeDetailModal">
-            Tutup
-          </button>
+          <p v-if="detailError" class="mb-3 rounded-xl bg-error-light px-4 py-3 text-error">
+            {{ detailError }}
+          </p>
+
+          <template v-if="detail">
+            <dl class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
+              <div class="md:col-span-2">
+                <dt class="text-label">Nama File</dt>
+                <dd class="break-all font-semibold">{{ detail.nama_file || "-" }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Diupload Oleh</dt>
+                <dd>
+                  {{ uploaderName(detail) }}
+                  <span v-if="detail.diupload_oleh" class="text-muted">(@{{ detail.diupload_oleh.username }})</span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-label">Status</dt>
+                <dd>
+                  <span class="rounded-full px-3 py-1 text-size-xs font-semibold" :class="statusClass(detail.status)">
+                    {{ statusLabel(detail.status) }}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-label">Sumber</dt>
+                <dd>{{ sourceLabel(detail.jenis_sumber) }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Tujuan</dt>
+                <dd>{{ detail.layer ? `${detail.layer} (${detail.tabel_tujuan})` : detail.tabel_tujuan }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Periode Data</dt>
+                <dd>{{ formatPeriode(detail.periode) }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Jumlah Data</dt>
+                <dd>{{ detail.jumlah_data.toLocaleString("id-ID") }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Mulai</dt>
+                <dd>{{ formatDateTime(detail.mulai) || "-" }}</dd>
+              </div>
+              <div>
+                <dt class="text-label">Selesai</dt>
+                <dd>{{ formatDateTime(detail.selesai) || "-" }} ({{ formatDurasi(detail.durasi_detik) }})</dd>
+              </div>
+            </dl>
+
+            <div v-if="detail.pesan_error" class="mt-4">
+              <p class="mb-1 text-label">Pesan Error</p>
+              <p class="whitespace-pre-wrap rounded-xl bg-error-light px-4 py-3 text-error">{{ detail.pesan_error }}</p>
+            </div>
+
+            <div v-if="detailMetadata" class="mt-4">
+              <p class="mb-1 text-label">Metadata Proses</p>
+              <pre
+                class="max-h-72 overflow-auto rounded-xl border border-default bg-surface-warm px-4 py-3 text-12">{{ detailMetadata }}</pre>
+            </div>
+          </template>
+
+          <div class="mt-5 flex justify-end">
+            <button class="rounded-xl border border-tan bg-cream px-4 py-2 font-semibold text-brand"
+              @click="closeDetailModal">
+              Tutup
+            </button>
+          </div>
         </div>
       </div>
-    </div>
     </AppModalTeleport>
   </main>
 </template>

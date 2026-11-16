@@ -29,16 +29,17 @@ def list_upload_history(
     uploaded_by: UUID | None = Query(None, description="ID user pengunggah (diabaikan untuk user non-pengelola)"),
     bulan: Bulan = None,
     tahun: Tahun = None,
+    hari: Hari = None,
     tanggal_dari: date | None = Query(None, description="Tanggal upload mulai (YYYY-MM-DD)"),
     tanggal_sampai: date | None = Query(None, description="Tanggal upload sampai (YYYY-MM-DD, inklusif)"),
     page: Page = 1,
     limit: Limit = 10,
 ):
-    """Riwayat upload GeoJSON & Excel, terbaru di atas. `bulan`/`tahun` memfilter periode data."""
+    """Riwayat upload GeoJSON & Excel, terbaru di atas. `bulan`/`tahun`/`hari` memfilter periode data."""
     return service.list_uploads(
         db, own_only_user_id=_own_only(db, current_user), search=search, status=status_filter,
         source_type=source_type, target_table=target_table, layer=layer, uploaded_by=uploaded_by,
-        bulan=bulan, tahun=tahun, tanggal_dari=tanggal_dari, tanggal_sampai=tanggal_sampai, page=page, limit=limit,
+        bulan=bulan, tahun=tahun, hari=hari, tanggal_dari=tanggal_dari, tanggal_sampai=tanggal_sampai, page=page, limit=limit,
     )
 
 

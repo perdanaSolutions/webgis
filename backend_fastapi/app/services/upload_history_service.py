@@ -48,7 +48,7 @@ def _to_response(row: dict, schema=UploadHistoryResponse):
 
 def list_uploads(db: Session, *, own_only_user_id: UUID | None, search: str | None, status: str | None,
                  source_type: str | None, target_table: str | None, layer: str | None, uploaded_by: UUID | None,
-                 bulan: int | None, tahun: int | None, tanggal_dari: date | None, tanggal_sampai: date | None,
+                 bulan: int | None, tahun: int | None, hari: int | None, tanggal_dari: date | None, tanggal_sampai: date | None,
                  page: int, limit: int) -> dict:
     """`own_only_user_id` diisi untuk user tanpa hak kelola upload: hanya riwayat miliknya yang terlihat."""
     where, params = [], {}
@@ -76,6 +76,9 @@ def list_uploads(db: Session, *, own_only_user_id: UUID | None, search: str | No
     if tahun:
         where.append("EXTRACT(YEAR FROM b.period) = :tahun")
         params["tahun"] = tahun
+    if hari:
+        where.append("EXTRACT(DAY FROM b.period) = :hari")
+        params["hari"] = hari
     if tanggal_dari and tanggal_sampai and tanggal_sampai < tanggal_dari:
         raise bad_request("tanggal_sampai tidak boleh lebih awal dari tanggal_dari", field="tanggal_sampai")
     if tanggal_dari:

@@ -49,6 +49,9 @@ export type UploadHistoryListQuery = {
   source_type?: UploadSourceType | "";
   tanggal_dari?: string;
   tanggal_sampai?: string;
+  bulan?: number | "";
+  tahun?: number | "";
+  hari?: number | ""; // 1-31
   page?: number;
   limit?: number;
 };
@@ -66,6 +69,9 @@ function buildQueryParams(query: UploadHistoryListQuery = {}) {
   if (query.source_type) params.set("source_type", query.source_type);
   if (query.tanggal_dari) params.set("tanggal_dari", query.tanggal_dari);
   if (query.tanggal_sampai) params.set("tanggal_sampai", query.tanggal_sampai);
+  if (query.tahun) params.set("tahun", String(query.tahun));
+  if (query.bulan) params.set("bulan", String(query.bulan));
+  if (query.hari) params.set("hari", String(query.hari));
   if (typeof query.page === "number") params.set("page", String(query.page));
   if (typeof query.limit === "number") params.set("limit", String(query.limit));
 
@@ -160,6 +166,32 @@ export const useUploadHistoryStore = defineStore("uploadHistory", () => {
     }
   }
 
+  /**
+   * Ambil SEMUA data yang cocok dengan filter (tanpa pagination) untuk di-export.
+   * Tidak mengubah state halaman/items yang sedang ditampilkan. Limit 100 per halaman (batas backend).
+   */
+  async function fetchAllMatching(query: UploadHistoryListQuery = {}): Promise<UploadHistoryItem[]> {
+    const baseUrl = getApiBaseUrl();
+    const firstQuery = buildQueryParams({ ...query, page: 1, limit: 100 });
+    const first = await $api<UploadHistoryListResponse>(
+      `${baseUrl}/v1/upload-history/?${firstQuery}`,
+      { method: "GET", headers: getAuthHeaders() },
+    );
+    const all = [...(first.data ?? [])];
+    const totalPage = first.total_page ?? 1;
+    let currentPage = first.page ?? 1;
+    while (currentPage < totalPage) {
+      currentPage += 1;
+      const qs = buildQueryParams({ ...query, page: currentPage, limit: 100 });
+      const resp = await $api<UploadHistoryListResponse>(
+        `${baseUrl}/v1/upload-history/?${qs}`,
+        { method: "GET", headers: getAuthHeaders() },
+      );
+      all.push(...(resp.data ?? []));
+    }
+    return all;
+  }
+
   return {
     items,
     selectedItem,
@@ -174,5 +206,6 @@ export const useUploadHistoryStore = defineStore("uploadHistory", () => {
     fetchUploadHistory,
     fetchUploadHistoryById,
     clearError,
+    fetchAllMatching,
   };
 });
