@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Header from "~/components/Header.vue";
 import {
   useMonitoringUserStore,
@@ -129,6 +129,59 @@ async function onLimitChange(event: Event) {
   await load(1);
 }
 
+const isExporting = ref(false);
+const exportDropdownOpen = ref(false);
+
+function toggleExportDropdown() {
+  exportDropdownOpen.value = !exportDropdownOpen.value;
+}
+
+// Tutup menu saat klik di luar.
+watch(exportDropdownOpen, (open) => {
+  function onDocClick() {
+    exportDropdownOpen.value = false;
+    document.removeEventListener("click", onDocClick);
+  }
+  if (open) nextTick(() => document.addEventListener("click", onDocClick));
+});
+
+async function doExportExcel(scope: "filter" | "all") {
+  exportDropdownOpen.value = false;
+  if (isExporting.value) return;
+  isExporting.value = true;
+  try {
+    // "filter" = semua data sesuai pencarian/status aktif (bukan hanya 1 halaman); "all" = tanpa filter.
+    const query = scope === "filter"
+      ? { search: search.value.trim(), status: statusFilter.value }
+      : {};
+    const itemsToExport = await store.fetchAllMatching(query);
+    if (!itemsToExport.length) return;
+    await exportMonitoringExcel(itemsToExport, scope === "filter" ? "Data sesuai filter" : "Semua data");
+  } catch (err) {
+    console.error("Gagal mengekspor Excel:", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+async function doExportPdf(scope: "filter" | "all") {
+  exportDropdownOpen.value = false;
+  if (isExporting.value) return;
+  isExporting.value = true;
+  try {
+    const query = scope === "filter"
+      ? { search: search.value.trim(), status: statusFilter.value }
+      : {};
+    const itemsToExport = await store.fetchAllMatching(query);
+    if (!itemsToExport.length) return;
+    await exportMonitoringPdf(itemsToExport, scope === "filter" ? "Data sesuai filter" : "Semua data");
+  } catch (err) {
+    console.error("Gagal mengekspor PDF:", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
+
 onMounted(async () => {
   await load(1);
   startTimer();
@@ -163,7 +216,8 @@ async function gotoDashboard() {
       <section class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Ringkasan status user">
         <div class="rounded-2xl border border-default bg-surface p-5">
           <p class="text-label">Total User</p>
-          <p class="text-20 font-bold" data-testid="sum-total">{{ store.summary.total_user.toLocaleString("id-ID") }}</p>
+          <p class="text-20 font-bold" data-testid="sum-total">{{ store.summary.total_user.toLocaleString("id-ID") }}
+          </p>
         </div>
         <div class="rounded-2xl border border-default bg-surface p-5">
           <p class="text-label">Online</p>
@@ -241,10 +295,11 @@ async function gotoDashboard() {
 
               <tr v-for="item in store.items" :key="item.id" class="border-t border-row align-top">
                 <td class="px-4 py-3">
-                  <span class="inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-1 text-size-xs font-semibold"
+                  <span
+                    class="inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-1 text-size-xs font-semibold"
                     :class="statusClass(item)">
-                    <span class="h-2 w-2 rounded-full" :class="item.status === 'online' ? 'bg-success' : 'bg-slate-muted'"
-                      aria-hidden="true"></span>
+                    <span class="h-2 w-2 rounded-full"
+                      :class="item.status === 'online' ? 'bg-success' : 'bg-slate-muted'" aria-hidden="true"></span>
                     {{ item.status === "online" ? "Online" : "Offline" }}
                   </span>
                 </td>
