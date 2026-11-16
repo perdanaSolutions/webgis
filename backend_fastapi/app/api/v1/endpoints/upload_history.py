@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.api.deps import CurrentUser, DbSession, user_has_permission
-from app.api.params import Bulan, Limit, Page, Tahun
+from app.api.params import Bulan, Hari, Limit, Page, Tahun
 from app.schemas.common import PaginatedResponse
 from app.schemas.upload_history import UploadHistoryDetail
 from app.services import upload_history_service as service
