@@ -60,6 +60,28 @@ export const useMonitoringUserStore = defineStore("monitoringUser", () => {
     errorMessage.value = "";
   }
 
+  /**
+   * Ambil SEMUA data yang cocok dengan filter (tanpa pagination) untuk di-export.
+   * Tidak mengubah state halaman/items yang sedang ditampilkan. Limit 100 per halaman (batas backend).
+   */
+  async function fetchAllMatching(query: MonitoringQuery = {}): Promise<MonitoringUserItem[]> {
+    const baseUrl = useRuntimeConfig().public.apiBaseUrlPython;
+    const first = await $api<MonitoringListResponse>(
+      buildMonitoringQuery({ ...query, page: 1, limit: 100 }) ? `${baseUrl}/v1/monitoring/users?${buildMonitoringQuery({ ...query, page: 1, limit: 100 })}` : `${baseUrl}/v1/monitoring/users`,
+      { method: "GET" },
+    );
+    const all = [...(first.data ?? [])];
+    const totalPage = first.total_page ?? 1;
+    let page = first.page ?? 1;
+    while (page < totalPage) {
+      page += 1;
+      const qs = buildMonitoringQuery({ ...query, page, limit: 100 });
+      const resp = await $api<MonitoringListResponse>(`${baseUrl}/v1/monitoring/users?${qs}`, { method: "GET" });
+      all.push(...(resp.data ?? []));
+    }
+    return all;
+  }
+
   /** `silent` = muat ulang otomatis: tabel tidak berkedip "Memuat…" dan kegagalan tidak menimpa data lama. */
   async function fetchUsers(query: MonitoringQuery = {}, options: { silent?: boolean } = {}) {
     if (!options.silent) loading.value = true;
@@ -105,5 +127,6 @@ export const useMonitoringUserStore = defineStore("monitoringUser", () => {
     hasItems,
     clearError,
     fetchUsers,
+    fetchAllMatching,
   };
 });
