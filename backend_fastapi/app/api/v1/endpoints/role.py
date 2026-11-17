@@ -105,6 +105,9 @@ def _serialize_roles(db: Session, roles: list[Role]) -> list[dict]:
             else [],
             "akses_wilayah_grup": group_trees.get(str(role.id), []),
             "akses_transaksi": access_service.role_transaction_rows(db, role.id),
+            "akses_unduh_peta": access_service.role_has_feature(
+                db, role.id, access_service.MAP_DOWNLOAD_CODE
+            ),
         }
         for role in roles
     ]
@@ -167,6 +170,8 @@ def create_role(
         access_service.apply_akses_data(db, new_role.id, payload.akses_data)
     if payload.akses_transaksi:
         access_service.replace_transactions(db, new_role.id, payload.akses_transaksi)
+    # RoleCreate selalu punya field ini (default false) — wajib sync supaya grant migration tidak nyangkut.
+    access_service.set_map_download(db, new_role.id, bool(payload.akses_unduh_peta))
 
     record_user_activity(
         db,
@@ -180,6 +185,7 @@ def create_role(
             "jumlah_menu": len(payload.akses_menu or []),
             "jumlah_wilayah": len(payload.akses_data or []),
             "jumlah_transaksi": len(payload.akses_transaksi or []),
+            "akses_unduh_peta": bool(payload.akses_unduh_peta),
         },
     )
     _save_role(db, db.commit)
@@ -221,6 +227,9 @@ def update_role(
     if "akses_transaksi" in sent and payload.akses_transaksi is not None:
         access_service.replace_transactions(db, role.id, payload.akses_transaksi)
 
+    if "akses_unduh_peta" in sent:
+        access_service.set_map_download(db, role.id, bool(payload.akses_unduh_peta))
+
     record_user_activity(
         db,
         current_user,
@@ -235,6 +244,7 @@ def update_role(
             "akses_menu_diubah": "akses_menu" in sent,
             "akses_data_diubah": "akses_data" in sent,
             "akses_transaksi_diubah": "akses_transaksi" in sent,
+            "akses_unduh_peta_diubah": "akses_unduh_peta" in sent,
         },
     )
     _save_role(db, db.commit)

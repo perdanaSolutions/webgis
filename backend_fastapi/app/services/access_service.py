@@ -783,7 +783,9 @@ def set_role_feature(db: Session, role_id: UUID, code: str, enabled: bool, *,
         text("""
             DELETE FROM auth.role_permissions rp
             USING auth.permissions p
-            WHERE rp.permission_id = p.id AND rp.role_id = :r AND p.code = :c
+            WHERE rp.permission_id = p.id
+              AND rp.role_id = CAST(:r AS uuid)
+              AND p.code = :c
         """),
         {"r": str(role_id), "c": code},
     )

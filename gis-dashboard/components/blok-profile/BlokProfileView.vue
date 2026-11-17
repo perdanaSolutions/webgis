@@ -32,7 +32,9 @@ const { hasPermission } = useAccessControl();
 const dashboardService = dashboardStore();
 const store = useBlokProfileStore();
 const route = useRoute();
-const canDownloadMap = computed(() => hasPermission("map:download"));
+/** Tunggu /me dulu supaya izin unduh tidak mengandalkan cache lokal yang basi. */
+const accessReady = ref(false);
+const canDownloadMap = computed(() => accessReady.value && hasPermission("map:download"));
 
 const overlays = useMapOverlays(computed(() => ({ ...store.scopeParams })));
 const layers = overlays.layers;
@@ -380,7 +382,7 @@ function onExportKeydown(event: KeyboardEvent) {
 }
 
 async function downloadPdf() {
-  if (exporting.value) return;
+  if (exporting.value || !canDownloadMap.value) return;
   // Ambil viewport SEBELUM loader/overlay mengubah ukuran peta (kalau tidak, unduhan terpotong / zoom berubah).
   mapRef.value?.invalidateSize();
   const mapView = mapRef.value?.getView() ?? null;
@@ -465,6 +467,7 @@ onMounted(async () => {
     window.location.replace("/login");
     return;
   }
+  accessReady.value = true;
   if (!dashboardService.moduleItems.length) void dashboardService.initDataMenu();
   await Promise.all([store.init(), overlays.loadCatalog()]);
 });
@@ -583,7 +586,7 @@ onBeforeUnmount(() => {
                 title="Tampilkan / sembunyikan informasi Yield Gap" @click="legendYieldGap = !legendYieldGap">
                 Yield Gap
               </button>
-              <button v-show="showMapDownload" type="button" class="bp-btn bp-map-download"
+              <button v-if="showMapDownload" type="button" class="bp-btn bp-map-download"
                 title="Unduh peta dan informasi panel sebagai PDF" aria-label="Unduh peta" :disabled="exporting"
                 :aria-busy="exporting" @click="downloadPdf">
                 <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -751,7 +754,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <BasemapAccessDialog :open="Boolean(basemapNotice)" :title="basemapNotice?.title ?? ''"
         :body="basemapNotice?.body ?? ''" :pending="basemapNotice?.pending" @close="basemapNotice = null" />
-      <BlokProfilePrintSheet v-if="exporting" ref="printSheetRef" :scope-label="store.scopeLabel"
+      <BlokProfilePrintSheet v-if="exporting && canDownloadMap" ref="printSheetRef" :scope-label="store.scopeLabel"
         :filter-line="pdfFilterLine" :summary="store.summary" :detail="store.detail"
         :loading-detail="store.loadingDetail" :can-view-production="store.canViewProduction"
         :production-years="store.productionYears" :production-recap="store.productionRecap" :production-loading="store.loadingProduction"
@@ -763,7 +766,7 @@ onBeforeUnmount(() => {
         :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
         :rotation-loading="store.loadingRotation" />
 
-      <div v-if="exporting" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
+      <div v-if="exporting && canDownloadMap" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
         aria-labelledby="bp-pdf-loader-title" tabindex="-1">
         <div class="bp-pdf-loader-panel">
           <span v-if="!exportError" class="bp-pdf-spinner" aria-hidden="true" />
