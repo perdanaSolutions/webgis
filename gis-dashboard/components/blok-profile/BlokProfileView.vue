@@ -20,6 +20,7 @@ import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
 import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
+import { MAP_UI, mapColorCssVars } from "~/utils/mapColors";
 import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
@@ -488,7 +489,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="bp-map-shell flex min-h-0 flex-col overflow-hidden bg-[#f4f6f1] text-14 text-[#1f2a18]">
+  <main
+    class="bp-map-shell flex min-h-0 flex-col overflow-hidden text-14"
+    :style="{ ...mapColorCssVars(), background: MAP_UI.surface.page, color: MAP_UI.text.ink }"
+  >
     <Header v-show="!isFullscreen" :brand-title="pageTitle" :brand-subtitle="pageDescription" />
 
     <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">

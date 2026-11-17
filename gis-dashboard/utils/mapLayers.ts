@@ -2,7 +2,16 @@
  * Konfigurasi peta dasar (basemap) dan gaya layer tambahan untuk halaman peta.
  * Daftar layer tambahan diambil dari katalog backend (GET /v1/spatial/geo/catalog);
  * file ini hanya menentukan tampilannya. Layer yang belum dikenal memakai gaya default.
+ *
+ * Warna (hex/gradasi) diambil dari `~/utils/mapColors` — ubah di sana, bukan di sini.
  */
+
+import {
+  MAP_BASEMAP_PREVIEW,
+  MAP_BUDGET_GAP,
+  MAP_OVERLAY,
+  MAP_SLOPE_RAMP,
+} from "~/utils/mapColors";
 
 export type BasemapKey =
   | "osm"
@@ -56,7 +65,7 @@ export const BASEMAPS: BasemapOption[] = [
   {
     key: "osm",
     label: "OpenStreetMap",
-    preview: "linear-gradient(135deg,#f2efe9 0%,#aad3df 100%)",
+    preview: MAP_BASEMAP_PREVIEW.osm,
     tiles: [
       {
         url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -71,7 +80,7 @@ export const BASEMAPS: BasemapOption[] = [
   {
     key: "satellite",
     label: "Esri World Imagery",
-    preview: "linear-gradient(135deg,#2f4a2a 0%,#5b7443 50%,#1d3b52 100%)",
+    preview: MAP_BASEMAP_PREVIEW.satellite,
     tiles: [
       {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -84,7 +93,7 @@ export const BASEMAPS: BasemapOption[] = [
   {
     key: "hybrid",
     label: "Esri Imagery + Label",
-    preview: "linear-gradient(135deg,#2f4a2a 0%,#5b7443 60%,#f8fafc 100%)",
+    preview: MAP_BASEMAP_PREVIEW.hybrid,
     tiles: [
       {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -103,7 +112,7 @@ export const BASEMAPS: BasemapOption[] = [
   {
     key: "topo",
     label: "OpenTopoMap",
-    preview: "linear-gradient(135deg,#e8e4c9 0%,#c9d8a8 50%,#a7c7d8 100%)",
+    preview: MAP_BASEMAP_PREVIEW.topo,
     tiles: [
       {
         url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -116,7 +125,7 @@ export const BASEMAPS: BasemapOption[] = [
   {
     key: "tpa-sga",
     label: "Foto Udara",
-    preview: "linear-gradient(135deg,#1f3b24 0%,#6d8a45 55%,#c4b48a 100%)",
+    preview: MAP_BASEMAP_PREVIEW["tpa-sga"],
     tiles: [
       {
         // GeoServer digilink lewat proxy backend (GET /v1/basemap/foto-udara/wms). tpgis:tpgis_fu = layer group
@@ -144,7 +153,7 @@ export const BASEMAPS: BasemapOption[] = [
   // {
   //   key: "light",
   //   label: "CARTO Positron",
-  //   preview: "linear-gradient(135deg,#fafafa 0%,#e5e7eb 100%)",
+  //   preview: MAP_BASEMAP_PREVIEW.light,
   //   tiles: [{
   //     url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
   //     attribution: CARTO_ATTRIBUTION,
@@ -155,7 +164,7 @@ export const BASEMAPS: BasemapOption[] = [
   // {
   //   key: "dark",
   //   label: "CARTO Dark Matter",
-  //   preview: "linear-gradient(135deg,#1f2937 0%,#111827 100%)",
+  //   preview: MAP_BASEMAP_PREVIEW.dark,
   //   tiles: [{
   //     url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   //     attribution: CARTO_ATTRIBUTION,
@@ -171,33 +180,29 @@ export const DEFAULT_BASEMAP: BasemapKey = "osm";
  * Kelas kemiringan = data berurutan (datar -> curam) -> SATU gradasi hijau primary,
  * terang ke gelap (bukan hue berbeda-beda yang sulit dibedakan pembaca buta warna).
  * Dipakai legenda peta, layer slope, dan donut Analisa Kemiringan.
+ * Hex: `MAP_SLOPE_RAMP` di mapColors.ts.
  */
-export const SLOPE_RAMP: Record<string, string> = {
-  "0-3": "#d7e4c8",
-  "3-8": "#a3c07e",
-  "8-15": "#638840",
-  "15-25": "#3d5528",
-};
+export const SLOPE_RAMP: Record<string, string> = { ...MAP_SLOPE_RAMP };
 
-/** Warna blok dari properties.produksi_tbs.kategori_budget. */
+/** Warna blok dari properties.produksi_tbs.kategori_budget. Hex: `MAP_BUDGET_GAP`. */
 export const BUDGET_GAP_LAYERS = [
-  { key: "OPTIMUM", label: "Optimum", color: "#3aa0ff", hint: "Varians ≥ 0%" },
+  { key: "OPTIMUM", label: "Optimum", color: MAP_BUDGET_GAP.OPTIMUM, hint: "Varians ≥ 0%" },
   {
     key: "GAP I",
     label: "Gap I",
-    color: "#3ee07a",
+    color: MAP_BUDGET_GAP["GAP I"],
     hint: "Varians < 0% s.d. > −20%",
   },
   {
     key: "GAP II",
     label: "Gap II",
-    color: "#ffe34d",
+    color: MAP_BUDGET_GAP["GAP II"],
     hint: "Varians −20% s.d. −40% (batas termasuk)",
   },
   {
     key: "GAP III",
     label: "Gap III",
-    color: "#ff4d4d",
+    color: MAP_BUDGET_GAP["GAP III"],
     hint: "Varians < −40%",
   },
 ] as const;
@@ -318,13 +323,13 @@ export const BLOCK_FIELDS: Array<[string, string]> = [
 export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   // Batas afdeling (garis kuning-oranye tanpa isi); popup khusus di utils/afdelingBoundary.ts.
   afdeling: {
-    defaultColor: "#f59e0b",
+    defaultColor: MAP_OVERLAY.afdeling,
     weight: 2.75,
     fillOpacity: 0,
     popupFields: [],
   },
   sawit: {
-    defaultColor: "#fde047",
+    defaultColor: MAP_OVERLAY.sawit,
     radius: 3,
     weight: 0,
     popupFields: [
@@ -336,7 +341,7 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     ],
   },
   tph: {
-    defaultColor: "#22c55e",
+    defaultColor: MAP_OVERLAY.tph,
     radius: 5,
     weight: 0,
     markerShape: "square",
@@ -349,7 +354,7 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   slope: {
     colorBy: "kelerengan",
     colors: SLOPE_RAMP,
-    defaultColor: "#fca5a5",
+    defaultColor: MAP_OVERLAY.slopeDefault,
     weight: 0.6,
     fillOpacity: 0.55,
     // Urutan permintaan Bayu (t120u): Estate, Afdeling, Blok, Kelerengan, Kategori, Luas.
@@ -363,12 +368,12 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   landuse: {
     colorBy: "landuse",
     colors: {
-      Sawit: "#86efac",
-      Jalan: "#d6d3d1",
-      Terjal: "#fca5a5",
-      Rawa: "#93c5fd",
+      Sawit: MAP_OVERLAY.landuse.Sawit,
+      Jalan: MAP_OVERLAY.landuse.Jalan,
+      Terjal: MAP_OVERLAY.landuse.Terjal,
+      Rawa: MAP_OVERLAY.landuse.Rawa,
     },
-    defaultColor: "#c4b5fd",
+    defaultColor: MAP_OVERLAY.landuse.default,
     weight: 0.6,
     fillOpacity: 0.55,
     popupFields: [
@@ -382,12 +387,12 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   jalan: {
     colorBy: "kategori",
     colors: {
-      "Main Road": "#b45309",
-      "Jalan Poros": "#d97706",
-      "Collection Road": "#f59e0b",
-      "Jalan Bantu": "#facc15",
+      "Main Road": MAP_OVERLAY.jalan["Main Road"],
+      "Jalan Poros": MAP_OVERLAY.jalan["Jalan Poros"],
+      "Collection Road": MAP_OVERLAY.jalan["Collection Road"],
+      "Jalan Bantu": MAP_OVERLAY.jalan["Jalan Bantu"],
     },
-    defaultColor: "#a16207",
+    defaultColor: MAP_OVERLAY.jalan.default,
     weight: 3,
     popupFields: [
       ...BLOCK_FIELDS,
@@ -398,7 +403,7 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     ],
   },
   jembatan: {
-    defaultColor: "#0284c7",
+    defaultColor: MAP_OVERLAY.jembatan,
     radius: 7,
     popupFields: [
       ...BLOCK_FIELDS,
@@ -407,7 +412,7 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
     ],
   },
   drainase: {
-    defaultColor: "#0891b2",
+    defaultColor: MAP_OVERLAY.drainase,
     radius: 5,
     popupFields: [
       ...BLOCK_FIELDS,
@@ -423,14 +428,7 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   },
 };
 
-const GENERIC_COLORS = [
-  "#06b6d4",
-  "#ec4899",
-  "#14b8a6",
-  "#6366f1",
-  "#84cc16",
-  "#f43f5e",
-];
+const GENERIC_COLORS = MAP_OVERLAY.generic;
 
 export function getOverlayStyle(code: string, index = 0): OverlayStyle {
   return (

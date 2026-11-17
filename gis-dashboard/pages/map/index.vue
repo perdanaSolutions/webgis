@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import { defineAsyncComponent, defineComponent, h } from "vue";
+import { MAP_UI, mapColorCssVars } from "~/utils/mapColors";
 
 definePageMeta({ ssr: false });
 
 const MapOpening = defineComponent({
   name: "MapOpening",
   setup() {
-    return () => h(
-      "main",
-      { class: "flex min-h-screen items-center justify-center bg-[#f4f6f1] text-14 text-[#6e7866]" },
-      "Membuka peta…",
-    );
+    return () =>
+      h(
+        "main",
+        {
+          class: "flex min-h-screen items-center justify-center text-14",
+          style: {
+            ...mapColorCssVars(),
+            background: MAP_UI.surface.page,
+            color: MAP_UI.text.muted,
+          },
+        },
+        "Membuka peta…",
+      );
   },
 });
 
