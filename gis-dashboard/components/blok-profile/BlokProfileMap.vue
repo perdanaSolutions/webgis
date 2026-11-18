@@ -13,7 +13,7 @@ import {
   probeWmsReachable,
   type BasemapStatus,
 } from "~/utils/mapBasemap";
-import { BASEMAPS, BLOCK_FIELDS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readBudgetCategory, readComparisonBudgetCategory, readPlantingYear } from "~/utils/mapLayers";
+import { BASEMAPS, BLOCK_FIELDS, BUDGET_GAP_COLOR, type BasemapKey, getOverlayColor, readGapCategory, readPlantingYear, type YieldGapBasis } from "~/utils/mapLayers";
 import {
   blokPopupFromDetail,
   blokPopupFromFeature,
@@ -42,6 +42,8 @@ const props = defineProps<{
   showBlocks: boolean;
   /** Garis batas saja. Pewarnaan kategori yield baru dipakai saat ini nyala. */
   showYieldGap: boolean;
+  /** Pembanding kategori yield (budget / sensus) saat showYieldGap menyala. */
+  yieldGapBasis: YieldGapBasis;
   /** Blok diwarnai menurut tahun tanam. Tidak menyala bersamaan dengan yield gap. */
   showPlantingYear: boolean;
   overlays: OverlayLayer[];
@@ -470,7 +472,7 @@ function featureProperties(feature: { properties?: Record<string, any> | null } 
 function blockFill(properties: Record<string, any> | null | undefined) {
   if (props.showPlantingYear) return readPlantingYear(properties)?.color ?? null;
   if (!props.showYieldGap) return null;
-  const category = readBudgetCategory(properties);
+  const category = readGapCategory(properties, props.yieldGapBasis);
   if (!category || props.budgetColors?.[category] === false) return null;
   return BUDGET_GAP_COLOR[category] ?? null;
 }
@@ -478,7 +480,7 @@ function blockFill(properties: Record<string, any> | null | undefined) {
 /** Warna titik pembanding. Kosong bila yield gap mati atau kategori itu disembunyikan. */
 function comparisonMarkerColor(properties: Record<string, any> | null | undefined) {
   if (!props.showYieldGap) return null;
-  const category = readComparisonBudgetCategory(properties);
+  const category = readGapCategory(properties, props.yieldGapBasis, true);
   if (!category || props.budgetColors?.[category] === false) return null;
   return BUDGET_GAP_COLOR[category] ?? null;
 }
@@ -1212,7 +1214,7 @@ watch(() => props.budgetColors, () => {
   renderBlockMarks();
   renderSelected();
 }, { deep: true });
-watch(() => [props.showYieldGap, props.showPlantingYear], () => {
+watch(() => [props.showYieldGap, props.yieldGapBasis, props.showPlantingYear], () => {
   renderBlockMarks();
   renderSelected();
 });

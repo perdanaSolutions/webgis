@@ -4,11 +4,11 @@ import {
   BASEMAPS,
   BUDGET_GAP_COLOR,
   getOverlayColor,
-  readBudgetCategory,
-  readComparisonBudgetCategory,
+  readGapCategory,
   readPlantingYear,
   type OverlayStyle,
   type LegendItem,
+  type YieldGapBasis,
 } from "~/utils/mapLayers";
 import { buildPdfLegend, pdfFileName, plainAttribution, rgbOf, type PdfSwatch, infoPageFirstMove } from "~/utils/blokProfilePdf";
 import { polygonLabelLngLat } from "~/utils/polygonLabelPoint";
@@ -30,6 +30,8 @@ export type PdfExportInput = {
   basemap: BasemapKey;
   showBlocks: boolean;
   showYieldGap: boolean;
+  /** Pembanding Yield Gap yang mewarnai blok (dipakai bila showYieldGap). */
+  yieldGapBasis: YieldGapBasis;
   showPlantingYear: boolean;
   plantingYears: LegendItem[];
   budgetColors: Record<string, boolean>;
@@ -291,7 +293,7 @@ function blockPaint(properties: GeoJSON.GeoJsonProperties | null | undefined, in
   if (input.showPlantingYear) {
     fill = readPlantingYear(properties as Record<string, any> | null)?.color ?? null;
   } else if (input.showYieldGap) {
-    const category = readBudgetCategory(properties as Record<string, any> | null);
+    const category = readGapCategory(properties as Record<string, any> | null, input.yieldGapBasis);
     if (category && input.budgetColors[category] !== false) fill = BUDGET_GAP_COLOR[category] ?? null;
   }
   if (!fill) {
@@ -330,7 +332,7 @@ function addBlockLabels(
     const bounds = (layer as { getBounds?: () => import("leaflet").LatLngBounds }).getBounds?.();
     if (!bounds?.isValid()) return;
     const properties = feature?.properties as Record<string, any> | null | undefined;
-    const category = input.showYieldGap ? readComparisonBudgetCategory(properties) : "";
+    const category = input.showYieldGap ? readGapCategory(properties, input.yieldGapBasis, true) : "";
     const color = category && input.budgetColors[category] !== false ? BUDGET_GAP_COLOR[category] ?? null : null;
     const center = labelLatLng(Lf, feature?.geometry, bounds);
     const kode = escapeHtml(feature?.properties?.kode_blok);
@@ -479,6 +481,7 @@ export async function exportBlokProfilePdf(input: PdfExportInput) {
   const swatches = buildPdfLegend({
     showBlocks: input.showBlocks,
     showYieldGap: input.showYieldGap,
+    yieldGapBasis: input.yieldGapBasis,
     plantingYears: input.showPlantingYear ? input.plantingYears : [],
     budgetColors: input.budgetColors,
     overlays: input.overlays,

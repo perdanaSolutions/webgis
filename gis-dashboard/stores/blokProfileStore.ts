@@ -6,7 +6,7 @@ import { expandTransactionGrants, grantCovers } from "~/utils/accessGrants";
 import { fetchMapCached } from "~/utils/mapCacheSchema";
 import { afdelingOptionsFrom, blockOptionsFrom, geometrySimplifyMeters } from "~/utils/filterKebun";
 import { popupPeriodFromProperties } from "~/utils/mapBlokPopup";
-import { readBudgetCategory } from "~/utils/mapLayers";
+import { readGapCategory, YIELD_GAP_BASES } from "~/utils/mapLayers";
 import type { ProductionGroupChart } from "~/utils/productionGroups";
 
 /**
@@ -660,9 +660,11 @@ export const useBlokProfileStore = defineStore("blokProfile", () => {
     const next = { ...props };
     const produksi = asPlain(next.produksi_tbs);
     if (produksi) next.produksi_tbs = produksi;
-    const category = readBudgetCategory(next);
-    // Warna peta hanya butuh kategori, tetap disimpan meski rincian produksi disembunyikan.
-    if (category) next.kategori_budget = category;
+    // Warna peta hanya butuh kategori, tetap disimpan (semua pembanding) meski rincian produksi disembunyikan.
+    for (const base of YIELD_GAP_BASES) {
+      const category = readGapCategory(next, base.key);
+      if (category) next[base.field] = category;
+    }
     if (!canViewAreaStatement.value) delete next.areal_statement;
     if (!canViewProduction.value) {
       delete next.produksi_tbs;
