@@ -247,25 +247,55 @@ function normalizeBudgetCategory(raw: unknown): string {
   return "";
 }
 
+/**
+ * Pembanding Yield Gap. Kategori dihitung backend (app/utils/gap.py) dengan ambang yang sama,
+ * jadi warna BUDGET_GAP_LAYERS dipakai bersama. Menambah pembanding = menambah satu baris di sini.
+ */
+export const YIELD_GAP_BASES = [
+  { key: "budget", label: "Yield Gap", short: "Budget", sub: "Aktual vs Budget", field: "kategori_budget" },
+  { key: "sensus", label: "Yield Gap 2", short: "Sensus", sub: "Aktual vs Sensus", field: "kategori_sensus" },
+] as const;
+
+export type YieldGapBasis = (typeof YIELD_GAP_BASES)[number]["key"];
+
+export function yieldGapBase(basis: YieldGapBasis) {
+  return YIELD_GAP_BASES.find((item) => item.key === basis) ?? YIELD_GAP_BASES[0];
+}
+
+/**
+ * Kategori GAP blok untuk satu pembanding, termasuk bila tersimpan sebagai JSON string.
+ * `comparison` = periode pembanding (`produksi_tbs_comparison`, titik di tengah blok).
+ */
+export function readGapCategory(
+  properties: Record<string, any> | null | undefined,
+  basis: YieldGapBasis,
+  comparison = false,
+): string {
+  const field = yieldGapBase(basis).field;
+  const props = properties ?? {};
+  if (comparison) {
+    return normalizeBudgetCategory(pickField(asRecord(props.produksi_tbs_comparison), field));
+  }
+  const produksi = asRecord(props.produksi_tbs);
+  const raw =
+    pickField(produksi, field) ??
+    pickField(props, field) ??
+    pickField(asRecord(produksi?.tbs), field);
+  return normalizeBudgetCategory(raw);
+}
+
 /** Nilai properties.produksi_tbs.kategori_budget, termasuk bila tersimpan sebagai JSON string. */
 export function readBudgetCategory(
   properties: Record<string, any> | null | undefined,
 ): string {
-  const props = properties ?? {};
-  const produksi = asRecord(props.produksi_tbs);
-  const raw =
-    pickField(produksi, "kategori_budget") ??
-    pickField(props, "kategori_budget") ??
-    pickField(asRecord(produksi?.tbs), "kategori_budget");
-  return normalizeBudgetCategory(raw);
+  return readGapCategory(properties, "budget");
 }
 
 /** Kategori budget periode pembanding (`produksi_tbs_comparison.kategori_budget`). */
 export function readComparisonBudgetCategory(
   properties: Record<string, any> | null | undefined,
 ): string {
-  const comparison = asRecord(properties?.produksi_tbs_comparison);
-  return normalizeBudgetCategory(pickField(comparison, "kategori_budget"));
+  return readGapCategory(properties, "budget", true);
 }
 
 /** Tahun tanam blok dan warnanya dari properties.areal_statement (warna dari API). */

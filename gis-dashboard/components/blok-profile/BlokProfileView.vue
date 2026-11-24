@@ -21,7 +21,7 @@ import { dashboardStore } from "~/stores/dashboardStore";
 import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
 import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
 import { MAP_UI, mapColorCssVars } from "~/utils/mapColors";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP, type YieldGapBasis, yieldGapBase } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
 import { isAccessTokenExpired } from "~/utils/authSession";
@@ -96,31 +96,30 @@ function onBasemapStatus(status: BasemapStatus) {
 }
 const opacity = ref(80);
 const showBlocks = ref(true);
-const showYieldGap = ref(false);
-const showPlantingYear = ref(false);
+/**
+ * Yield Gap (per pembanding) dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala:
+ * satu mode menggantikan beberapa boolean yang harus saling mematikan.
+ */
+type BlockColor = "none" | "tahun-tanam" | YieldGapBasis;
+const blockColor = ref<BlockColor>("none");
+const showPlantingYear = computed(() => blockColor.value === "tahun-tanam");
+const yieldGapBasis = computed<YieldGapBasis | null>(() =>
+  blockColor.value === "none" || blockColor.value === "tahun-tanam" ? null : blockColor.value);
+const showYieldGap = computed(() => yieldGapBasis.value !== null);
+/** Label pembanding aktif untuk legenda; default Yield Gap (budget) saat semua mati. */
+const yieldGapInfo = computed(() => yieldGapBase(yieldGapBasis.value ?? "budget"));
+function toggleBlockColor(mode: Exclude<BlockColor, "none">) {
+  blockColor.value = blockColor.value === mode ? "none" : mode;
+}
+function toggleYieldGap(basis: YieldGapBasis) {
+  toggleBlockColor(basis);
+}
+function togglePlantingYear() {
+  toggleBlockColor("tahun-tanam");
+}
 /** Kartu keterangan bawah (Tahun Tanam / Yield Gap): tampil-sembunyi lewat tombol di samping Unduh Peta. Default tersembunyi. */
 const legendPlantingYear = ref(false);
 const legendYieldGap = ref(false);
-/** Yield Gap dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala.
- * Tombol info + kartu legenda hanya boleh aktif ketika layer di Layer Data menyala. */
-function toggleYieldGap() {
-  showYieldGap.value = !showYieldGap.value;
-  if (showYieldGap.value) {
-    showPlantingYear.value = false;
-    legendPlantingYear.value = false;
-  } else {
-    legendYieldGap.value = false;
-  }
-}
-function togglePlantingYear() {
-  showPlantingYear.value = !showPlantingYear.value;
-  if (showPlantingYear.value) {
-    showYieldGap.value = false;
-    legendYieldGap.value = false;
-  } else {
-    legendPlantingYear.value = false;
-  }
-}
 const plantingYears = computed(() => plantingYearLegend(store.visibleBlocks?.features ?? []));
 const yieldComparisonOn = computed(() => Boolean(store.appliedFilter.bulanComparison && store.appliedFilter.tahunComparison));
 const budgetColors = ref<Record<BudgetGapKey, boolean>>({
@@ -317,10 +316,7 @@ function onApplyFilters() {
 
 function resetMapLayers() {
   showBlocks.value = true;
-  showYieldGap.value = false;
-  showPlantingYear.value = false;
-  legendYieldGap.value = false;
-  legendPlantingYear.value = false;
+  blockColor.value = "none";
   overlays.disableAll();
 }
 
@@ -406,6 +402,7 @@ async function downloadPdf() {
       basemap: basemap.value,
       showBlocks: showBlocks.value,
       showYieldGap: showYieldGap.value,
+      yieldGapBasis: yieldGapInfo.value.key,
       showPlantingYear: showPlantingYear.value,
       plantingYears: plantingYears.value,
       budgetColors: { ...budgetColors.value },
@@ -489,22 +486,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main
-    class="bp-map-shell flex min-h-0 flex-col overflow-hidden text-14"
-    :style="{ ...mapColorCssVars(), background: MAP_UI.surface.page, color: MAP_UI.text.ink }"
-  >
+  <main class="bp-map-shell flex min-h-0 flex-col overflow-hidden text-14"
+    :style="{ ...mapColorCssVars(), background: MAP_UI.surface.page, color: MAP_UI.text.ink }">
     <Header v-show="!isFullscreen" :brand-title="pageTitle" :brand-subtitle="pageDescription" />
 
     <div id="bp-map-stage" ref="stageRef" class="bp-stage relative min-h-0 flex-1 overflow-hidden">
       <!-- PETA -->
       <section class="absolute inset-0 z-0 touch-none overscroll-none">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId"
-          :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
-          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
-          :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
-          :show-area-bubbles="allScopeSelected" :area-names="areaNames" :estate-short-names="store.estateShortNames"
-          :selected-afdeling="store.scopeParams.kode_afd" @select="onSelectBlock" @deselect="onDeselectBlock"
-          @basemap-status="onBasemapStatus" @map-click="closePanels" />
+          :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :yield-gap-basis="yieldGapInfo.key"
+          :show-planting-year="showPlantingYear" :overlays="layers" :basemap="basemap" :opacity="opacity / 100"
+          :budget-colors="budgetColors" :insets="mapInsets" :request-detail="store.loadPopupDetail"
+          :popup-period="store.popupPeriod" :show-area-bubbles="allScopeSelected" :area-names="areaNames"
+          :estate-short-names="store.estateShortNames" :selected-afdeling="store.scopeParams.kode_afd"
+          @select="onSelectBlock" @deselect="onDeselectBlock" @basemap-status="onBasemapStatus"
+          @map-click="closePanels" />
 
         <div v-if="store.statusNotice"
           class="pointer-events-none absolute left-1/2 top-4 z-[1200] flex max-w-[calc(100%-6rem)] -translate-x-1/2 items-center gap-2 truncate rounded-full px-4 py-2 text-13 font-medium shadow-lg"
@@ -531,8 +527,13 @@ onBeforeUnmount(() => {
         <!-- Legenda + zoom: pojok kanan bawah -->
         <div v-show="!(isMobile && (activeLeft || activeRight))"
           class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <div v-if="showYieldGap && legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
-            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
+          <div v-if="legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">
+              {{ showYieldGap ? `${yieldGapInfo.label} · ${yieldGapInfo.sub}` : "Yield Gap" }}
+            </p>
+            <p v-if="!showYieldGap" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
+              Aktifkan Yield Gap di Layer Data untuk mewarnai blok.
+            </p>
             <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
               Isi blok mengikuti periode. Titik di tengah mengikuti pembanding.
             </p>
@@ -665,11 +666,12 @@ onBeforeUnmount(() => {
             :afdeling-options="store.afdelingOptions" :blok-options="store.blokOptions"
             :ownership-options="store.ownershipOptions" :grup="store.grup" :area="store.area" :pt="store.pt"
             :estate="store.estate" :afdeling="store.afdeling" :blok-id="store.blokId" :ownership="store.ownership"
-            :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate" :ytd-end-month="Number(store.yearToDateEndMonth(store.tahun || String(new Date().getFullYear())))"
+            :bulan="store.bulan" :tahun="store.tahun" :year-to-date="store.yearToDate"
+            :ytd-end-month="Number(store.yearToDateEndMonth(store.tahun || String(new Date().getFullYear())))"
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
-            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
+            :show-blocks="showBlocks" :yield-gap-basis="yieldGapBasis" :show-planting-year="showPlantingYear"
             :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
             :field-loading="store.fieldLoading" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
             @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
@@ -737,7 +739,8 @@ onBeforeUnmount(() => {
           <BlockInfoCard :summary="store.summary" :detail="store.detail" :loading="store.loadingDetail" />
         </div>
         <div v-else-if="activeRight === 'produksi'" id="bp-panel-produksi" class="bp-collapse-panel bp-collapse-stack">
-          <ProductionChartCard :years="store.productionYears" :recap="store.productionRecap" :loading="store.loadingProduction" />
+          <ProductionChartCard :years="store.productionYears" :recap="store.productionRecap"
+            :loading="store.loadingProduction" />
           <ProductionGroupChartCard :data="store.productionGroups" :loading="store.loadingProductionGroups" />
           <ProductionGapCard :budget="store.productionGapBudget" :sensus="store.productionGapSensus"
             :months="store.gapMonths" :per-blok="!!store.selectedBlokId" :loading="store.loadingProduction" />
@@ -761,14 +764,14 @@ onBeforeUnmount(() => {
       <BlokProfilePrintSheet v-if="exporting && canDownloadMap" ref="printSheetRef" :scope-label="store.scopeLabel"
         :filter-line="pdfFilterLine" :summary="store.summary" :detail="store.detail"
         :loading-detail="store.loadingDetail" :can-view-production="store.canViewProduction"
-        :production-years="store.productionYears" :production-recap="store.productionRecap" :production-loading="store.loadingProduction"
-        :production-gap-budget="store.productionGapBudget" :production-gap-sensus="store.productionGapSensus"
-        :slope-on="slopeLayerOn" :slope-features="slopeLayer?.data?.features ?? emptyFeatures"
-        :slope-loading="Boolean(slopeLayer?.loading)" :slope-error="slopeLayer?.error ?? ''"
-        :slope-period="slopeLayer?.period ?? ''" :can-view-area="store.canViewAreaStatement"
-        :area-statement="store.areaStatementView" :area-loading="store.loadingAreaStatement"
-        :can-view-rotation="store.canViewRotation" :rotation="store.rotationView"
-        :rotation-loading="store.loadingRotation" />
+        :production-years="store.productionYears" :production-recap="store.productionRecap"
+        :production-loading="store.loadingProduction" :production-gap-budget="store.productionGapBudget"
+        :production-gap-sensus="store.productionGapSensus" :slope-on="slopeLayerOn"
+        :slope-features="slopeLayer?.data?.features ?? emptyFeatures" :slope-loading="Boolean(slopeLayer?.loading)"
+        :slope-error="slopeLayer?.error ?? ''" :slope-period="slopeLayer?.period ?? ''"
+        :can-view-area="store.canViewAreaStatement" :area-statement="store.areaStatementView"
+        :area-loading="store.loadingAreaStatement" :can-view-rotation="store.canViewRotation"
+        :rotation="store.rotationView" :rotation-loading="store.loadingRotation" />
 
       <div v-if="exporting && canDownloadMap" ref="loaderRef" class="bp-pdf-loader" role="alertdialog" aria-modal="true"
         aria-labelledby="bp-pdf-loader-title" tabindex="-1">

@@ -1,4 +1,4 @@
-import { BUDGET_GAP_LAYERS, type LegendItem, type OverlayStyle } from "./mapLayers";
+import { BUDGET_GAP_LAYERS, type LegendItem, type OverlayStyle, type YieldGapBasis, yieldGapBase } from "./mapLayers";
 
 export type PdfSwatch = { label: string; color: string };
 
@@ -22,6 +22,8 @@ export function pdfFileName(scope: string) {
 export function buildPdfLegend(input: {
   showBlocks: boolean;
   showYieldGap: boolean;
+  /** Pembanding Yield Gap yang aktif. Selain budget, label diberi nama pembanding. Default budget. */
+  yieldGapBasis?: YieldGapBasis;
   /** Legenda tahun tanam; kosong bila layer Tahun Tanam mati. */
   plantingYears?: LegendItem[];
   budgetColors: Record<string, boolean>;
@@ -30,9 +32,11 @@ export function buildPdfLegend(input: {
   const items: PdfSwatch[] = [];
   if (input.showBlocks) items.push({ label: "Batas blok", color: "#d4d4d4" });
   if (input.showYieldGap) {
+    const basis = input.yieldGapBasis ?? "budget";
+    const prefix = basis === "budget" ? "" : `${yieldGapBase(basis).short} · `;
     for (const item of BUDGET_GAP_LAYERS) {
       if (input.budgetColors[item.key] === false) continue;
-      items.push({ label: item.label, color: item.color });
+      items.push({ label: `${prefix}${item.label}`, color: item.color });
     }
   }
   for (const item of input.plantingYears ?? []) items.push(item);
