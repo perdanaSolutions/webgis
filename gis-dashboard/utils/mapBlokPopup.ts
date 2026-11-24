@@ -1,5 +1,5 @@
 import { formatDecimalId } from "./numberFormat";
-import { BUDGET_GAP_COLOR, readBudgetCategory } from "./mapLayers";
+import { BUDGET_GAP_COLOR, readBudgetCategory, readGapCategory } from "./mapLayers";
 
 export type BlokPopupMetric = {
   aktual: string;
@@ -322,7 +322,7 @@ export function normalizeBlokPopupData(
     gapBudget: displayGap(gapBudget),
     kategoriBudget: toDisplayText(prod.kategori_budget, budgetCategoryLabel(properties)),
     gapSensus: displayGap(prod.gap_sensus_pct),
-    kategoriSensus: toDisplayText(prod.kategori_sensus),
+    kategoriSensus: toDisplayText(prod.kategori_sensus, readGapCategory(properties as Record<string, any>, "sensus") || "-"),
     bulan: overrides?.bulan ?? pickString(properties, ["bulan"], String(new Date().getMonth() + 1)),
     tahun: overrides?.tahun ?? pickString(properties, ["tahun"], String(new Date().getFullYear())),
     blokId: pickString(properties, ["blok_id", "global_id", "GlobalID"], ""),

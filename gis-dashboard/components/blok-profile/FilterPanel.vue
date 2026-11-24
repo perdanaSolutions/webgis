@@ -3,7 +3,9 @@ import { computed } from "vue";
 
 import type { OverlayLayer } from "~/composables/useMapOverlays";
 import type { Option, ScopeLevel } from "~/stores/blokProfileStore";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type LegendItem } from "~/utils/mapLayers";
+import {
+  BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type LegendItem, YIELD_GAP_BASES, type YieldGapBasis, yieldGapBase,
+} from "~/utils/mapLayers";
 import { BULAN_POPUP_OPTIONS } from "~/utils/mapBlokPopup";
 
 type FieldKey = "grup" | "area" | "pt" | "estate" | "afdeling" | "blok" | "ownership";
@@ -37,7 +39,8 @@ const props = defineProps<{
   dirty: boolean;
   layers: OverlayLayer[];
   showBlocks: boolean;
-  showYieldGap: boolean;
+  /** Pembanding Yield Gap yang sedang mewarnai blok; null = semua Yield Gap mati. */
+  yieldGapBasis: YieldGapBasis | null;
   showPlantingYear: boolean;
   /** Tahun tanam yang ada di blok peta beserta warnanya. */
   plantingYears: LegendItem[];
@@ -61,7 +64,7 @@ const emit = defineEmits<{
   (e: "apply"): void;
   (e: "toggle-layer", code: string): void;
   (e: "toggle-blocks"): void;
-  (e: "toggle-yield-gap"): void;
+  (e: "toggle-yield-gap", basis: YieldGapBasis): void;
   (e: "toggle-planting-year"): void;
   (e: "update:basemap", value: BasemapKey): void;
   (e: "update:opacity", value: number): void;
@@ -135,8 +138,22 @@ const scopeInfo = computed(() => {
 });
 
 const activeCount = computed(() => props.layers.filter((l) => l.enabled).length + (props.showBlocks ? 1 : 0)
-  + (props.showYieldGap ? 1 : 0) + (props.showPlantingYear ? 1 : 0));
-const totalCount = computed(() => props.layers.length + 3);
+  + (props.yieldGapBasis ? 1 : 0) + (props.showPlantingYear ? 1 : 0));
+/** Batas blok + Tahun Tanam + satu saklar per pembanding Yield Gap. */
+const totalCount = computed(() => props.layers.length + 2 + YIELD_GAP_BASES.length);
+
+/** Teks kecil di bawah nama saklar Yield Gap. */
+function yieldGapSub(basis: YieldGapBasis) {
+  const base = yieldGapBase(basis);
+  if (props.yieldGapBasis === basis) {
+    return comparisonComplete.value
+      ? `${base.sub}. Isi blok = periode. Titik tengah = pembanding.`
+      : `${base.sub}. Blok diwarnai menurut kategori yield.`;
+  }
+  if (props.yieldGapBasis) return `Mati · ${yieldGapBase(props.yieldGapBasis).label} sedang menyala`;
+  if (props.showPlantingYear) return "Mati · layer Tahun Tanam sedang menyala";
+  return `Mati · ${base.sub}`;
+}
 
 function unitOf(type: string) {
   const t = type.toUpperCase();
@@ -308,7 +325,7 @@ function onField(key: FieldKey, value: unknown) {
             :class="showBlocks && 'is-on'" @click="emit('toggle-blocks')"><span /></button>
         </li>
 
-        <li class="border-t border-[#e4eadc] pt-2">
+        <li v-for="base in YIELD_GAP_BASES" :key="base.key" class="border-t border-[#e4eadc] pt-2">
           <div class="bp-layer-row">
             <span class="bp-layer-icon text-[#6e7866]">
               <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2">
@@ -317,14 +334,15 @@ function onField(key: FieldKey, value: unknown) {
                 <path d="M5 17.5c2.2 1.2 4.6 1.2 7 0s4.8-1.2 7 0" />
               </svg>
             </span>
-            <div class="min-w-0 flex-1" :class="!showYieldGap && 'opacity-60'">
-              <p class="bp-layer-name">Yield Gap</p>
-              <p class="bp-layer-sub">{{ showYieldGap ? (comparisonComplete ? "Isi blok = periode. Titik tengah = pembanding." : "Blok diwarnai menurut kategori yield ") : showPlantingYear ? "Mati · layer Tahun Tanam sedang menyala" : "Mati · batas blok tetap garis abu-abu" }}</p>
+            <div class="min-w-0 flex-1" :class="yieldGapBasis !== base.key && 'opacity-60'">
+              <p class="bp-layer-name">{{ base.label }}</p>
+              <p class="bp-layer-sub">{{ yieldGapSub(base.key) }}</p>
             </div>
-            <button type="button" role="switch" :aria-checked="showYieldGap" aria-label="Yield Gap" class="bp-switch"
-              :class="showYieldGap && 'is-on'" @click="emit('toggle-yield-gap')"><span /></button>
+            <button type="button" role="switch" :aria-checked="yieldGapBasis === base.key" :aria-label="base.label"
+              class="bp-switch" :class="yieldGapBasis === base.key && 'is-on'"
+              @click="emit('toggle-yield-gap', base.key)"><span /></button>
           </div>
-          <ul v-if="showYieldGap" class="mb-2 ml-12 space-y-1.5 pr-1">
+          <ul v-if="yieldGapBasis === base.key" class="mb-2 ml-12 space-y-1.5 pr-1">
             <li v-for="item in BUDGET_GAP_LAYERS" :key="item.key"
               class="flex items-center gap-2 text-12 text-[#55604c]">
               <span class="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-black/10" :style="{ background: item.color }" />
@@ -344,7 +362,7 @@ function onField(key: FieldKey, value: unknown) {
             </span>
             <div class="min-w-0 flex-1" :class="!showPlantingYear && 'opacity-60'">
               <p class="bp-layer-name">Tahun Tanam</p>
-              <p class="bp-layer-sub">{{ showPlantingYear ? "Blok diwarnai menurut tahun tanam" : showYieldGap ? "Mati · layer Yield Gap sedang menyala" : "Mati" }}</p>
+              <p class="bp-layer-sub">{{ showPlantingYear ? "Blok diwarnai menurut tahun tanam" : yieldGapBasis ? `Mati · ${yieldGapBase(yieldGapBasis).label} sedang menyala` : "Mati" }}</p>
             </div>
             <button type="button" role="switch" :aria-checked="showPlantingYear" aria-label="Tahun Tanam"
               class="bp-switch" :class="showPlantingYear && 'is-on'"

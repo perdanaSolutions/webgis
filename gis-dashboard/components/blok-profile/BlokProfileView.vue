@@ -20,7 +20,7 @@ import { useBlokProfileStore } from "~/stores/blokProfileStore";
 import { dashboardStore } from "~/stores/dashboardStore";
 import BasemapAccessDialog from "~/components/map/BasemapAccessDialog.vue";
 import { basemapAccessMessage, basemapHost, type BasemapStatus } from "~/utils/mapBasemap";
-import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP } from "~/utils/mapLayers";
+import { BASEMAPS, BUDGET_GAP_LAYERS, type BasemapKey, type BudgetGapKey, plantingYearLegend, SLOPE_RAMP, type YieldGapBasis, yieldGapBase } from "~/utils/mapLayers";
 import { exportBlokProfilePdf } from "~/utils/exportBlokProfilePdf";
 import { installMapCacheSchema } from "~/utils/mapCacheSchema";
 import { isAccessTokenExpired } from "~/utils/authSession";
@@ -93,8 +93,32 @@ function onBasemapStatus(status: BasemapStatus) {
 }
 const opacity = ref(80);
 const showBlocks = ref(true);
+<<<<<<< HEAD
 const showYieldGap = ref(false);
 const showPlantingYear = ref(false);
+=======
+/**
+ * Yield Gap (per pembanding) dan Tahun Tanam sama-sama mewarnai isi blok, jadi hanya satu yang boleh menyala:
+ * satu mode menggantikan beberapa boolean yang harus saling mematikan.
+ */
+type BlockColor = "none" | "tahun-tanam" | YieldGapBasis;
+const blockColor = ref<BlockColor>("none");
+const showPlantingYear = computed(() => blockColor.value === "tahun-tanam");
+const yieldGapBasis = computed<YieldGapBasis | null>(() =>
+  blockColor.value === "none" || blockColor.value === "tahun-tanam" ? null : blockColor.value);
+const showYieldGap = computed(() => yieldGapBasis.value !== null);
+/** Label pembanding aktif untuk legenda; default Yield Gap (budget) saat semua mati. */
+const yieldGapInfo = computed(() => yieldGapBase(yieldGapBasis.value ?? "budget"));
+function toggleBlockColor(mode: Exclude<BlockColor, "none">) {
+  blockColor.value = blockColor.value === mode ? "none" : mode;
+}
+function toggleYieldGap(basis: YieldGapBasis) {
+  toggleBlockColor(basis);
+}
+function togglePlantingYear() {
+  toggleBlockColor("tahun-tanam");
+}
+>>>>>>> workshop/yield-gap-solusi
 /** Kartu keterangan bawah (Tahun Tanam / Yield Gap): tampil-sembunyi lewat tombol di samping Unduh Peta. Default tersembunyi. */
 const legendPlantingYear = ref(false);
 const legendYieldGap = ref(false);
@@ -314,10 +338,14 @@ function onApplyFilters() {
 
 function resetMapLayers() {
   showBlocks.value = true;
+<<<<<<< HEAD
   showYieldGap.value = false;
   showPlantingYear.value = false;
   legendYieldGap.value = false;
   legendPlantingYear.value = false;
+=======
+  blockColor.value = "none";
+>>>>>>> workshop/yield-gap-solusi
   overlays.disableAll();
 }
 
@@ -403,6 +431,7 @@ async function downloadPdf() {
       basemap: basemap.value,
       showBlocks: showBlocks.value,
       showYieldGap: showYieldGap.value,
+      yieldGapBasis: yieldGapInfo.value.key,
       showPlantingYear: showPlantingYear.value,
       plantingYears: plantingYears.value,
       budgetColors: { ...budgetColors.value },
@@ -492,8 +521,8 @@ onBeforeUnmount(() => {
       <!-- PETA -->
       <section class="absolute inset-0 z-0 touch-none overscroll-none">
         <BlokProfileMap ref="mapRef" :blocks="store.visibleBlocks" :selected-id="store.selectedBlokId"
-          :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
-          :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
+          :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :yield-gap-basis="yieldGapInfo.key"
+          :show-planting-year="showPlantingYear" :overlays="layers" :basemap="basemap" :opacity="opacity / 100" :budget-colors="budgetColors"
           :insets="mapInsets" :request-detail="store.loadPopupDetail" :popup-period="store.popupPeriod"
           :show-area-bubbles="allScopeSelected" :area-names="areaNames" :estate-short-names="store.estateShortNames"
           :selected-afdeling="store.scopeParams.kode_afd" @select="onSelectBlock" @deselect="onDeselectBlock"
@@ -524,8 +553,18 @@ onBeforeUnmount(() => {
         <!-- Legenda + zoom: pojok kanan bawah -->
         <div v-show="!(isMobile && (activeLeft || activeRight))"
           class="bp-controls absolute z-[1350] flex max-w-[calc(100%-8rem)] flex-col items-end gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
+<<<<<<< HEAD
           <div v-if="showYieldGap && legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
             <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">Yield Gap</p>
+=======
+          <div v-if="legendYieldGap" class="bp-card px-3 py-2 sm:px-4 sm:py-3">
+            <p class="mb-2 text-11 font-bold uppercase tracking-[0.1em] text-[#6e7866]">
+              {{ showYieldGap ? `${yieldGapInfo.label} · ${yieldGapInfo.sub}` : "Yield Gap" }}
+            </p>
+            <p v-if="!showYieldGap" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
+              Aktifkan Yield Gap di Layer Data untuk mewarnai blok.
+            </p>
+>>>>>>> workshop/yield-gap-solusi
             <p v-if="yieldComparisonOn" class="mb-2 max-w-56 text-11 leading-snug text-[#6e7866]">
               Isi blok mengikuti periode. Titik di tengah mengikuti pembanding.
             </p>
@@ -662,7 +701,7 @@ onBeforeUnmount(() => {
             :bulan-comparison="store.bulanComparison" :tahun-comparison="store.tahunComparison"
             :scope-level="store.scopeLevel" :block-count="store.blockFeatures.length" :dirty="store.filterDirty"
             :loading="store.loadingOptions || store.applying || store.loadingBlocks" :layers="layers"
-            :show-blocks="showBlocks" :show-yield-gap="showYieldGap" :show-planting-year="showPlantingYear"
+            :show-blocks="showBlocks" :yield-gap-basis="yieldGapBasis" :show-planting-year="showPlantingYear"
             :planting-years="plantingYears" :basemap="basemap" :opacity="opacity" :allow-all="store.allowAllScope"
             :field-loading="store.fieldLoading" :filter-generation="store.filterGeneration" @update:grup="store.setGrup"
             @update:area="store.setArea" @update:pt="store.setPt" @update:estate="store.setEstate"
