@@ -252,8 +252,8 @@ function normalizeBudgetCategory(raw: unknown): string {
  * jadi warna BUDGET_GAP_LAYERS dipakai bersama. Menambah pembanding = menambah satu baris di sini.
  */
 export const YIELD_GAP_BASES = [
-  { key: "budget", label: "Yield Gap", short: "Budget", sub: "Aktual vs Budget", field: "kategori_budget" },
-  { key: "sensus", label: "Yield Gap 2", short: "Sensus", sub: "Aktual vs Sensus", field: "kategori_sensus" },
+  { key: "budget", label: "Yield Gap Budget", short: "Budget", sub: "Aktual vs Budget", field: "kategori_budget" },
+  { key: "sensus", label: "Yield Gap Sensus", short: "Sensus", sub: "Aktual vs Sensus", field: "kategori_sensus" },
 ] as const;
 
 export type YieldGapBasis = (typeof YIELD_GAP_BASES)[number]["key"];
